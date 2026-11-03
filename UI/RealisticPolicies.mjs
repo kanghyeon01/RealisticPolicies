@@ -147,16 +147,21 @@ function extendBudgetSection(Section) {
 
 // ---------------------------------------------------------------- welfare office series
 
-// Welfare office info panel: count its staff as social welfare instead of general administration.
+// Welfare office info panel: which civil-service series its staff count as (one choice, drawn as checkboxes).
+const SERIES_CHOICES = ["GeneralAdministration", "SocialWelfare", "Tax"];
+
 function WelfareSeriesSection(props) {
     const { translate } = l10n.useLocalization();
+    const rows = SERIES_CHOICES.map((name, index) => React.createElement(InfoRow, {
+        key: name,
+        left: translate(`RealisticPolicies.Series.${name}`, name),
+        right: React.createElement(Checkbox, { checked: props.series === index, onChange: () => api.trigger(GROUP, "SetWelfareSeries", index) }),
+        tooltip: translate(`RealisticPolicies.Series.${name}.Tooltip`, ""),
+        subRow: true,
+    }));
     return React.createElement(InfoSection, { focusKey: props.focusKey, disableFocus: true },
-        React.createElement(InfoRow, {
-            left: translate("RealisticPolicies.Welfare.Label", "Social welfare staff"),
-            right: React.createElement(Checkbox, { checked: !!props.socialWelfare, onChange: () => api.trigger(GROUP, "ToggleSocialWelfare") }),
-            uppercase: true,
-            tooltip: translate("RealisticPolicies.Welfare.Tooltip", ""),
-        }));
+        React.createElement(InfoRow, { left: translate("RealisticPolicies.Series.Header", "Staff series"), uppercase: true }),
+        ...rows);
 }
 
 // ---------------------------------------------------------------- prototype self-test
@@ -217,12 +222,12 @@ async function runSelfTest(translate) {
 async function runWelfareTest(translate) {
     try {
         await sleep(2500);
-        const label = translate("RealisticPolicies.Welfare.Label", "");
+        const label = translate("RealisticPolicies.Series.Tax", "");
         const text = document.body ? document.body.textContent || "" : "";
-        check("Welfare office panel shows the checkbox row", !!label && text.indexOf(label) >= 0, label);
+        check("Welfare office panel shows the series choices", !!label && text.indexOf(label) >= 0, label);
         report("shot:welfare-before");
         await sleep(1500);
-        api.trigger(GROUP, "ToggleSocialWelfare");
+        api.trigger(GROUP, "SetWelfareSeries", 1);
         await sleep(2000);
         report("shot:welfare-after");
         await sleep(1500);

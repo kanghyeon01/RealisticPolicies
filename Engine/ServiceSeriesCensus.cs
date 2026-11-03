@@ -29,6 +29,7 @@ namespace RealisticPolicies.Engine
         Transit,
         PostAndTelecom,
         SocialWelfare,
+        Tax,
         Count,
         None = byte.MaxValue,
     }
@@ -168,10 +169,17 @@ namespace RealisticPolicies.Engine
                     {
                         continue;
                     }
-                    if (m_WelfarePrefabs.Contains(prefab) && m_EntityManager.HasComponent<RealisticPolicies.SocialWelfareDesignation>(buildings[i]))
+                    if (m_WelfarePrefabs.Contains(prefab))
                     {
-                        // The player marked this welfare office as social welfare staff.
-                        series = ServiceSeries.SocialWelfare;
+                        // The player can assign a welfare office to social welfare or tax staff.
+                        if (m_EntityManager.HasComponent<RealisticPolicies.SocialWelfareDesignation>(buildings[i]))
+                        {
+                            series = ServiceSeries.SocialWelfare;
+                        }
+                        else if (m_EntityManager.HasComponent<RealisticPolicies.TaxDesignation>(buildings[i]))
+                        {
+                            series = ServiceSeries.Tax;
+                        }
                     }
                     int max = m_EntityManager.GetComponentData<WorkProvider>(buildings[i]).m_MaxWorkers;
                     int s = (int)series;

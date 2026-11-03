@@ -9,20 +9,33 @@ using UnityEngine.Scripting;
 namespace RealisticPolicies
 {
     /// <summary>
-    /// Marks a welfare office as social welfare staff; unmarked welfare offices count as general administration
+    /// Marks a welfare office as social welfare staff. Unmarked welfare offices count as general administration
     /// (players often use them as city-hall departments). Saved with the building; without the mod the loader drops it.
     /// </summary>
     public struct SocialWelfareDesignation : IComponentData, IEmptySerializable
     {
     }
 
-    /// <summary>Welfare office info panel: "Social welfare staff" checkbox. RealisticPolicies.mjs draws it.</summary>
+    /// <summary>Marks a welfare office as tax staff (tax offices are needed to change tax rates).</summary>
+    public struct TaxDesignation : IComponentData, IEmptySerializable
+    {
+    }
+
+    /// <summary>Welfare office info panel: which series its staff count as. RealisticPolicies.mjs draws it.</summary>
     public partial class WelfareSeriesSection : InfoSectionBase
     {
-        private const string kToggleTrigger = "ToggleSocialWelfare";
+        private const string kSetTrigger = "SetWelfareSeries";
+
+        /// <summary>Choices in the panel, in display order.</summary>
+        public enum Choice
+        {
+            GeneralAdministration,
+            SocialWelfare,
+            Tax,
+        }
 
         private PolicyEngineSystem m_Engine;
-        private bool m_SocialWelfare;
+        private Choice m_Choice;
 
         protected override string group => nameof(WelfareSeriesSection);
 
@@ -32,12 +45,12 @@ namespace RealisticPolicies
             base.OnCreate();
             m_Engine = World.GetOrCreateSystemManaged<PolicyEngineSystem>();
             m_InfoUISystem.AddMiddleSection(this);
-            AddBinding(new TriggerBinding(ModUISystem.kGroup, kToggleTrigger, Toggle));
+            AddBinding(new TriggerBinding<int>(ModUISystem.kGroup, kSetTrigger, choice => Set(selectedEntity, (Choice)choice)));
         }
 
         protected override void Reset()
         {
-            m_SocialWelfare = false;
+            m_Choice = Choice.GeneralAdministration;
         }
 
         [Preserve]
@@ -48,29 +61,38 @@ namespace RealisticPolicies
 
         protected override void OnProcess()
         {
-            m_SocialWelfare = EntityManager.HasComponent<SocialWelfareDesignation>(selectedEntity);
+            m_Choice = Get(EntityManager, selectedEntity);
         }
 
         public override void OnWriteProperties(IJsonWriter writer)
         {
-            writer.PropertyName("socialWelfare");
-            writer.Write(m_SocialWelfare);
+            writer.PropertyName("series");
+            writer.Write((int)m_Choice);
         }
 
-        private void Toggle()
+        public static Choice Get(EntityManager entityManager, Entity building)
         {
-            Entity building = selectedEntity;
-            if (building == Entity.Null || !EntityManager.Exists(building))
+            return entityManager.HasComponent<SocialWelfareDesignation>(building) ? Choice.SocialWelfare
+                : entityManager.HasComponent<TaxDesignation>(building) ? Choice.Tax
+                : Choice.GeneralAdministration;
+        }
+
+        /// <summary>Assigns a welfare office to a series and recounts staff at the next engine step.</summary>
+        public void Set(Entity building, Choice choice)
+        {
+            if (building == Entity.Null || !EntityManager.Exists(building) || Get(EntityManager, building) == choice)
             {
                 return;
             }
-            if (EntityManager.HasComponent<SocialWelfareDesignation>(building))
-            {
-                EntityManager.RemoveComponent<SocialWelfareDesignation>(building);
-            }
-            else
+            EntityManager.RemoveComponent<SocialWelfareDesignation>(building);
+            EntityManager.RemoveComponent<TaxDesignation>(building);
+            if (choice == Choice.SocialWelfare)
             {
                 EntityManager.AddComponent<SocialWelfareDesignation>(building);
+            }
+            else if (choice == Choice.Tax)
+            {
+                EntityManager.AddComponent<TaxDesignation>(building);
             }
             m_Engine.RequestCensus();
             m_InfoUISystem.RequestUpdate();

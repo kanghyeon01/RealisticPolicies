@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 900f;
         private const string kPreferredMap = "Plains";
@@ -46,6 +46,7 @@ namespace RealisticPolicies
         private int m_Failed;
         private bool m_UiDone;
         private Entity m_WelfareOffice;
+        private Entity m_TaxOffice;
         private string m_SaveName;
         private bool m_MoneyMode;
         private float m_NextMoneySample;
@@ -242,6 +243,31 @@ namespace RealisticPolicies
                     if (SimFrames() >= 2048)
                     {
                         CheckWelfareCensus();
+                        StartTaxStaff();
+                    }
+                    break;
+                case Stage.TaxStaff:
+                    if (SimFrames() >= 2048)
+                    {
+                        CheckTaxStaff();
+                        // Social welfare staff gone: the floor goes back to 8%.
+                        World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.GeneralAdministration);
+                        SetStage(Stage.TaxFloor);
+                    }
+                    break;
+                case Stage.TaxFloor:
+                    if (SimFrames() >= 2048)
+                    {
+                        CheckTaxFloor();
+                        // Tax staff gone after having had some: rates go back to the default.
+                        World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.GeneralAdministration);
+                        SetStage(Stage.TaxGone);
+                    }
+                    break;
+                case Stage.TaxGone:
+                    if (SimFrames() >= 2048)
+                    {
+                        CheckTaxGone();
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -483,6 +509,7 @@ namespace RealisticPolicies
             Check("Raising two N policies lowers legitimacy", m_Engine.LastState.m_Legitimacy < EngineParameters.kLegitimacyBase, $"{m_Engine.LastState.m_Legitimacy:0.000}");
             CheckDefinitionFramework();
             CheckFirstBundle();
+            CheckTaxFrozen();
         }
 
         /// <summary>Stage 2: money outputs become budget rows, groups are counted, parameter levers restore.</summary>
@@ -690,7 +717,7 @@ namespace RealisticPolicies
                 for (int i = 0; i < buildings.Length && m_WelfareOffice == Entity.Null; i++)
                 {
                     if (EntityManager.HasComponent<WelfareOfficeData>(EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab)
-                        && !EntityManager.HasComponent<SocialWelfareDesignation>(buildings[i]))
+                        && WelfareSeriesSection.Get(EntityManager, buildings[i]) == WelfareSeriesSection.Choice.GeneralAdministration)
                     {
                         m_WelfareOffice = buildings[i];
                     }
@@ -708,6 +735,95 @@ namespace RealisticPolicies
             m_UiDone = false;
             m_UISystem.SetSelfTestStage(2);
             SetStage(Stage.WelfareUi);
+        }
+
+        /// <summary>Stage 4, before any tax staff: rates are frozen where they are.</summary>
+        private void CheckTaxFrozen()
+        {
+            TaxSystem taxSystem = World.GetOrCreateSystemManaged<TaxSystem>();
+            TaxParameterData limits = TaxLimits();
+            Check("Without tax staff (never had any): rates are frozen at the current values", m_Engine.Tax.LastLock == TaxLock.FreezeCurrent
+                && limits.m_TotalTaxLimits.x == taxSystem.TaxRate && limits.m_TotalTaxLimits.y == taxSystem.TaxRate
+                && limits.m_ResidentialTaxLimits.x == taxSystem.GetTaxRate(TaxAreaType.Residential),
+                $"lock {m_Engine.Tax.LastLock}, total {taxSystem.TaxRate} in [{limits.m_TotalTaxLimits.x}, {limits.m_TotalTaxLimits.y}], residential {taxSystem.GetTaxRate(TaxAreaType.Residential)}");
+            TaxParameterData original = m_Engine.Tax.Original;
+            Line($"Original tax limits: total [{original.m_TotalTaxLimits.x}, {original.m_TotalTaxLimits.y}], residential [{original.m_ResidentialTaxLimits.x}, {original.m_ResidentialTaxLimits.y}], " +
+                $"education levels [{original.m_JobLevelTaxLimits.x}, {original.m_JobLevelTaxLimits.y}], resources [{original.m_ResourceTaxLimits.x}, {original.m_ResourceTaxLimits.y}]");
+        }
+
+        /// <summary>A second unmarked welfare office becomes the tax office while the first is social welfare.</summary>
+        private void StartTaxStaff()
+        {
+            m_TaxOffice = Entity.Null;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Game.Tools.Temp>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> buildings = query.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < buildings.Length && m_TaxOffice == Entity.Null; i++)
+                {
+                    if (buildings[i] != m_WelfareOffice
+                        && EntityManager.HasComponent<WelfareOfficeData>(EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab)
+                        && WelfareSeriesSection.Get(EntityManager, buildings[i]) == WelfareSeriesSection.Choice.GeneralAdministration)
+                    {
+                        m_TaxOffice = buildings[i];
+                    }
+                }
+            }
+            if (m_TaxOffice == Entity.Null)
+            {
+                Line("Only one welfare office; the tax staff checks are skipped.");
+                SetStage(Stage.Finish);
+                return;
+            }
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.Tax);
+            Line($"Welfare office {m_TaxOffice.Index} set to tax staff.");
+            SetStage(Stage.TaxStaff);
+        }
+
+        private void CheckTaxStaff()
+        {
+            ServiceSeriesCensus census = m_Engine.Census;
+            TaxParameterData original = m_Engine.Tax.Original;
+            TaxParameterData limits = TaxLimits();
+            int population = EntityManager.GetComponentData<Population>(m_CitySystem.City).m_Population;
+            float ratio = (float)census.Workers(ServiceSeries.SocialWelfare) / population;
+            int expectedFloor = Mathf.Max(original.m_ResidentialTaxLimits.x,
+                Mathf.RoundToInt(TaxControl.kResidentialFloor - (TaxControl.kResidentialFloor - original.m_ResidentialTaxLimits.x) * Mathf.Min(1f, ratio / TaxControl.kWelfareStaffPerResident)));
+            Check("Tax staff lift the lock and restore the original limits", m_Engine.Tax.LastLock == TaxLock.None && census.Workers(ServiceSeries.Tax) > 0
+                && limits.m_TotalTaxLimits.Equals(original.m_TotalTaxLimits) && limits.m_CommercialTaxLimits.Equals(original.m_CommercialTaxLimits),
+                $"tax staff {census.Workers(ServiceSeries.Tax)}, total [{limits.m_TotalTaxLimits.x}, {limits.m_TotalTaxLimits.y}]");
+            Check("Residential floor follows social welfare staff per resident", limits.m_ResidentialTaxLimits.x == expectedFloor && m_Engine.Tax.LastFloor == expectedFloor,
+                $"social welfare {census.Workers(ServiceSeries.SocialWelfare)}, population {population}, ratio {ratio * 1000f:0.000} per thousand, floor {limits.m_ResidentialTaxLimits.x}, expected {expectedFloor}");
+        }
+
+        private void CheckTaxFloor()
+        {
+            TaxSystem taxSystem = World.GetOrCreateSystemManaged<TaxSystem>();
+            TaxParameterData limits = TaxLimits();
+            int lowest = int.MaxValue;
+            for (int level = 0; level < 5; level++)
+            {
+                lowest = Mathf.Min(lowest, taxSystem.GetResidentialTaxRate(level));
+            }
+            Check("Without social welfare staff, residential tax cannot go below 8%", limits.m_ResidentialTaxLimits.x == TaxControl.kResidentialFloor
+                && limits.m_JobLevelTaxLimits.x >= TaxControl.kResidentialFloor && taxSystem.GetTaxRate(TaxAreaType.Residential) >= TaxControl.kResidentialFloor && lowest >= TaxControl.kResidentialFloor,
+                $"limit {limits.m_ResidentialTaxLimits.x}, residential {taxSystem.GetTaxRate(TaxAreaType.Residential)}, lowest education level {lowest}");
+        }
+
+        private void CheckTaxGone()
+        {
+            TaxSystem taxSystem = World.GetOrCreateSystemManaged<TaxSystem>();
+            Check("Tax staff gone after having had some: every rate back to the 10% default", m_Engine.Tax.LastLock == TaxLock.Default
+                && taxSystem.TaxRate == TaxControl.kDefaultRate && taxSystem.GetTaxRate(TaxAreaType.Residential) == TaxControl.kDefaultRate
+                && taxSystem.GetTaxRate(TaxAreaType.Industrial) == TaxControl.kDefaultRate && TaxLimits().m_TotalTaxLimits.x == TaxControl.kDefaultRate,
+                $"lock {m_Engine.Tax.LastLock}, total {taxSystem.TaxRate}, residential {taxSystem.GetTaxRate(TaxAreaType.Residential)}, industrial {taxSystem.GetTaxRate(TaxAreaType.Industrial)}");
+        }
+
+        private TaxParameterData TaxLimits()
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TaxParameterData>()))
+            {
+                return query.GetSingleton<TaxParameterData>();
+            }
         }
 
         private void CheckWelfareCensus()

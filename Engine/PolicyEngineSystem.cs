@@ -1,3 +1,4 @@
+using Colossal.Entities;
 using Colossal.Mathematics;
 using Colossal.Serialization.Entities;
 using Game;
@@ -45,6 +46,7 @@ namespace RealisticPolicies.Engine
         private readonly Dictionary<string, float> m_LeverWritten = new Dictionary<string, float>();
         private EntityQuery m_AdminBuildingQuery;
         private ServiceSeriesCensus m_Census;
+        private TaxControl m_TaxControl;
         private float[] m_Intensity;
         private readonly float[] m_Demand = new float[(int)ServiceSeries.Count];
         private readonly float[] m_Utilization = new float[(int)ServiceSeries.Count];
@@ -66,6 +68,8 @@ namespace RealisticPolicies.Engine
         public PolicyEngineState LastState { get; private set; }
 
         public ServiceSeriesCensus Census => m_Census;
+
+        public TaxControl Tax => m_TaxControl;
 
         /// <summary>Staff demanded from each series at the last step.</summary>
         public float[] Demand => m_Demand;
@@ -113,6 +117,8 @@ namespace RealisticPolicies.Engine
                 GetEntityQuery(ServiceSeriesCensus.BuildingQueryDesc),
                 groupQueries);
 
+            m_TaxControl = new TaxControl(EntityManager, World.GetOrCreateSystemManaged<TaxSystem>(), GetEntityQuery(ComponentType.ReadWrite<TaxParameterData>()));
+
             int count = PolicyDefinitions.All.Length;
             m_Intensity = new float[count];
             m_GroupGrievance = new float[count, (int)TargetGroup.Count];
@@ -128,6 +134,7 @@ namespace RealisticPolicies.Engine
             m_MigrationDue = true;
             // The previous city's money rows and parameter changes must not leak into this one.
             m_Budget.ClearRows();
+            m_TaxControl.Restore();
             foreach (IParameterLever lever in ParameterLevers.All.Values)
             {
                 lever.Restore(EntityManager);
@@ -178,6 +185,9 @@ namespace RealisticPolicies.Engine
             float adminHub = AdminHub();
 
             PolicyEngineState state = EntityManager.GetComponentData<PolicyEngineState>(city);
+            // Residential floor from social welfare staff, rates held without tax staff (§5.1).
+            int population = EntityManager.TryGetComponent(city, out Population cityPopulation) ? cityPopulation.m_Population : 0;
+            m_TaxControl.Apply(ref state, m_Census.Workers(ServiceSeries.Tax), m_Census.Workers(ServiceSeries.SocialWelfare), population);
             DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
             state.m_Credibility += (1f - math.exp(-dt / EngineParameters.kCredibilityDays)) * (1f - state.m_Credibility);
             float surgeDecay = math.exp(-dt / EngineParameters.kSurgeDecayDays);

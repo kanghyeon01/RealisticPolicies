@@ -65,8 +65,13 @@ namespace RealisticPolicies
                 "its real effect is making companies comply with rules willingly, and only where inspections are credible."
             },
             { "RealisticPolicies.Search.Placeholder", "Search policies" },
-            { "RealisticPolicies.Welfare.Label", "Social welfare staff" },
-            { "RealisticPolicies.Welfare.Tooltip", "Checked: this office's staff count as social welfare staff. Unchecked: they count as general administration, like a city hall department." },
+            { "RealisticPolicies.Series.Header", "Staff series" },
+            { "RealisticPolicies.Series.GeneralAdministration", "General administration" },
+            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "The office works like a city hall department. Most policies need general administration staff." },
+            { "RealisticPolicies.Series.SocialWelfare", "Social welfare" },
+            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "Welfare caseworkers. Residential tax below 8% needs them: the more per resident, the lower it can go (full range at 0.4 per thousand)." },
+            { "RealisticPolicies.Series.Tax", "Tax" },
+            { "RealisticPolicies.Series.Tax.Tooltip", "Tax officers. Without any, tax rates cannot be changed." },
         };
     }
 
@@ -112,8 +117,13 @@ namespace RealisticPolicies
                 "진짜 효과는 기업이 규제를 스스로 따르게 만드는 것이고, 단속이 믿을 만할 때만 통합니다."
             },
             { "RealisticPolicies.Search.Placeholder", "정책 검색" },
-            { "RealisticPolicies.Welfare.Label", "사회복지직으로 지정" },
-            { "RealisticPolicies.Welfare.Tooltip", "체크하면 이 사무소 직원이 사회복지직으로 계산됩니다. 체크하지 않으면 시청 부서처럼 일반행정직으로 계산됩니다." },
+            { "RealisticPolicies.Series.Header", "공무원 직렬" },
+            { "RealisticPolicies.Series.GeneralAdministration", "일반행정직" },
+            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "시청 부서처럼 일합니다. 대부분의 정책에 일반행정직이 필요합니다." },
+            { "RealisticPolicies.Series.SocialWelfare", "사회복지직" },
+            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "주거세를 8% 아래로 내리려면 필요합니다. 주민 대비 많을수록 더 낮출 수 있습니다 (주민 1,000명당 0.4명이면 끝까지)." },
+            { "RealisticPolicies.Series.Tax", "세무직" },
+            { "RealisticPolicies.Series.Tax.Tooltip", "세무 공무원입니다. 한 명도 없으면 세율을 바꿀 수 없습니다." },
         };
     }
 }

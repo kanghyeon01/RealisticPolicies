@@ -9,13 +9,16 @@ namespace RealisticPolicies.Engine
     /// </summary>
     public struct PolicyEngineState : IComponentData, ISerializable
     {
-        private const byte kVersion = 1;
+        private const byte kVersion = 2;
 
         /// <summary>Hidden legitimacy 0..1 (formula ⑧).</summary>
         public float m_Legitimacy;
 
         /// <summary>Credibility of N policies 0..1; drops when they are relaxed.</summary>
         public float m_Credibility;
+
+        /// <summary>The city has had tax staff since the mod came in (decides how rates are held without them).</summary>
+        public bool m_TaxStaffSeen;
 
         public static PolicyEngineState Default => new PolicyEngineState
         {
@@ -28,6 +31,7 @@ namespace RealisticPolicies.Engine
             writer.Write(kVersion);
             writer.Write(m_Legitimacy);
             writer.Write(m_Credibility);
+            writer.Write(m_TaxStaffSeen);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -35,6 +39,10 @@ namespace RealisticPolicies.Engine
             reader.Read(out byte version);
             reader.Read(out m_Legitimacy);
             reader.Read(out m_Credibility);
+            if (version >= 2)
+            {
+                reader.Read(out m_TaxStaffSeen);
+            }
         }
     }
 
