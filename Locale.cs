@@ -39,6 +39,8 @@ namespace RealisticPolicies
             { BudgetItem(BudgetInjectionSystem.kExpenseRowId), "Green transition subsidy" },
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "Emission standard inspections" },
             { BudgetItem(Engine.PolicyDefinitions.kMonitoringRow), "Environmental monitoring staff" },
+            { BudgetItem(Engine.LitigationSystem.kLawyerFeeRow), "Legal fees" },
+            { BudgetItem(Engine.LitigationSystem.kDebtRow), "Court damages instalments" },
             { BudgetItem(Engine.PolicyDefinitions.kDisclosureRow), "Emission disclosure office" },
             { PolicyTitle(PolicyCatalog.kPollutionTax), "Pollution Tax" },
             {
@@ -91,6 +93,8 @@ namespace RealisticPolicies
             { BudgetItem(BudgetInjectionSystem.kExpenseRowId), "녹색 전환 보조금" },
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "배출 기준 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kMonitoringRow), "환경 감시단 인건비" },
+            { BudgetItem(Engine.LitigationSystem.kLawyerFeeRow), "소송 비용" },
+            { BudgetItem(Engine.LitigationSystem.kDebtRow), "배상금 분할 납부" },
             { BudgetItem(Engine.PolicyDefinitions.kDisclosureRow), "배출 정보 공개 운영비" },
             { PolicyTitle(PolicyCatalog.kPollutionTax), "오염세" },
             {

@@ -28,9 +28,9 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, MoneyWatch, Finish, Quit }
 
-        private const float kTimeoutSeconds = 900f;
+        private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
         private const int kSamples = 5;
         private const uint kSampleFrames = 4096;
@@ -47,6 +47,7 @@ namespace RealisticPolicies
         private bool m_UiDone;
         private Entity m_WelfareOffice;
         private Entity m_TaxOffice;
+        private bool m_FeeChecked;
         private string m_SaveName;
         private bool m_MoneyMode;
         private float m_NextMoneySample;
@@ -268,6 +269,107 @@ namespace RealisticPolicies
                     if (SimFrames() >= 2048)
                     {
                         CheckTaxGone();
+                        StartLitigation();
+                    }
+                    break;
+                case Stage.SuitRaise:
+                    if (SimFrames() >= 1024)
+                    {
+                        // Sue the emission standard, with an injunction request, and make the city lose.
+                        LitigationSystem.TestForceInjunctionRequest = true;
+                        LitigationSystem.TestForcedVerdict = 1;
+                        LitigationSystem.TestFilingPolicy = PolicyCatalog.EmissionStandard;
+                        SetStage(Stage.SuitFiled);
+                    }
+                    break;
+                case Stage.SuitFiled:
+                    if (SuitIndex(PolicyCatalog.EmissionStandard) >= 0)
+                    {
+                        CheckSuitFiled();
+                        SetStage(Stage.SuitInjunction);
+                    }
+                    else if (SimFrames() > 8192)
+                    {
+                        Check("A suit is filed against the emission standard", false, "none within 8192 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitInjunction:
+                    if (SuitIndex(PolicyCatalog.EmissionStandard) >= 0 && Suit(PolicyCatalog.EmissionStandard).m_Injunction != (byte)InjunctionStage.Requested)
+                    {
+                        CheckInjunctionAndRespond();
+                        SetStage(Stage.SuitVerdict);
+                    }
+                    else if (SimFrames() > 8192)
+                    {
+                        Check("The court decides the injunction", false, "no decision within 8192 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitVerdict:
+                    if (!m_FeeChecked && SimFrames() >= 2048 && SuitIndex(PolicyCatalog.EmissionStandard) >= 0)
+                    {
+                        m_FeeChecked = true;
+                        Check("Lawyer fees are a budget row while the suit runs", m_Injection.GetRow(LitigationSystem.kLawyerFeeRow) > 0, $"row {m_Injection.GetRow(LitigationSystem.kLawyerFeeRow)}");
+                    }
+                    if (SuitIndex(PolicyCatalog.EmissionStandard) < 0 && SimFrames() >= 2048)
+                    {
+                        CheckLostSuit();
+                        // Try to put the standard straight back to 60% during the ban.
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.EmissionStandard, true, 60f);
+                        SetStage(Stage.SuitBan);
+                    }
+                    else if (SimFrames() > 60000)
+                    {
+                        Check("The court rules on the emission standard", false, "no verdict within 60000 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitBan:
+                    if (SimFrames() >= 3072)
+                    {
+                        CheckBanCondition();
+                        LitigationSystem.TestForceInjunctionRequest = false;
+                        LitigationSystem.TestForcedVerdict = -1;
+                        LitigationSystem.TestFilingPolicy = PolicyCatalog.EquipmentMandate;
+                        SetStage(Stage.SuitDefault);
+                    }
+                    break;
+                case Stage.SuitDefault:
+                    if (SuitIndex(PolicyCatalog.EquipmentMandate) >= 0)
+                    {
+                        Line($"Mandate suit filed; the city does not answer. Duration {Suit(PolicyCatalog.EquipmentMandate).m_DurationFrames} frames.");
+                        SetStage(Stage.SuitDefaultVerdict);
+                    }
+                    else if (SimFrames() > 8192)
+                    {
+                        Check("A suit is filed against the mandate", false, "none within 8192 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitDefaultVerdict:
+                    if (SuitIndex(PolicyCatalog.EquipmentMandate) < 0 && SimFrames() >= 2048)
+                    {
+                        Check("Unanswered suit: default judgment turns the toggle off and locks it", !IsActive(PolicyCatalog.EquipmentMandate) && IsLocked(PolicyCatalog.EquipmentMandate)
+                            && World.GetOrCreateSystemManaged<LitigationSystem>().IsBanned(PolicyCatalog.EquipmentMandate), null);
+                        LitigationSystem.TestFilingPolicy = PolicyCatalog.Find(PolicyCatalog.kPollutionTax);
+                        SetStage(Stage.SuitSettle);
+                    }
+                    else if (SimFrames() > 60000)
+                    {
+                        Check("The court rules on the mandate", false, "no verdict within 60000 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitSettle:
+                    if (SuitIndex(PolicyCatalog.Find(PolicyCatalog.kPollutionTax)) >= 0)
+                    {
+                        CheckSettlement();
+                        SetStage(Stage.Finish);
+                    }
+                    else if (SimFrames() > 8192)
+                    {
+                        Check("A suit is filed against the pollution tax", false, "none within 8192 frames");
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -771,7 +873,7 @@ namespace RealisticPolicies
             if (m_TaxOffice == Entity.Null)
             {
                 Line("Only one welfare office; the tax staff checks are skipped.");
-                SetStage(Stage.Finish);
+                StartLitigation();
                 return;
             }
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.Tax);
@@ -816,6 +918,86 @@ namespace RealisticPolicies
                 && taxSystem.TaxRate == TaxControl.kDefaultRate && taxSystem.GetTaxRate(TaxAreaType.Residential) == TaxControl.kDefaultRate
                 && taxSystem.GetTaxRate(TaxAreaType.Industrial) == TaxControl.kDefaultRate && TaxLimits().m_TotalTaxLimits.x == TaxControl.kDefaultRate,
                 $"lock {m_Engine.Tax.LastLock}, total {taxSystem.TaxRate}, residential {taxSystem.GetTaxRate(TaxAreaType.Residential)}, industrial {taxSystem.GetTaxRate(TaxAreaType.Industrial)}");
+        }
+
+        // ------------------------------------------------------------------ stage 5: litigation
+
+        private void StartLitigation()
+        {
+            // Suits about 5% of their real length, so a verdict comes within minutes.
+            LitigationSystem.TestTimeScale = 0.05f;
+            SetPolicy(m_CitySystem.City, PolicyCatalog.EmissionStandard, true, 60f);
+            Line("Emission standard raised from 30% to 60% to give the plaintiffs a case.");
+            SetStage(Stage.SuitRaise);
+        }
+
+        private int SuitIndex(Entity policy) => World.GetOrCreateSystemManaged<LitigationSystem>().FindSuit(policy);
+
+        private Lawsuit Suit(Entity policy) => EntityManager.GetBuffer<Lawsuit>(m_CitySystem.City, true)[SuitIndex(policy)];
+
+        private void CheckSuitFiled()
+        {
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            int index = SuitIndex(PolicyCatalog.EmissionStandard);
+            Lawsuit suit = Suit(PolicyCatalog.EmissionStandard);
+            SuitGrounds grounds = (SuitGrounds)suit.m_Grounds;
+            Check("Suit filed: case number, plaintiffs, workload, legitimate expectation ground",
+                suit.m_CaseNumber >= 1001 && suit.m_Plaintiffs > 0 && suit.m_Workload > 0f && (grounds & SuitGrounds.LegitimateExpectation) != 0,
+                $"{suit.m_Year}구합{suit.m_CaseNumber}, {suit.m_Plaintiffs} {(TargetGroup)suit.m_Group}, grounds {grounds}, workload {suit.m_Workload:0.0}, " +
+                $"prior {suit.m_PriorIntensity:0.00} -> contested {suit.m_ContestedIntensity:0.00}, representative {suit.m_Representative.Index}");
+            Line($"Win chance {litigation.WinChance(index):0.00}, hint {litigation.WinHint(index)} (0 low, 1 medium, 2 high), noise {suit.m_HintNoise:0.00}");
+        }
+
+        private void CheckInjunctionAndRespond()
+        {
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            Lawsuit suit = Suit(PolicyCatalog.EmissionStandard);
+            Check("Injunction decided before the city answered (plaintiff bonus)", suit.m_DecidedUnanswered,
+                $"stage {(InjunctionStage)suit.m_Injunction}, p {suit.m_InjunctionProbability:0.00}");
+            bool answered = litigation.Respond(SuitIndex(PolicyCatalog.EmissionStandard), SuitResponse.Lawyer);
+            suit = Suit(PolicyCatalog.EmissionStandard);
+            Check("Answering with a lawyer fixes the fee and reviews the injunction once", answered && suit.m_LawyerFee > 0f && !suit.m_DecidedUnanswered,
+                $"fee {suit.m_LawyerFee:0}, injunction {(InjunctionStage)suit.m_Injunction}");
+        }
+
+        private void CheckLostSuit()
+        {
+            Entity city = m_CitySystem.City;
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            float reference = -1f;
+            foreach (PolicyRuntime runtime in EntityManager.GetBuffer<PolicyRuntime>(city, true))
+            {
+                if (runtime.m_Policy == PolicyCatalog.EmissionStandard)
+                {
+                    reference = runtime.m_Reference;
+                }
+            }
+            DynamicBuffer<CourtDebt> debts = EntityManager.GetBuffer<CourtDebt>(city, true);
+            Check("Lost suit: the standard is off, banned, and people's reference is back to before it",
+                !IsActive(PolicyCatalog.EmissionStandard) && litigation.IsBanned(PolicyCatalog.EmissionStandard) && reference == 0f,
+                $"active {IsActive(PolicyCatalog.EmissionStandard)}, reference {reference:0.00}");
+            Line($"Court debts: {debts.Length}{(debts.Length > 0 ? $", remaining {debts[0].m_Remaining:0}, daily cap {debts[0].m_DailyCap:0}" : "")}; damages row {m_Injection.GetRow(LitigationSystem.kDebtRow)}");
+        }
+
+        private void CheckBanCondition()
+        {
+            PolicyDefinition standard = PolicyCatalog.Definition(PolicyCatalog.kEmissionStandard);
+            float intensity = m_Engine.LastIntensity(standard);
+            Check("During the ban the slider can only come back within the change band", intensity <= standard.ChangeBand + 1e-3f,
+                $"intensity {intensity:0.000}, band {standard.ChangeBand}");
+        }
+
+        private void CheckSettlement()
+        {
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            Entity tax = PolicyCatalog.Find(PolicyCatalog.kPollutionTax);
+            litigation.Respond(SuitIndex(tax), SuitResponse.Official);
+            Lawsuit suit = Suit(tax);
+            bool refused = !litigation.ProposeSettlement(SuitIndex(tax), suit.m_ContestedIntensity, 0);
+            Check("Settlement that changes nothing is refused", refused, null);
+            int compensation = (int)(suit.m_Claim + 1000000f);
+            bool accepted = litigation.ProposeSettlement(SuitIndex(tax), 0.1f, compensation);
+            Check("Settlement that lowers the tax and compensates is accepted and ends the suit", accepted && SuitIndex(tax) < 0, $"compensation {compensation}");
         }
 
         private TaxParameterData TaxLimits()
@@ -867,6 +1049,10 @@ namespace RealisticPolicies
 
         private void Finish()
         {
+            LitigationSystem.TestTimeScale = 1f;
+            LitigationSystem.TestForceInjunctionRequest = false;
+            LitigationSystem.TestForcedVerdict = -1;
+            LitigationSystem.TestFilingPolicy = Entity.Null;
             m_Injection.SetRow(kTestIncomeRow, true, (int)IncomeSource.FeeParking, 0);
             m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, 0);
             Line($"Result: {m_Passed} passed, {m_Failed} failed, {UnityEngine.Time.realtimeSinceStartup - m_TestStart:0} s.");

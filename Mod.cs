@@ -32,8 +32,11 @@ namespace RealisticPolicies
                 // Short steps make lags visible within minutes; the formulas use the real elapsed time.
                 Engine.PolicyEngineSystem.UpdateIntervalFrames = 512;
                 Engine.PolicyEngineSystem.VerboseLog = true;
+                // Suits only where the self-test files them, so earlier checks are not disturbed.
+                Engine.LitigationSystem.TestDisableRandomFiling = true;
             }
             updateSystem.UpdateAt<Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<Engine.LitigationSystem, Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<SelfTestSystem>(SystemUpdatePhase.MainLoop);
 

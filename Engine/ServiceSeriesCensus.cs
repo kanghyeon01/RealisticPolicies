@@ -146,6 +146,19 @@ namespace RealisticPolicies.Engine
             };
         }
 
+        /// <summary>A random member of a group (for the representative plaintiff); Entity.Null when the group is empty.</summary>
+        public Entity RandomMember(TargetGroup group, ref Unity.Mathematics.Random random)
+        {
+            if (group == TargetGroup.None)
+            {
+                return Entity.Null;
+            }
+            using (NativeArray<Entity> members = m_GroupQueries[(int)group].ToEntityArray(Allocator.Temp))
+            {
+                return members.Length == 0 ? Entity.Null : members[random.NextInt(members.Length)];
+            }
+        }
+
         /// <summary>Size of a group at the last count; 0 for <see cref="TargetGroup.None"/>.</summary>
         public float TargetCount(TargetGroup group)
         {

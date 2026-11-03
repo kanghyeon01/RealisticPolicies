@@ -47,6 +47,7 @@ namespace RealisticPolicies.Engine
         private EntityQuery m_AdminBuildingQuery;
         private ServiceSeriesCensus m_Census;
         private TaxControl m_TaxControl;
+        private LitigationSystem m_Litigation;
         private float[] m_Intensity;
         private readonly float[] m_Demand = new float[(int)ServiceSeries.Count];
         private readonly float[] m_Utilization = new float[(int)ServiceSeries.Count];
@@ -70,6 +71,16 @@ namespace RealisticPolicies.Engine
         public ServiceSeriesCensus Census => m_Census;
 
         public TaxControl Tax => m_TaxControl;
+
+        /// <summary>Completed steps; the litigation system files suits once per step.</summary>
+        public int StepCount { get; private set; }
+
+        /// <summary>Normalized intensity 0..1 of a policy at the last step.</summary>
+        public float LastIntensity(PolicyDefinition definition)
+        {
+            int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
+            return index >= 0 ? m_Intensity[index] : 0f;
+        }
 
         /// <summary>Staff demanded from each series at the last step.</summary>
         public float[] Demand => m_Demand;
@@ -117,6 +128,7 @@ namespace RealisticPolicies.Engine
                 GetEntityQuery(ServiceSeriesCensus.BuildingQueryDesc),
                 groupQueries);
 
+            m_Litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
             m_TaxControl = new TaxControl(EntityManager, World.GetOrCreateSystemManaged<TaxSystem>(), GetEntityQuery(ComponentType.ReadWrite<TaxParameterData>()));
 
             int count = PolicyDefinitions.All.Length;
@@ -228,6 +240,8 @@ namespace RealisticPolicies.Engine
                     }
                 }
             }
+            // Officials defending suits work on top of policy duties (§7 "소송 대응").
+            m_Demand[(int)ServiceSeries.GeneralAdministration] += m_Litigation.OfficialStaff;
             float[] available = m_Census.AvailableStaff;
             for (int j = 0; j < m_Utilization.Length; j++)
             {
@@ -311,7 +325,9 @@ namespace RealisticPolicies.Engine
                 }
 
                 // ⑤ Partial adjustment toward the target with the workload-dependent lag.
-                float target = s * effectiveness * rationing * compliance * (1f - capture);
+                // An injunction in effect suspends the policy until the verdict.
+                bool suspended = m_Litigation.IsSuspended(definition.Prefab);
+                float target = suspended ? 0f : s * effectiveness * rationing * compliance * (1f - capture);
                 float tau = definition.BaseLagDays * delayFactor;
                 runtime.m_Progress += (1f - math.exp(-dt / tau)) * (target - runtime.m_Progress);
 
@@ -334,7 +350,11 @@ namespace RealisticPolicies.Engine
                 {
                     delivery += s * (math.min(1f, runtime.m_Progress / s) - EngineParameters.kExpectedDelivery);
                 }
-                runtime.m_Reference += (1f - math.exp(-dt / EngineParameters.kReferenceDays)) * (s - runtime.m_Reference);
+                // People do not get used to a policy that is in court (§6).
+                if (m_Litigation.FindSuit(definition.Prefab) < 0)
+                {
+                    runtime.m_Reference += (1f - math.exp(-dt / EngineParameters.kReferenceDays)) * (s - runtime.m_Reference);
+                }
                 runtimes[r] = runtime;
 
                 LastResults[i] = new PolicyStepResult
@@ -366,6 +386,7 @@ namespace RealisticPolicies.Engine
             WriteOutputs(all, runtimes);
 
             LastAdminHub = adminHub;
+            StepCount++;
             LastState = state;
             if (VerboseLog || frame % kFramesPerDay < (uint)UpdateIntervalFrames)
             {
