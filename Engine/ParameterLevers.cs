@@ -92,7 +92,18 @@ namespace RealisticPolicies.Engine
     /// <summary>Levers policy outputs can name by id. Policies that need a new field register it here.</summary>
     public static class ParameterLevers
     {
+        /// <summary>Base demand for new industrial (and office) companies, before resource and tax factors.</summary>
+        public const string kIndustrialBaseDemand = "Demand.IndustrialBase";
+
         private static readonly Dictionary<string, IParameterLever> s_Levers = new Dictionary<string, IParameterLever>();
+
+        /// <summary>Levers the mod's own policies use.</summary>
+        public static void RegisterBuiltIns()
+        {
+            Register(new ScaledFloatLever<Game.Prefabs.DemandParameterData>(kIndustrialBaseDemand,
+                (in Game.Prefabs.DemandParameterData d) => d.m_IndustrialBaseDemand,
+                (ref Game.Prefabs.DemandParameterData d, float v) => d.m_IndustrialBaseDemand = v));
+        }
 
         public static IReadOnlyDictionary<string, IParameterLever> All => s_Levers;
 

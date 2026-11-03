@@ -58,6 +58,11 @@ namespace RealisticPolicies.Engine
 
         public float LastAdminHub { get; private set; }
 
+        /// <summary>Delivered level of environmental monitoring and emission disclosure at the last step.</summary>
+        public float LastWatch { get; private set; }
+
+        public float LastDisclosure { get; private set; }
+
         public PolicyEngineState LastState { get; private set; }
 
         public ServiceSeriesCensus Census => m_Census;
@@ -221,6 +226,23 @@ namespace RealisticPolicies.Engine
                     : EngineParameters.kUnstaffedUtilization;
             }
 
+            float watch = 0f;
+            float disclosure = 0f;
+            for (int i = 0; i < all.Length; i++)
+            {
+                float progress = runtimes[FindRuntime(runtimes, all[i].Prefab)].m_Progress;
+                if (all[i].Mechanism == Mechanism.Monitoring)
+                {
+                    watch = math.max(watch, progress);
+                }
+                else if (all[i].Mechanism == Mechanism.Disclosure)
+                {
+                    disclosure = math.max(disclosure, progress);
+                }
+            }
+            LastWatch = watch;
+            LastDisclosure = disclosure;
+
             float grievance = 0f;
             float delivery = 0f;
             for (int i = 0; i < all.Length; i++)
@@ -248,16 +270,34 @@ namespace RealisticPolicies.Engine
                 float delayFactor = 1f / (1f - math.min(rho, EngineParameters.kMaxUtilization));
                 float rationing = rho > 1f ? 1f / rho : 1f;
 
-                // ⑦ Compliance and ⑦' capture, for regulation only.
+                // ⑦ Compliance and ⑦' capture, by mechanism (§10.5). Inspectors raise detection; disclosure raises
+                // voluntary compliance only as far as breaches can be seen.
                 float compliance = 1f;
                 float capture = 0f;
-                if (definition.Instrument == Instrument.Authority)
+                float detection = 1f - math.exp(-EngineParameters.kDetection * effectiveness * definition.InspectionEase
+                    * (EngineParameters.kBaseInspection + EngineParameters.kWatchGain * watch));
+                float voluntary = math.saturate(math.lerp(EngineParameters.kVoluntaryMin, EngineParameters.kVoluntaryMax, state.m_Legitimacy)
+                    + EngineParameters.kDisclosureVoluntaryGain * disclosure * math.min(1f, detection / EngineParameters.kDisclosureReferenceDetection));
+                switch (definition.Mechanism)
                 {
-                    float detection = 1f - math.exp(-EngineParameters.kDetection * effectiveness);
-                    float deterrence = 1f / (1f + math.pow(1f / math.max(detection * EngineParameters.kFineToMedianGain, 1e-4f), EngineParameters.kGainSpread));
-                    float voluntary = math.lerp(EngineParameters.kVoluntaryMin, EngineParameters.kVoluntaryMax, state.m_Legitimacy);
-                    compliance = (voluntary + (1f - voluntary) * deterrence) * state.m_Credibility;
-                    capture = EngineParameters.kCaptureMax * (1f - math.exp(-runtime.m_AgeDays / EngineParameters.kCaptureDays));
+                    case Mechanism.PerformanceStandard:
+                        float cut = s * definition.SliderRange.max / 100f;
+                        float deterred = FirmModel.DeterredShare(cut, detection, EngineParameters.kStandardFine);
+                        compliance = (voluntary + (1f - voluntary) * deterred) * state.m_Credibility;
+                        capture = Capture(runtime);
+                        break;
+                    case Mechanism.EmissionTax:
+                        // Reporting rate: evaders pay on what they report, so they also face a lower effective price.
+                        compliance = (voluntary + (1f - voluntary) * Deterrence(detection)) * state.m_Credibility;
+                        capture = Capture(runtime);
+                        break;
+                    case Mechanism.Generic:
+                        if (definition.Instrument == Instrument.Authority)
+                        {
+                            compliance = (voluntary + (1f - voluntary) * Deterrence(detection)) * state.m_Credibility;
+                            capture = Capture(runtime);
+                        }
+                        break;
                 }
 
                 // ⑤ Partial adjustment toward the target with the workload-dependent lag.
@@ -289,6 +329,7 @@ namespace RealisticPolicies.Engine
 
                 LastResults[i] = new PolicyStepResult
                 {
+                    Detection = detection,
                     Intensity = s,
                     Effectiveness = effectiveness,
                     Utilization = rho,
@@ -401,7 +442,7 @@ namespace RealisticPolicies.Engine
                     for (int m = 0; m < modifiers.Length; m++)
                     {
                         CityModifierData data = modifiers[m];
-                        float value = ModifierFor(definition, data.m_Type) * progress;
+                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance);
                         if (math.abs(data.m_Range.min - value) > 1e-5f || math.abs(data.m_Range.max - value) > 1e-5f)
                         {
                             data.m_Range = new Bounds1(value, value);
@@ -422,7 +463,9 @@ namespace RealisticPolicies.Engine
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
-                            float basis = output.Basis == MoneyBasis.Intensity ? intensity : progress;
+                            float basis = output.Basis == MoneyBasis.Intensity ? intensity
+                                : output.Basis == MoneyBasis.Delivery ? progress
+                                : MoneyShape(definition, progress, intensity, LastResults[i].Compliance);
                             float monthly = (output.FixedMonthly + output.PerUnitMonthly * m_Census.TargetCount(output.Unit)) * basis;
                             m_Budget.SetRow(output.Key, output.Kind == OutputKind.Income, output.Host, (int)math.round(monthly));
                             break;
@@ -443,6 +486,55 @@ namespace RealisticPolicies.Engine
                 {
                     m_LeverWritten[entry.Key] = factor;
                 }
+            }
+        }
+
+        private static float Capture(PolicyRuntime runtime) =>
+            EngineParameters.kCaptureMax * (1f - math.exp(-runtime.m_AgeDays / EngineParameters.kCaptureDays));
+
+        /// <summary>Becker deterrence for the generic compliance rule and tax reporting.</summary>
+        private static float Deterrence(float detection) =>
+            1f / (1f + math.pow(1f / math.max(detection * EngineParameters.kFineToMedianGain, 1e-4f), EngineParameters.kGainSpread));
+
+        /// <summary>
+        /// Share of a modifier's full value at the current delivery. Prices (tax, subsidy) work through the firm model:
+        /// delivery is the effective price relative to the base price, pollution follows the companies' cuts and the
+        /// tax's efficiency loss follows their cutting costs plus part of the bill. Everything else is linear.
+        /// </summary>
+        private static float Shape(PolicyDefinition definition, CityModifierType type, float progress, float intensity, float reporting)
+        {
+            if (definition.Mechanism != Mechanism.EmissionTax && definition.Mechanism != Mechanism.AbatementSubsidy)
+            {
+                return progress;
+            }
+            float price = progress * FirmModel.kBasePrice;
+            if (type == CityModifierType.IndustrialEfficiency)
+            {
+                float full = FirmModel.AbatementCost(FirmModel.kBasePrice)
+                    + EngineParameters.kTaxEfficiencyBurden * FirmModel.kBasePrice * (1f - FirmModel.Abatement(FirmModel.kBasePrice));
+                float now = FirmModel.AbatementCost(price)
+                    + EngineParameters.kTaxEfficiencyBurden * intensity * FirmModel.kBasePrice * (1f - FirmModel.Abatement(price)) * reporting;
+                return now / full;
+            }
+            if (type == CityModifierType.IndustrialAirPollution || type == CityModifierType.IndustrialGroundPollution)
+            {
+                return FirmModel.Abatement(price) / FirmModel.Abatement(FirmModel.kBasePrice);
+            }
+            return progress;
+        }
+
+        /// <summary>Per-unit multiplier for mechanism money: tax on reported remaining emissions, subsidy per unit cut.</summary>
+        private static float MoneyShape(PolicyDefinition definition, float progress, float intensity, float reporting)
+        {
+            float cut = FirmModel.Abatement(progress * FirmModel.kBasePrice);
+            switch (definition.Mechanism)
+            {
+                case Mechanism.EmissionTax:
+                    return intensity * (1f - cut) * reporting;
+                case Mechanism.AbatementSubsidy:
+                    return intensity * cut;
+                default:
+                    return progress;
             }
         }
 
@@ -520,11 +612,12 @@ namespace RealisticPolicies.Engine
                 $"households {m_Census.TargetCount(TargetGroup.Households)}, industrial {m_Census.TargetCount(TargetGroup.IndustrialCompanies)}, " +
                 $"commercial {m_Census.TargetCount(TargetGroup.CommercialCompanies)}, office {m_Census.TargetCount(TargetGroup.OfficeCompanies)}, " +
                 $"general administration {m_Demand[(int)ServiceSeries.GeneralAdministration]:0.0}/{available[(int)ServiceSeries.GeneralAdministration]:0.0}, " +
-                $"environment {m_Demand[(int)ServiceSeries.Environment]:0.0}/{available[(int)ServiceSeries.Environment]:0.0} (demand/available staff)");
+                $"environment {m_Demand[(int)ServiceSeries.Environment]:0.0}/{available[(int)ServiceSeries.Environment]:0.0} (demand/available staff), " +
+                $"watch {LastWatch:0.00}, disclosure {LastDisclosure:0.00}");
             for (int i = 0; i < all.Length; i++)
             {
                 PolicyStepResult r = LastResults[i];
-                Mod.Log.Info($"  {all[i].Id}: s {r.Intensity:0.00}, E {r.Effectiveness:0.000}, utilization {r.Utilization:0.00}, compliance {r.Compliance:0.00}, capture {r.Capture:0.00}, target {r.Target:0.000}, progress {r.Progress:0.000}, lag {r.LagDays * 24f:0.0} h");
+                Mod.Log.Info($"  {all[i].Id}: s {r.Intensity:0.00}, E {r.Effectiveness:0.000}, utilization {r.Utilization:0.00}, detection {r.Detection:0.00}, compliance {r.Compliance:0.00}, capture {r.Capture:0.00}, target {r.Target:0.000}, progress {r.Progress:0.000}, lag {r.LagDays * 24f:0.0} h");
             }
         }
 
@@ -536,6 +629,7 @@ namespace RealisticPolicies.Engine
 
     public struct PolicyStepResult
     {
+        public float Detection;
         public float Intensity;
         public float Effectiveness;
         public float Utilization;

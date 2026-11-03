@@ -19,6 +19,7 @@ namespace RealisticPolicies
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN());
             GameManager.instance.localizationManager.AddSource("ko-KR", new LocaleKO());
+            Engine.ParameterLevers.RegisterBuiltIns();
 
             // Prefabs must exist before any city loads, so registration runs in the main loop (menu included),
             // just before PrefabSystem so the new prefabs are initialized in the same frame.

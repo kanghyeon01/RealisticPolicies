@@ -13,6 +13,10 @@ namespace RealisticPolicies
     {
         public const string kEquipmentMandate = "RealisticPolicies.EquipmentMandate";
         public const string kEmissionStandard = "RealisticPolicies.EmissionStandard";
+        public const string kPollutionTax = "RealisticPolicies.PollutionTax";
+        public const string kGreenSubsidy = "RealisticPolicies.GreenSubsidy";
+        public const string kEnvironmentalMonitoring = "RealisticPolicies.EnvironmentalMonitoring";
+        public const string kEmissionDisclosure = "RealisticPolicies.EmissionDisclosure";
 
         // Vanilla toggle that the equipment mandate replaces; hidden from the policy list.
         public const string kVanillaPollutionManagement = "Advanced Pollution Management";

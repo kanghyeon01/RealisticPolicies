@@ -21,6 +21,28 @@ namespace RealisticPolicies.Engine
         Burden,
     }
 
+    /// <summary>How a policy turns its delivered strength into effects (docs/PLAN.md §10.5).</summary>
+    public enum Mechanism : byte
+    {
+        /// <summary>Outputs follow the delivered strength linearly; regulation uses the generic compliance ⑦.</summary>
+        Generic,
+
+        /// <summary>Required cut set by the slider; companies comply when it costs less than the expected fine (Becker).</summary>
+        PerformanceStandard,
+
+        /// <summary>Price per unit of emissions; companies cut until marginal cost equals the price, and may under-report (Allingham–Sandmo).</summary>
+        EmissionTax,
+
+        /// <summary>Payment per unit cut; same cutting rule as the tax, no evasion, money flows the other way.</summary>
+        AbatementSubsidy,
+
+        /// <summary>Inspectors: no effect of its own, raises detection for regulation and taxes.</summary>
+        Monitoring,
+
+        /// <summary>Public emission reports: tiny effect of its own, raises voluntary compliance in proportion to detection.</summary>
+        Disclosure,
+    }
+
     /// <summary>Groups a policy can burden or benefit, and that its workload or money can scale with.</summary>
     public enum TargetGroup : byte
     {
@@ -85,6 +107,9 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Follows the delivered effect (revenue that depends on compliance).</summary>
         Delivery,
+
+        /// <summary>Computed by the policy's mechanism (tax revenue, subsidy payments); the per-unit value is the scale.</summary>
+        Mechanism,
     }
 
     /// <summary>One effect of a policy. Effects are reached at full intensity and full delivery.</summary>
@@ -143,6 +168,10 @@ namespace RealisticPolicies.Engine
         public string Id;
         public Instrument Instrument;
         public Direction Direction;
+        public Mechanism Mechanism;
+
+        /// <summary>How easy breaches are to see (technology standards are easier to inspect than performance standards).</summary>
+        public float InspectionEase = 1f;
         public PolicyCategory Category = PolicyCategory.CityPlanning;
 
         /// <summary>Policy tab icon (a game UI path); null uses <see cref="PolicyCatalog.kDefaultIcon"/>.</summary>
@@ -211,6 +240,8 @@ namespace RealisticPolicies.Engine
     public static class PolicyDefinitions
     {
         public const string kEmissionStandardEnforcementRow = "RealisticPolicies.EmissionStandard.Enforcement";
+        public const string kMonitoringRow = "RealisticPolicies.EnvironmentalMonitoring.Staff";
+        public const string kDisclosureRow = "RealisticPolicies.EmissionDisclosure.Operation";
 
         // Starting values from docs/PLAN.md §5 and §10.5; all are meant to be tuned in game.
         public static readonly PolicyDefinition[] All =
@@ -221,6 +252,9 @@ namespace RealisticPolicies.Engine
                 ReplacesVanilla = PolicyCatalog.kVanillaPollutionManagement,
                 Icon = "Media/Game/Policies/AdvancedPollutionManagement.svg",
                 Instrument = Instrument.Authority,
+                Mechanism = Mechanism.Generic,
+                // A filter is either installed or not.
+                InspectionEase = 1.5f,
                 Direction = Direction.Burden,
                 IsSlider = false,
                 Series = new[]
@@ -243,6 +277,8 @@ namespace RealisticPolicies.Engine
                     PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -0.25f),
                     PolicyOutput.CityModifier(CityModifierType.IndustrialGroundPollution, -0.25f),
                     PolicyOutput.CityModifier(CityModifierType.IndustrialGarbage, 0.15f),
+                    // Every company pays for the same equipment.
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialEfficiency, -0.03f),
                 },
                 Groups = new[]
                 {
@@ -253,7 +289,9 @@ namespace RealisticPolicies.Engine
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kEmissionStandard,
+                Icon = "Media/Game/Policies/CombustionEngineBan.svg",
                 Instrument = Instrument.Authority,
+                Mechanism = Mechanism.PerformanceStandard,
                 Direction = Direction.Burden,
                 IsSlider = true,
                 SliderRange = new Bounds1(0f, 60f),
@@ -281,6 +319,9 @@ namespace RealisticPolicies.Engine
                 {
                     PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -0.6f),
                     PolicyOutput.CityModifier(CityModifierType.IndustrialGroundPollution, -0.6f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialEfficiency, -0.06f),
+                    // Filter waste.
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialGarbage, 0.05f),
                     // Inspection costs (PLAN §10.5: small enforcement expense), paid from the moment the standard is set.
                     PolicyOutput.Expense(kEmissionStandardEnforcementRow, ExpenseSource.ServiceUpkeep, 500f, 20f, TargetGroup.IndustrialCompanies, MoneyBasis.Intensity),
                 },
@@ -288,6 +329,155 @@ namespace RealisticPolicies.Engine
                 {
                     new GroupStake(TargetGroup.IndustrialCompanies, 1f, 0f),
                     new GroupStake(TargetGroup.Households, 0f, 0.2f),
+                },
+            },
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kPollutionTax,
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.EmissionTax,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.8f),
+                    new SeriesWeight(ServiceSeries.EngineeringUtilities, 0.2f),
+                },
+                ClearancePoints = 2,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.GeneralAdministration, 4f, 1f / 40f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ChangeBand = 0.15f,
+                ChangeCost = 2f,
+                BaseLagDays = 6f / 24f,
+                Outputs = new[]
+                {
+                    // Modifier values are reached at the base price; the firm model shapes them in between.
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -0.34f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialGroundPollution, -0.34f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialEfficiency, -0.08f),
+                    PolicyOutput.Income(BudgetInjectionSystem.kIncomeRowId, IncomeSource.TaxIndustrial, 0f, 2000f, TargetGroup.IndustrialCompanies, MoneyBasis.Mechanism),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 1f, 0f),
+                    new GroupStake(TargetGroup.Households, 0f, 0.2f),
+                },
+            },
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kGreenSubsidy,
+                Icon = "Media/Game/Policies/SmallBusinessEnthusiast.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.AbatementSubsidy,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 1f),
+                },
+                ClearancePoints = 2,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.GeneralAdministration, 3f, 1f / 50f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ChangeBand = 0.2f,
+                ChangeCost = 1.5f,
+                BaseLagDays = 8f / 24f,
+                Outputs = new[]
+                {
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -0.34f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialGroundPollution, -0.34f),
+                    // Subsidies draw new industry in, which can bring total pollution back up (Baumol & Oates).
+                    PolicyOutput.Parameter(ParameterLevers.kIndustrialBaseDemand, 0.15f),
+                    PolicyOutput.Expense(BudgetInjectionSystem.kExpenseRowId, ExpenseSource.SubsidyIndustrial, 0f, 2000f, TargetGroup.IndustrialCompanies, MoneyBasis.Mechanism),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0f, 1f),
+                    new GroupStake(TargetGroup.Households, 0.1f, 0f),
+                },
+            },
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kEnvironmentalMonitoring,
+                Icon = "Media/Game/Policies/FireSafetyInspections.svg",
+                Instrument = Instrument.Organization,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.Monitoring,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.7f),
+                    new SeriesWeight(ServiceSeries.PostAndTelecom, 0.3f),
+                },
+                ClearancePoints = 1,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.Environment, 2f, 1f / 25f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 4f / 24f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Expense(kMonitoringRow, ExpenseSource.ServiceUpkeep, 1000f, 30f, TargetGroup.IndustrialCompanies, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0.6f, 0f),
+                    new GroupStake(TargetGroup.Households, 0f, 0.2f),
+                },
+            },
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kEmissionDisclosure,
+                Icon = "Media/Game/Policies/EnergyConsumptionAwareness.svg",
+                Instrument = Instrument.Nodality,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.Disclosure,
+                IsSlider = false,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.PostAndTelecom, 0.6f),
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.4f),
+                },
+                ClearancePoints = 1,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.GeneralAdministration, 1f, 0f),
+                    new StaffRequirement(ServiceSeries.PostAndTelecom, 1f, 0f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ToggleCost = 0.2f,
+                BaseLagDays = 6f / 24f,
+                Outputs = new[]
+                {
+                    // Only companies for which cutting is nearly free respond to publicity alone.
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -0.05f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialGroundPollution, -0.05f),
+                    PolicyOutput.Expense(kDisclosureRow, ExpenseSource.ServiceUpkeep, 300f, 2f, TargetGroup.IndustrialCompanies, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0.3f, 0f),
+                    new GroupStake(TargetGroup.Households, 0f, 0.1f),
                 },
             },
         };
@@ -314,7 +504,20 @@ namespace RealisticPolicies.Engine
         public const float kSurgeDecayDays = 1f;
 
         // ⑦ Compliance: Becker deterrence + Tyler voluntary compliance.
+        // Detection = 1 - exp(-kDetection × E × ease × (base inspection + watch gain × monitoring)).
         public const float kDetection = 3f;
+        public const float kBaseInspection = 0.4f;
+        public const float kWatchGain = 1.2f;
+
+        // Expected fine of a performance standard, in abatement-cost units (firm model).
+        public const float kStandardFine = 0.25f;
+
+        // Disclosure raises voluntary compliance, scaled by detection relative to the reference (Ayres & Braithwaite).
+        public const float kDisclosureVoluntaryGain = 0.15f;
+        public const float kDisclosureReferenceDetection = 0.5f;
+
+        // Share of the pollution tax bill that shows up as lost industrial efficiency.
+        public const float kTaxEfficiencyBurden = 0.3f;
         public const float kFineToMedianGain = 2f;
         public const float kGainSpread = 2f;
         public const float kVoluntaryMin = 0.1f;

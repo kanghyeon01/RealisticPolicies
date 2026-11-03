@@ -71,6 +71,9 @@ namespace RealisticPolicies
         private int m_MoneyStart;
         private int m_BalanceSum;
         private int m_BalanceSamples;
+        private const string kTestIncomeRow = "RealisticPolicies.SelfTest.Income";
+        private const string kTestExpenseRow = "RealisticPolicies.SelfTest.Expense";
+        private float m_DemandBefore;
         private int m_HostIncomeBefore;
         private int m_HostExpenseBefore;
 
@@ -420,18 +423,28 @@ namespace RealisticPolicies
         private void ActivatePolicies()
         {
             Entity city = m_CitySystem.City;
+            m_DemandBefore = IndustrialBaseDemand();
             SetPolicy(city, PolicyCatalog.EquipmentMandate, true, 0f);
             SetPolicy(city, PolicyCatalog.EmissionStandard, true, 30f);
-            // Vanilla toggle on as well, to test stacking and the save migration.
+            SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kPollutionTax), true, 50f);
+            SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kGreenSubsidy), true, 50f);
+            SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kEnvironmentalMonitoring), true, 60f);
+            SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kEmissionDisclosure), true, 0f);
+            // Vanilla toggle on as well, to test the save migration.
             SetPolicy(city, PolicyCatalog.VanillaPollutionManagement, true, 0f);
-            Line("Activated: mandate, emission standard at 30%, vanilla toggle.");
+            Line($"Activated the six environment policies (standard 30%, tax 50%, subsidy 50%, monitoring 60%, disclosure) and the vanilla toggle; industrial base demand {m_DemandBefore}.");
         }
 
         private void CheckActivation()
         {
             // The engine may already have switched the vanilla toggle over (its first step after loading); the
             // migration stage below turns it on again and checks the switch.
-            Check("Mod policies are active", IsActive(PolicyCatalog.EquipmentMandate) && IsActive(PolicyCatalog.EmissionStandard), null);
+            bool allOn = true;
+            foreach (PolicyDefinition definition in PolicyDefinitions.All)
+            {
+                allOn &= IsActive(definition.Prefab);
+            }
+            Check("All mod policies are active", allOn, null);
             m_AirBefore = AirModifier();
             m_SampleCount = 0;
             TakeSample();
@@ -469,6 +482,7 @@ namespace RealisticPolicies
             Line($"Series census (industrial companies {census.IndustrialCompanies}): " + staffing);
             Check("Raising two N policies lowers legitimacy", m_Engine.LastState.m_Legitimacy < EngineParameters.kLegitimacyBase, $"{m_Engine.LastState.m_Legitimacy:0.000}");
             CheckDefinitionFramework();
+            CheckFirstBundle();
         }
 
         /// <summary>Stage 2: money outputs become budget rows, groups are counted, parameter levers restore.</summary>
@@ -503,6 +517,54 @@ namespace RealisticPolicies
                 $"{before} -> {scaled} -> {again} -> {after}");
         }
 
+        /// <summary>Stage 3: firm model, tax revenue, subsidy payments, demand lever, monitoring and disclosure.</summary>
+        private void CheckFirstBundle()
+        {
+            float cutAtBase = FirmModel.Abatement(FirmModel.kBasePrice);
+            Line($"Firm model: cut at base price {cutAtBase:0.000}, at half {FirmModel.Abatement(FirmModel.kBasePrice * 0.5f):0.000}, cost at base {FirmModel.AbatementCost(FirmModel.kBasePrice):0.000}, " +
+                $"deterred at 30% cut {FirmModel.DeterredShare(0.3f, 0.6f, EngineParameters.kStandardFine):0.00}, at 60% {FirmModel.DeterredShare(0.6f, 0.6f, EngineParameters.kStandardFine):0.00}");
+            Check("Firm model: more price, more cut; nothing at zero", FirmModel.Abatement(0f) == 0f && FirmModel.Abatement(0.3f) < cutAtBase && cutAtBase < FirmModel.Abatement(1.2f), null);
+
+            float industrial = m_Engine.Census.TargetCount(TargetGroup.IndustrialCompanies);
+            PolicyStepResult tax = Result(PolicyCatalog.kPollutionTax);
+            float taxCut = FirmModel.Abatement(tax.Progress * FirmModel.kBasePrice);
+            int expectedTax = (int)Mathf.Round(2000f * industrial * tax.Intensity * (1f - taxCut) * tax.Compliance);
+            int taxRow = m_Injection.GetRow(BudgetInjectionSystem.kIncomeRowId);
+            Check("Pollution tax income = 2000 x industrial x rate x (1 - cut) x reporting", taxRow == expectedTax && taxRow > 0,
+                $"row {taxRow}, expected {expectedTax}, reporting {tax.Compliance:0.00}, delivered price {tax.Progress:0.000}");
+
+            PolicyStepResult subsidy = Result(PolicyCatalog.kGreenSubsidy);
+            int expectedSubsidy = (int)Mathf.Round(2000f * industrial * subsidy.Intensity * FirmModel.Abatement(subsidy.Progress * FirmModel.kBasePrice));
+            int subsidyRow = m_Injection.GetRow(BudgetInjectionSystem.kExpenseRowId);
+            Check("Green subsidy expense = 2000 x industrial x rate x cut", subsidyRow == expectedSubsidy && subsidyRow > 0, $"row {subsidyRow}, expected {expectedSubsidy}");
+
+            float demand = IndustrialBaseDemand();
+            float expectedDemand = m_DemandBefore * (1f + 0.15f * subsidy.Progress);
+            Check("Subsidy raises industrial base demand through the parameter lever", Mathf.Abs(demand - expectedDemand) <= 1e-4f * Mathf.Max(1f, Mathf.Abs(expectedDemand)) && demand > m_DemandBefore,
+                $"{m_DemandBefore} -> {demand}, expected {expectedDemand}");
+
+            PolicyStepResult standard = m_Engine.LastResults[1];
+            float unwatched = 1f - Mathf.Exp(-EngineParameters.kDetection * standard.Effectiveness * EngineParameters.kBaseInspection);
+            Check("Monitoring raises detection for the emission standard", m_Engine.LastWatch > 0f && standard.Detection > unwatched + 1e-4f,
+                $"watch {m_Engine.LastWatch:0.000}, detection {standard.Detection:0.000} vs {unwatched:0.000} without inspectors");
+            Check("Disclosure is delivered", m_Engine.LastDisclosure > 0f, $"{m_Engine.LastDisclosure:0.000}");
+            Line($"Tax: reporting {tax.Compliance:0.00}, progress {tax.Progress:0.000}; subsidy progress {subsidy.Progress:0.000}; standard compliance {standard.Compliance:0.00}; " +
+                $"city efficiency modifier {Delta(EntityManager.GetBuffer<CityModifier>(m_CitySystem.City, true), CityModifierType.IndustrialEfficiency):0.000}");
+        }
+
+        private PolicyStepResult Result(string id)
+        {
+            return m_Engine.LastResults[System.Array.FindIndex(PolicyDefinitions.All, d => d.Id == id)];
+        }
+
+        private float IndustrialBaseDemand()
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<DemandParameterData>()))
+            {
+                return query.GetSingleton<DemandParameterData>().m_IndustrialBaseDemand;
+            }
+        }
+
         private float CommuterWage()
         {
             using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<EconomyParameterData>()))
@@ -535,19 +597,19 @@ namespace RealisticPolicies
             {
                 return;
             }
-            if (m_Injection.GetRow(BudgetInjectionSystem.kIncomeRowId) == 0)
+            if (m_Injection.GetRow(kTestIncomeRow) == 0)
             {
-                m_HostIncomeBefore = m_BudgetSystem.GetIncome(IncomeSource.TaxIndustrial);
-                m_HostExpenseBefore = m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial);
-                m_Injection.SetRow(BudgetInjectionSystem.kIncomeRowId, true, (int)IncomeSource.TaxIndustrial, 200000);
-                m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, 50000);
+                m_HostIncomeBefore = m_BudgetSystem.GetIncome(IncomeSource.FeeParking);
+                m_HostExpenseBefore = m_BudgetSystem.GetExpense(ExpenseSource.MapTileUpkeep);
+                m_Injection.SetRow(kTestIncomeRow, true, (int)IncomeSource.FeeParking, 200000);
+                m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, 50000);
                 m_StageStart = UnityEngine.Time.realtimeSinceStartup;
                 return;
             }
-            int income = m_BudgetSystem.GetIncome(IncomeSource.TaxIndustrial);
-            int expense = m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial);
-            Check("Injected income shows in the vanilla budget source", income - m_HostIncomeBefore == m_Injection.GetRow(BudgetInjectionSystem.kIncomeRowId), $"{m_HostIncomeBefore} -> {income}");
-            Check("Injected expense shows in the vanilla budget source", expense - m_HostExpenseBefore == m_Injection.GetRow(BudgetInjectionSystem.kExpenseRowId), $"{m_HostExpenseBefore} -> {expense}");
+            int income = m_BudgetSystem.GetIncome(IncomeSource.FeeParking);
+            int expense = m_BudgetSystem.GetExpense(ExpenseSource.MapTileUpkeep);
+            Check("Injected income shows in the vanilla budget source", income - m_HostIncomeBefore == m_Injection.GetRow(kTestIncomeRow), $"{m_HostIncomeBefore} -> {income}");
+            Check("Injected expense shows in the vanilla budget source", expense - m_HostExpenseBefore == m_Injection.GetRow(kTestExpenseRow), $"{m_HostExpenseBefore} -> {expense}");
             m_MoneyStart = Money();
             m_BalanceSum = 0;
             m_BalanceSamples = 0;
@@ -592,7 +654,7 @@ namespace RealisticPolicies
         private void StartMoneyWatch()
         {
             PlayerMoney money = EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City);
-            m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, kMoneyTestExpense);
+            m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, kMoneyTestExpense);
             m_MoneyAtStart = money.money;
             m_FrameAtStart = m_SimulationSystem.frameIndex;
             m_NextMoneySample = 0f;
@@ -610,7 +672,7 @@ namespace RealisticPolicies
             m_NextMoneySample = seconds + 30f;
             int money = EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City).money;
             uint frames = m_SimulationSystem.frameIndex - m_FrameAtStart;
-            Line($"  {seconds:0} s, {frames} frames: money {money:N0} (change {money - m_MoneyAtStart:N0}), balance {m_BudgetSystem.GetBalance():N0}, subsidy row {m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial):N0}");
+            Line($"  {seconds:0} s, {frames} frames: money {money:N0} (change {money - m_MoneyAtStart:N0}), balance {m_BudgetSystem.GetBalance():N0}, test row {m_BudgetSystem.GetExpense(ExpenseSource.MapTileUpkeep):N0}");
             if (seconds >= kMoneyWatchSeconds)
             {
                 Check("City money moves under a large deficit", money != m_MoneyAtStart, $"{m_MoneyAtStart:N0} -> {money:N0} over {frames} frames");
@@ -689,8 +751,8 @@ namespace RealisticPolicies
 
         private void Finish()
         {
-            m_Injection.SetRow(BudgetInjectionSystem.kIncomeRowId, true, (int)IncomeSource.TaxIndustrial, 0);
-            m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, 0);
+            m_Injection.SetRow(kTestIncomeRow, true, (int)IncomeSource.FeeParking, 0);
+            m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, 0);
             Line($"Result: {m_Passed} passed, {m_Failed} failed, {UnityEngine.Time.realtimeSinceStartup - m_TestStart:0} s.");
             File.WriteAllText(Path.Combine(m_Directory, "selftest", "report.txt"), m_Report.ToString());
         }
