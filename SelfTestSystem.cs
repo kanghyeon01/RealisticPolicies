@@ -993,8 +993,17 @@ namespace RealisticPolicies
             Entity tax = PolicyCatalog.Find(PolicyCatalog.kPollutionTax);
             litigation.Respond(SuitIndex(tax), SuitResponse.Official);
             Lawsuit suit = Suit(tax);
-            bool refused = !litigation.ProposeSettlement(SuitIndex(tax), suit.m_ContestedIntensity, 0);
-            Check("Settlement that changes nothing is refused", refused, null);
+            // An offer that changes nothing leaves the whole grievance: refused unless the case is weak enough that
+            // the plaintiffs would rather save their costs (limit above 100% of the grievance).
+            bool acceptedNothing = litigation.ProposeSettlement(SuitIndex(tax), suit.m_ContestedIntensity, 0);
+            bool weakCase = litigation.LastSettlementLimitShare >= 1f;
+            Check("Settlement that changes nothing is accepted only when the plaintiffs' case is weak", acceptedNothing == weakCase,
+                $"limit {litigation.LastSettlementLimitShare:0.00} x grievance, accepted {acceptedNothing}");
+            if (acceptedNothing)
+            {
+                Line("Plaintiffs dropped the suit for nothing; the compensated offer is not tried.");
+                return;
+            }
             int compensation = (int)(suit.m_Claim + 1000000f);
             bool accepted = litigation.ProposeSettlement(SuitIndex(tax), 0.1f, compensation);
             Check("Settlement that lowers the tax and compensates is accepted and ends the suit", accepted && SuitIndex(tax) < 0, $"compensation {compensation}");

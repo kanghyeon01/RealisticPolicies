@@ -221,7 +221,8 @@ namespace RealisticPolicies.Engine
                     runtime.m_Surge += definition.IsSlider ? definition.ChangeCost * excess * excess : definition.ToggleCost;
                     runtime.m_AgeDays *= 1f - EngineParameters.kCaptureResetOnRetune;
                 }
-                if (definition.Direction == Direction.Burden && change < 0f)
+                // Relaxing a rule costs credibility, unless a court or a settlement made the change.
+                if (definition.Direction == Direction.Burden && change < 0f && !m_Litigation.ConsumeCourtChange(definition.Prefab))
                 {
                     state.m_Credibility = math.max(0f, state.m_Credibility + EngineParameters.kCredibilityLoss * change);
                 }

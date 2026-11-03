@@ -46,7 +46,10 @@ namespace RealisticPolicies.Engine
         private const float kCompanyShare = 0.01f;
         private const float kMaxShare = 0.5f;
 
-        // Plaintiff losses per member per day at full burden (game money); the claimed damages accumulate from these.
+        // A plaintiff's loss per day at full burden: this share of what a member of its group pays in tax per day.
+        private const float kLossShareOfTax = 0.5f;
+
+        // Fallback when the group pays no tax yet.
         private const float kHouseholdLossPerDay = 20f;
         private const float kCompanyLossPerDay = 2000f;
 
@@ -65,6 +68,9 @@ namespace RealisticPolicies.Engine
         private const float kInjunctionUnanswered = 1f;
         private const int kInjunctionDecisionFrames = kFramesPerDay / 48;
         private const int kInjunctionEffectFrames = kFramesPerDay / 24;
+
+        // Share of the grievance that saved costs can count for in a settlement.
+        private const float kSettlementSavingCap = 0.3f;
 
         // Costs (§7 "소송 대응", "소송 비용 부담").
         private const float kLawyerShareOfIncome = 0.005f;
@@ -90,6 +96,9 @@ namespace RealisticPolicies.Engine
         private int m_LastEngineStep = -1;
         private uint m_LastFrame;
         private bool m_HasLastFrame;
+
+        /// <summary>Acceptance limit of the last settlement offer as a share of the grievance (self-test).</summary>
+        public float LastSettlementLimitShare { get; private set; }
 
         /// <summary>General administration staff the city's officials need for suits right now.</summary>
         public float OfficialStaff { get; private set; }
@@ -231,16 +240,20 @@ namespace RealisticPolicies.Engine
                 return false;
             }
             newIntensity = math.saturate(newIntensity);
-            float stake = Stake(definition, suit);
-            float gap = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - newIntensity) : math.max(0f, newIntensity - suit.m_PriorIntensity);
-            float remaining = EngineParameters.kLossAversion * stake * gap;
-            float money = math.max(1f, suit.m_Claim + PlaintiffCosts(suit));
-            remaining -= suit.m_Grievance * compensation / money;
+            // What is left of the grievance shrinks with the contested change; compensation buys off the rest.
+            float gapNow = math.max(1e-3f, suit.m_AgainstCut ? suit.m_PriorIntensity - suit.m_ContestedIntensity : suit.m_ContestedIntensity - suit.m_PriorIntensity);
+            float gapNew = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - newIntensity) : math.max(0f, newIntensity - suit.m_PriorIntensity);
+            float perMoney = suit.m_Grievance / AnnualPlaintiffLoss(definition, suit);
+            float remaining = suit.m_Grievance * math.min(1f, gapNew / gapNow) - perMoney * compensation;
             float plaintiffWin = LoseProbability(suit, suit.m_Response == (byte)SuitResponse.None ? SuitResponse.Official : (SuitResponse)suit.m_Response);
-            float saving = suit.m_Grievance * PlaintiffCosts(suit) / money;
-            bool accepted = remaining <= (1f - plaintiffWin * 0.8f) * suit.m_Grievance - saving;
+            // Settling saves the plaintiffs their costs, which makes them accept more (Priest–Klein); the saving
+            // counts for at most 30% of the grievance (2026-11-04 user decision, to be tuned).
+            float saving = math.min(perMoney * PlaintiffCosts(suit), kSettlementSavingCap * suit.m_Grievance);
+            float limit = (1f - plaintiffWin * 0.8f) * suit.m_Grievance + saving;
+            bool accepted = remaining <= limit;
+            LastSettlementLimitShare = suit.m_Grievance > 0f ? limit / suit.m_Grievance : 0f;
             Mod.Log.Info($"Case {suit.m_CaseNumber}: settlement offer intensity {newIntensity:0.00}, compensation {compensation} -> remaining grievance {remaining:0.000}, " +
-                $"limit {(1f - plaintiffWin * 0.8f) * suit.m_Grievance - saving:0.000}, {(accepted ? "accepted" : "refused")}.");
+                $"limit {limit:0.000} (plaintiff win {plaintiffWin:0.00}, saving {saving:0.000}), {(accepted ? "accepted" : "refused")}.");
             if (!accepted)
             {
                 return false;
@@ -447,6 +460,9 @@ namespace RealisticPolicies.Engine
             suit.m_CaseNumber = state.m_NextCase++;
             EntityManager.SetComponentData(city, state);
 
+            // Damages cover the plaintiffs' losses since the policy took effect, not only the suit (§7: loss × time in force).
+            suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit)
+                * (againstCut ? math.max(0f, suit.m_PriorIntensity - result.Intensity) : result.Intensity) * runtime.m_AgeDays;
             EntityManager.GetBuffer<Lawsuit>(city).Add(suit);
             Mod.Log.Info($"Case {year}-{suit.m_CaseNumber}: {plaintiffs} {stake.Group} sue over {definition.Id}{(againstCut ? " (benefit cut)" : "")}, grievance {grievance:0.00}, " +
                 $"grounds {grounds}, workload {suit.m_Workload:0.0}, {durationDays:0.00} days, injunction requested {injunction}.");
@@ -475,8 +491,7 @@ namespace RealisticPolicies.Engine
                 float burden = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - intensity) : intensity;
                 if (suit.m_Injunction != (byte)InjunctionStage.InEffect)
                 {
-                    float loss = suit.m_Group == (byte)TargetGroup.Households ? kHouseholdLossPerDay : kCompanyLossPerDay;
-                    suit.m_Claim += suit.m_Plaintiffs * loss * burden * Stake(definition, suit) * dtDays;
+                    suit.m_Claim += suit.m_Plaintiffs * LossPerDay((TargetGroup)suit.m_Group) * burden * Stake(definition, suit) * dtDays;
                 }
 
                 if (suit.m_Injunction == (byte)InjunctionStage.Requested && age >= kInjunctionDecisionFrames * TestTimeScale)
@@ -598,7 +613,8 @@ namespace RealisticPolicies.Engine
             }
 
             // Damages and the plaintiffs' costs (half after a default judgment), immediate share now, the rest daily.
-            float damages = math.min(suit.m_Claim * k, annual * kDamagesCeiling);
+            float punitive = Mod.Setting != null && Mod.Setting.PunitiveDamages ? Setting.kPunitiveMultiplier : 1f;
+            float damages = math.min(suit.m_Claim * k * punitive, annual * kDamagesCeiling);
             float costs = PlaintiffCosts(suit) * k * (defaultJudgment ? 0.5f : 1f);
             float total = damages + costs;
             float immediate = math.min(damages, annual * kImmediateShare);
@@ -792,6 +808,41 @@ namespace RealisticPolicies.Engine
             m_Budget.SetRow(kDebtRow, false, (int)ExpenseSource.ServiceUpkeep, (int)System.Math.Round(row));
         }
 
+        /// <summary>A member's loss per day at full burden: a share of the tax its group pays per member per day.</summary>
+        private float LossPerDay(TargetGroup group)
+        {
+            float members = m_Engine.Census.TargetCount(group);
+            float tax;
+            switch (group)
+            {
+                case TargetGroup.Households:
+                    tax = m_BudgetSystem.GetIncome(IncomeSource.TaxResidential);
+                    break;
+                case TargetGroup.IndustrialCompanies:
+                    // The pollution tax is booked under industrial tax; it is not part of what companies earn from.
+                    tax = m_BudgetSystem.GetIncome(IncomeSource.TaxIndustrial) - m_Budget.GetRow(BudgetInjectionSystem.kIncomeRowId);
+                    break;
+                case TargetGroup.CommercialCompanies:
+                    tax = m_BudgetSystem.GetIncome(IncomeSource.TaxCommercial);
+                    break;
+                case TargetGroup.OfficeCompanies:
+                    tax = m_BudgetSystem.GetIncome(IncomeSource.TaxOffice);
+                    break;
+                default:
+                    tax = 0f;
+                    break;
+            }
+            if (members <= 0f || tax <= 0f)
+            {
+                return group == TargetGroup.Households ? kHouseholdLossPerDay : kCompanyLossPerDay;
+            }
+            return kLossShareOfTax * tax / members;
+        }
+
+        /// <summary>What the plaintiffs lose in a year (12 days) at full burden; turns money into grievance for settlements.</summary>
+        private float AnnualPlaintiffLoss(PolicyDefinition definition, Lawsuit suit) =>
+            math.max(1f, suit.m_Plaintiffs * LossPerDay((TargetGroup)suit.m_Group) * math.max(Stake(definition, suit), 0.05f) * 12f);
+
         /// <summary>Plaintiffs' costs: their lawyer, by the same workload rule as the city's (§7).</summary>
         private float PlaintiffCosts(Lawsuit suit) => AnnualIncome() * kLawyerShareOfIncome * suit.m_Workload / kStandardWorkload;
 
@@ -913,9 +964,25 @@ namespace RealisticPolicies.Engine
             return -1;
         }
 
+        // Policies changed by a verdict, a settlement or a ban condition, with the frame; the engine does not
+        // count these as the city relaxing a rule (no credibility loss).
+        private readonly System.Collections.Generic.Dictionary<Entity, uint> m_CourtChanges = new System.Collections.Generic.Dictionary<Entity, uint>();
+
+        /// <summary>True once if the policy's last change came from the court or a settlement (within a day).</summary>
+        public bool ConsumeCourtChange(Entity policy)
+        {
+            if (!m_CourtChanges.TryGetValue(policy, out uint frame))
+            {
+                return false;
+            }
+            m_CourtChanges.Remove(policy);
+            return m_SimulationSystem.frameIndex - frame < kFramesPerDay;
+        }
+
         /// <summary>Sets a policy to an intensity 0..1 through the policy panel's event path (0 switches it off).</summary>
         private void SetIntensity(Entity city, PolicyDefinition definition, float intensity)
         {
+            m_CourtChanges[definition.Prefab] = m_SimulationSystem.frameIndex;
             float adjustment = definition.IsSlider
                 ? definition.SliderRange.min + intensity * (definition.SliderRange.max - definition.SliderRange.min)
                 : 0f;

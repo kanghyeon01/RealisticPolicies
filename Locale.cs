@@ -130,4 +130,35 @@ namespace RealisticPolicies
             { "RealisticPolicies.Series.Tax.Tooltip", "세무 공무원입니다. 한 명도 없으면 세율을 바꿀 수 없습니다." },
         };
     }
+
+    /// <summary>Options page texts (they need the setting instance for their ids).</summary>
+    public sealed class SettingLocale : LocaleBase
+    {
+        private readonly Setting m_Setting;
+        private readonly bool m_Korean;
+
+        public SettingLocale(Setting setting, bool korean)
+        {
+            m_Setting = setting;
+            m_Korean = korean;
+        }
+
+        protected override Dictionary<string, string> Entries() => m_Korean
+            ? new Dictionary<string, string>
+            {
+                { m_Setting.GetSettingsLocaleID(), "Realistic Policies" },
+                { m_Setting.GetOptionTabLocaleID(Setting.kSection), "기본" },
+                { m_Setting.GetOptionGroupLocaleID(Setting.kLitigationGroup), "행정소송" },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.PunitiveDamages)), "징벌적 배상" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PunitiveDamages)), "소송에서 지면 원고 손해의 5배를 배상합니다 (국내 징벌적 손해배상 규정의 최근 상한). 연간 총수입의 2배 상한은 그대로입니다." },
+            }
+            : new Dictionary<string, string>
+            {
+                { m_Setting.GetSettingsLocaleID(), "Realistic Policies" },
+                { m_Setting.GetOptionTabLocaleID(Setting.kSection), "Main" },
+                { m_Setting.GetOptionGroupLocaleID(Setting.kLitigationGroup), "Administrative litigation" },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.PunitiveDamages)), "Punitive damages" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PunitiveDamages)), "A lost suit pays five times the plaintiffs' losses (the recent ceiling of Korean punitive damage statutes). The cap of twice the annual income still applies." },
+            };
+    }
 }

@@ -1,3 +1,4 @@
+using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using Game;
 using Game.Modding;
@@ -13,12 +14,23 @@ namespace RealisticPolicies
 
         public static readonly ILog Log = LogManager.GetLogger(kName).SetShowsErrorsInUI(false);
 
+        public static Setting Setting { get; private set; }
+
         public void OnLoad(UpdateSystem updateSystem)
         {
             Log.Info(nameof(OnLoad));
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN());
             GameManager.instance.localizationManager.AddSource("ko-KR", new LocaleKO());
+
+            // ModSetting registers each instance under the mod's id, so build the defaults first
+            // and let the live instance be the one that stays registered.
+            Setting defaults = new Setting(this);
+            Setting = new Setting(this);
+            Setting.RegisterInOptionsUI();
+            GameManager.instance.localizationManager.AddSource("en-US", new SettingLocale(Setting, false));
+            GameManager.instance.localizationManager.AddSource("ko-KR", new SettingLocale(Setting, true));
+            AssetDatabase.global.LoadSettings(kName, Setting, defaults);
             Engine.ParameterLevers.RegisterBuiltIns();
 
             // Prefabs must exist before any city loads, so registration runs in the main loop (menu included),
@@ -47,6 +59,11 @@ namespace RealisticPolicies
         public void OnDispose()
         {
             Log.Info(nameof(OnDispose));
+            if (Setting != null)
+            {
+                Setting.UnregisterInOptionsUI();
+                Setting = null;
+            }
         }
     }
 }
