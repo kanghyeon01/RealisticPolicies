@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realistic Policies 개요</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --dim: #5d6675; --line: #dfe3ea;
+  --accent: #2391db; --ok: #2e9d5b; --proto: #2391db; --design: #c27c0e; --later: #8a8f99;
+  --chip-ok: #e3f4ea; --chip-proto: #e2f0fb; --chip-design: #fbefdc; --chip-later: #eceef1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --card: #1c2028; --text: #e8edf4; --dim: #9aa4b2; --line: #2c323d;
+    --accent: #4bc3f1; --ok: #5fcf8a; --proto: #4bc3f1; --design: #ffb543; --later: #9aa0aa;
+    --chip-ok: #1f3a2a; --chip-proto: #173246; --chip-design: #3d2f16; --chip-later: #2a2f38;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --card: #1c2028; --text: #e8edf4; --dim: #9aa4b2; --line: #2c323d;
+  --accent: #4bc3f1; --ok: #5fcf8a; --proto: #4bc3f1; --design: #ffb543; --later: #9aa0aa;
+  --chip-ok: #1f3a2a; --chip-proto: #173246; --chip-design: #3d2f16; --chip-later: #2a2f38;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; line-height: 1.6; }
+main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 15px; margin: 18px 0 8px; }
+p { margin: 6px 0; }
+.sub { color: var(--dim); margin: 0 0 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.ok { background: var(--chip-ok); color: var(--ok); }
+.proto { background: var(--chip-proto); color: var(--proto); }
+.design { background: var(--chip-design); color: var(--design); }
+.later { background: var(--chip-later); color: var(--later); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; font-size: 13px; color: var(--dim); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font-weight: 600; font-size: 13px; }
+.tablewrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; background: var(--chip-later); padding: 0 4px; border-radius: 3px; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.step { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; position: relative; }
+.step b { display: block; font-size: 14px; margin-bottom: 2px; }
+.step span { font-size: 12.5px; color: var(--dim); }
+.arrow { align-self: center; color: var(--dim); font-size: 18px; flex: 0 0 auto; }
+.timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
+.timeline li { position: relative; padding: 0 0 12px 18px; }
+.timeline li::before { content: ""; position: absolute; left: -7px; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.timeline .t { font-weight: 700; font-size: 13px; color: var(--accent); }
+.small { font-size: 13px; color: var(--dim); }
+ul { margin: 4px 0; padding-left: 20px; }
+li { margin: 2px 0; }
+@media (max-width: 640px) { .arrow { transform: rotate(90deg); width: 100%; text-align: center; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Realistic Policies 개요</h1>
+  <p class="sub">2026-11-03 기준 · docs/PLAN.md를 요약한 것 · Cities: Skylines II 정책 모드</p>
+
+  <div class="card">
+    <p><b>무엇을 하는 모드인가.</b> 바닐라 정책 탭에 정책을 더하고, 정책 효과를 바로 넣지 않고 그 사이 과정을 행정학·정책학·경제학 이론으로 계산한 뒤 게임에 반영한다. 공무원이 부족하면 집행이 늦고, 무리한 정책은 반발과 행정소송을 부른다.</p>
+    <p><b>원칙.</b> 게임에 있는 기능을 먼저 쓴다 · 성능 우선 (저빈도 스칼라 계산, 값이 바뀔 때만 쓰기) · 요청한 것만 만든다 · 코드는 영어, 로캘은 영어·한국어.</p>
+    <div class="legend">
+      <span class="chip ok">구현·시험 확인</span>
+      <span class="chip proto">시제품 (일부 미확인)</span>
+      <span class="chip design">설계 확정, 미구현</span>
+      <span class="chip later">나중 단계</span>
+    </div>
+  </div>
+
+  <h2>1. 정책 하나가 지나가는 길</h2>
+  <div class="flow">
+    <div class="step"><b>플레이어</b><span>정책 탭에서 켜기·끄기, 슬라이더 조정</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>행정 계층</b><span>직렬별 역량 · 결정점 · 행정 부담(필요 인원) · 점증 비용</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>대상 집단 반응</b><span>규제 순응(억지 + 정당성) · 규제 포획 · 기업 감축</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>시차</b><span>효과가 2~6시간에 걸쳐 차오름</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>게임 반영</b><span>모드 정책의 도시 효과 값을 바꾸고 바닐라가 적용</span></div>
+  </div>
+  <div class="flow" style="margin-top:8px">
+    <div class="step"><b>불만</b><span>기준점 대비 손실 × 2.25 (전망이론). P 정책은 줄일 때, N 정책은 올릴 때</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>정당성 (숨김)</b><span>순응률과 소송 판결에 쓰인다. 크게 잃을 때만 경고</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>불만 표출</b><span>다항 로짓으로 고름: 없음 · 소송 · 시위 · 시위 + 소송 · 폭동. 지금은 없음·소송만 켬</span></div>
+  </div>
+  <div class="flow" style="margin-top:8px">
+    <div class="step"><b>행정소송</b><span>A·T 정책만. 원고는 부담 집단(주민·기업)</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>판결</b><span>승소 · 패소(금지 + 배상) · 일부 패소 · 화해</span></div>
+    <div class="arrow">|</div>
+    <div class="step" style="opacity:.75"><b>시위·폭동 <span class="chip later">나중</span></b><span>지구별 민심, 시위 장소, 파업(효율 ↓), 폭동 때 범죄 급증. 대응: 협상 · 진압 · 무시</span></div>
+  </div>
+
+  <h2>2. 기능과 상태</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>기능</th><th>내용</th><th>상태</th></tr>
+    <tr><td>정책 등록</td><td>모드 정책을 바닐라 정책 탭에 토글·슬라이더로 등록. <code>PrefabSystem</code> 직전에 추가해야 슬라이더 값이 산다</td><td><span class="chip ok">구현·확인</span></td></tr>
+    <tr><td>고급 오염 관리 흡수</td><td>바닐라 토글을 숨기고 "오염 방지 설비 의무화"로 대체, 켜져 있던 세이브는 옮겨 줌</td><td><span class="chip ok">구현·확인</span></td></tr>
+    <tr><td>행정 계층 엔진 (1단계)</td><td>직렬 집계, 역량, 행정 중추, 결정점, 행정 부담, 시차, 점증 비용, 순응, 포획, 정당성, N 정책 신뢰도, 기준점 불만</td><td><span class="chip ok">구현·확인</span></td></tr>
+    <tr><td>직렬 집계</td><td>공공 건물 13개 직렬로 직접 집계. 하루 1번 + 정책 변경 때 + 불러온 직후</td><td><span class="chip ok">구현·확인</span></td></tr>
+    <tr><td>복지 사무소 직렬 지정</td><td>정보 패널 체크박스로 사회복지직 지정 (세이브 저장). → 일반행정직 / 사회복지직 / 세무직 선택으로 넓힐 예정</td><td><span class="chip ok">체크박스 구현</span> <span class="chip design">선택 확장</span></td></tr>
+    <tr><td>예산 연결</td><td>모드 돈을 바닐라 예산 배열에 얹고, 예산 화면에 별도 줄로 분리 표시. 자금·월 수지·차트 일치</td><td><span class="chip ok">구현·확인</span></td></tr>
+    <tr><td>정책 잠금</td><td>패소 금지 기간에 바닐라 잠금(회색) 모양으로 표시</td><td><span class="chip proto">유지 확인, 마일스톤 해금과 충돌은 미확인</span></td></tr>
+    <tr><td>정책 검색창</td><td>정책 탭 위, 현재 언어 제목으로 거름 (바닐라·다른 모드 포함)</td><td><span class="chip proto">동작함, 모양 수정 필요 (미리보기 먼저)</span></td></tr>
+    <tr><td>세이브 데이터</td><td>엔진 상태를 도시 엔티티에 저장 (버전 바이트)</td><td><span class="chip proto">실제 저장·불러오기, 모드 제거 후 미확인</span></td></tr>
+    <tr><td>행정소송</td><td>아래 4장</td><td><span class="chip design">설계 확정</span></td></tr>
+    <tr><td>소송 알림</td><td>치르퍼 글 + 도시 정보 버튼 숫자 배지(파랑) + 시청 위 저울 아이콘</td><td><span class="chip design">설계 확정</span> <span class="small">(미리보기 docs/previews/suit-badge.html)</span></td></tr>
+    <tr><td>세율 하한·세무직</td><td>아래 5장</td><td><span class="chip design">설계 확정</span></td></tr>
+    <tr><td>자치단체 종류 설정</td><td>시(기본)·군·도·주(영어 "State" 하나). 사건의 피고 이름에 쓰임. 특별시는 이름을 "서울특별"로, 도·주는 이름에 "도"나 "주"를 넣고 고름</td><td><span class="chip design">설계 확정</span></td></tr>
+    <tr><td>보고서 패널</td><td>논리모형(투입 → 활동 → 산출 → 결과), 계류 중인 소송 목록</td><td><span class="chip design">방향만 확정, 화면 설계 전</span></td></tr>
+    <tr><td>첫 묶음 나머지 4개 + 기업 모형</td><td>오염세, 녹색 전환 보조금, 환경 감시단, 배출 정보 공개제</td><td><span class="chip design">설계 확정</span></td></tr>
+    <tr><td>탄소배출권 거래제, 쓰레기 종량제</td><td>대기오염을 탄소 대신 사용 / 요금에 따른 배출 반응</td><td><span class="chip later">나중</span></td></tr>
+    <tr><td>시위·폭동, 지구 정책</td><td>불만 표출 다항 로짓의 나머지 선택지</td><td><span class="chip later">나중</span></td></tr>
+  </table>
+  </div>
+
+  <h2>3. 정책</h2>
+  <h3>첫 묶음: 환경 규제 체계 (같은 목표를 다섯 수단으로)</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>정책</th><th>수단</th><th>P/N</th><th>입력</th><th>핵심</th><th>상태</th></tr>
+    <tr><td>오염 방지 설비 의무화</td><td>A</td><td>N</td><td>토글</td><td>기술 기준. 대기·토양 -25%, 쓰레기 +15% (바닐라 고급 오염 관리 대체)</td><td><span class="chip ok">시제품</span></td></tr>
+    <tr><td>배출 기준 규제</td><td>A</td><td>N</td><td>0~60%</td><td>성과 기준. 감축 확실, 비용 크고 소송 위험 높음</td><td><span class="chip ok">시제품</span></td></tr>
+    <tr><td>오염세</td><td>T</td><td>N</td><td>기준 세율 0~100%</td><td>가장 싸게 줄이고 수입이 생김. 감축량은 업종에 따라 다름</td><td><span class="chip design">미구현</span></td></tr>
+    <tr><td>녹색 전환 보조금</td><td>T</td><td>P</td><td>기준 보조율 0~100%</td><td>반발 없음, 돈이 들고 끊기 어려움. 산업 진입 ↑</td><td><span class="chip design">미구현</span></td></tr>
+    <tr><td>환경 감시단</td><td>O</td><td>N</td><td>인력 0~100%</td><td>적발 확률 ↑ (규제·세금의 효과를 키움)</td><td><span class="chip design">미구현</span></td></tr>
+    <tr><td>배출 정보 공개제</td><td>N</td><td>N</td><td>토글</td><td>단독 효과는 작고, 자발 순응을 올리는 증폭기</td><td><span class="chip design">미구현</span></td></tr>
+  </table>
+  </div>
+  <p class="small">A 권한(규제) · T 재정 · O 조직 · N 정보 (Hood의 NATO). P = 혜택 정책(줄일 때 반발), N = 부담 정책(올릴 때 반발, 낮추면 신뢰도 손실).</p>
+  <h3>다음 후보 (우선순위 제안, 미확정)</h3>
+  <ol>
+    <li>바닐라에서 효과가 저절로 퍼지는 것: 최저임금, 시차출퇴근제, 인재 유치, 재개발 촉진</li>
+    <li>사회복지직을 쓰는 것: 찾아가는 복지, 노숙인 지원, 출소자 복귀, 피해자 지원</li>
+    <li>행정 개혁: 규제 절차 간소화, 전자정부, 공무원 보수, 순환보직, 참여예산제, 공청회</li>
+  </ol>
+
+  <h2>4. 행정소송</h2>
+  <div class="grid">
+    <div class="card">
+      <h3 style="margin-top:0">진행 순서 (게임 시간)</h3>
+      <ul class="timeline">
+        <li><span class="t">0</span><br>소송 제기. 대표 원고가 치르퍼에 글을 쓰고, 도시 정보 버튼에 숫자 배지, 대표 원고와 가장 가까운 시청 위에 저울 아이콘</li>
+        <li><span class="t">30분</span><br>집행정지 결정, 예고 통지. 아직 대응하지 않았으면 원고에게 유리하게 판단</li>
+        <li><span class="t">1시간</span><br>집행정지 효력 (정책 멈춤). 그 전에 대응(=이의 신청)하면 효력 전에 한 번 다시 검토</li>
+        <li><span class="t">판결 전까지</span><br>변호사 선임 또는 소송수행 공무원 지정. 언제든 화해·조정 가능</li>
+        <li><span class="t">1~1.5일</span><br>판결. 대응이 없었으면 무변론 판결로 패소</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">판결 확률</h3>
+      <p><code>P(도시 패소) = 1 / (1 + e^(−z))</code><br><code>z = −2.944 + 6.7 × (비례 + 신뢰보호 + 절차 위반)</code></p>
+      <table>
+        <tr><th>위반 합</th><th>공무원</th><th>변호사 (z − 0.3)</th></tr>
+        <tr><td>0</td><td>5%</td><td>3.8%</td></tr>
+        <tr><td>0.25</td><td>22%</td><td>17%</td></tr>
+        <tr><td>0.5</td><td>60%</td><td>53%</td></tr>
+        <tr><td>1.0</td><td>98%</td><td>97%</td></tr>
+      </table>
+      <p class="small">0.25에서 22%는 사법연감 2026의 원고 승소율 22.4%. 화면에는 "승소 확률: 낮음/보통/높음"(35%, 65% 경계, 오차 σ 0.1)으로만.</p>
+    </div>
+  </div>
+  <h3>대응과 비용</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>선택</th><th>드는 것</th><th>판결</th></tr>
+    <tr><td>외부 변호사</td><td>연수입 × 0.5% × (총공수 ÷ 66). 남은 기간 30% 이내에 고르면 1.5배</td><td>승소 확률 조금 ↑</td></tr>
+    <tr><td>소송수행 공무원</td><td>일반행정직 = 총공수 ÷ 남은 시간(1시간 단위 올림)</td><td>공식 그대로</td></tr>
+    <tr><td>대응 없음</td><td>없음</td><td>무변론 판결, 100% 패소</td></tr>
+  </table>
+  </div>
+  <p class="small">총공수(상향식 산정): 답변서 12 + 6 × 쟁점 · 주민 원고 8 × log10(가구 + 1) · 기업 원고 6 × √기업 · 변론 6 × 결정점 · 집행정지 8 · 예비분 15%. 기본 대응 방식 설정(매번 직접 / 항상 변호사 / 항상 공무원).</p>
+  <h3>판결 뒤</h3>
+  <div class="grid">
+    <div class="card"><b>도시가 지면</b>
+      <ul>
+        <li>정책 꺼짐·잠김, 기준점 R은 시행 전 값으로</li>
+        <li>금지 2 + 3 × 심각도 일 (슬라이더는 조건부 재시행)</li>
+        <li>배상: 상한 연수입 × 2, 즉시 5%, 하루 4~8%, 최소 보유자금 연수입 ÷ 12 유지, 연체 이자</li>
+        <li>원고 소송 비용 부담 (무변론이면 절반)</li>
+        <li>일부 패소(28%): 금지·배상 × k, k = 0.3 + 0.5 × 심각도</li>
+      </ul>
+    </div>
+    <div class="card"><b>도시가 이기면</b>
+      <ul>
+        <li>변호사를 선임했을 때만 소송 비용 회수</li>
+        <li>회수액 = min(낸 변호사 비용, 산입액) · 산입액은 「변호사보수의 소송비용 산입에 관한 규칙」(2020 개정) 별표, 1억원 = 연수입 1% 눈금</li>
+      </ul>
+    </div>
+    <div class="card"><b>사건 표시</b>
+      <ul>
+        <li>사건번호 <code>2026구합1042</code></li>
+        <li>사건명 "배출 기준 규제 처분 취소 및 국가배상"</li>
+        <li>청구 취지 3줄, 청구 원인 요지 (다투는 근거별)</li>
+        <li>피고: 처분청(시장 등)과 자치단체(시 등), 자치단체 종류 설정을 따름</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>5. 공무원과 세금</h2>
+  <div class="grid">
+    <div class="card"><b>직렬 (13개 + 세무직 예정)</b>
+      <p class="small">일반행정 · 사회복지 · 세무(예정) · 경찰 · 교정 · 소방·방재 · 교육 · 연구 · 보건의료 · 환경 · 시설관리 · 공업·기술 · 운수 · 우정·통신</p>
+      <ul>
+        <li>정책마다 직렬 가중치와 필요 인원(고정 + 대상 단위당)</li>
+        <li>최저 인원 0: 해당 직렬 건물이 없으면 그 정책은 집행되지 않음</li>
+        <li>복지 사무소는 기본 일반행정직, 정보 패널에서 직렬 선택</li>
+      </ul>
+    </div>
+    <div class="card"><b>주거세 하한 (사회복지직)</b>
+      <ul>
+        <li>사회복지직이 없으면 주거세 8% 미만 불가</li>
+        <li>하한 = 8% − (8% − 바닐라 하한) × min(1, 비율 ÷ 0.4‰)</li>
+        <li>복지 사무소 하나(50명)로 인구 12.5만까지 바닐라 하한</li>
+        <li>처음부터 적용 (마일스톤 예외 없음)</li>
+      </ul>
+    </div>
+    <div class="card"><b>세무직</b>
+      <ul>
+        <li>세무직이 0이면 모든 세율을 기본값 10%에 고정</li>
+        <li>모드를 처음 넣은 기존 도시는 그때 세율을 유지하고 변경만 막음 (한 번)</li>
+        <li>근거 레버: <code>TaxParameterData</code> 세율 한계</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>6. 시간 척도</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>항목</th><th>게임 시간</th><th>현실 (최고 배속)</th></tr>
+    <tr><td>계산 주기</td><td>8192프레임 (약 45분)</td><td>약 45초</td></tr>
+    <tr><td>정책 효과 시차</td><td>2~6시간</td><td>2~6분</td></tr>
+    <tr><td>기준점 적응</td><td>1일</td><td>약 24분</td></tr>
+    <tr><td>소송 기간</td><td>1~1.5일</td><td>약 24~36분</td></tr>
+    <tr><td>집행정지 결정 / 효력</td><td>30분 / 1시간</td><td>30초 / 1분</td></tr>
+    <tr><td>사용 금지</td><td>2~5일 (일부 패소는 × k)</td><td>약 48분~2시간</td></tr>
+    <tr><td>N 정책 신뢰도 회복</td><td>12시간</td><td>약 12분</td></tr>
+  </table>
+  </div>
+  <p class="small">게임 하루 = 262,144프레임 = 한 달, 1년 = 12일. 시간 배율 설정은 넣지 않는다.</p>
+
+  <h2>7. 코드 구조</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>파일</th><th>역할</th><th>실행 위치</th></tr>
+    <tr><td><code>Mod.cs</code></td><td>시스템 등록, 로캘 추가</td><td>모드 로드</td></tr>
+    <tr><td><code>PolicyCatalog.cs</code></td><td>정책 프리팹 만들기·등록, 바닐라 고급 오염 관리 숨김</td><td>MainLoop, <code>PrefabSystem</code> 직전</td></tr>
+    <tr><td><code>Engine/PolicyDefinitions.cs</code></td><td>정책 정의(수단, P/N, 직렬, 필요 인원, 시차, 출력)와 엔진 상수</td><td>데이터</td></tr>
+    <tr><td><code>Engine/ServiceSeriesCensus.cs</code></td><td>건물을 직렬로 나눠 직원·정원·예산 집계, 대상 수(산업 기업)</td><td>엔진이 호출</td></tr>
+    <tr><td><code>Engine/PolicyEngineSystem.cs</code></td><td>행정 계층 계산, 정당성·신뢰도, 효과 출력</td><td>GameSimulation, 8192프레임마다</td></tr>
+    <tr><td><code>Engine/EngineState.cs</code></td><td>세이브에 저장하는 엔진 상태(정당성, 신뢰도, 정책별 진행·기준점)</td><td>도시 엔티티 컴포넌트</td></tr>
+    <tr><td><code>BudgetInjectionSystem.cs</code></td><td>모드 수입·지출을 바닐라 예산 배열에 얹음</td><td>ModificationEnd, 예산 계산 직후</td></tr>
+    <tr><td><code>ModUISystem.cs</code></td><td>UI 바인딩 (예산 줄 등)</td><td>UIUpdate</td></tr>
+    <tr><td><code>WelfareSeriesSection.cs</code></td><td>복지 사무소 정보 패널의 직렬 지정 섹션</td><td>선택 정보 패널</td></tr>
+    <tr><td><code>UI/RealisticPolicies.mjs</code></td><td>검색창, 예산 줄 분리, 정보 패널 섹션 (게임 UI 모듈 확장)</td><td>게임 UI</td></tr>
+    <tr><td><code>Locale.cs</code></td><td>영어·한국어 문구</td><td>로캘</td></tr>
+    <tr><td><code>SelfTestSystem.cs</code></td><td>자동 시험 (시제품 전용, 배포 전 제거)</td><td>플래그 파일이 있을 때만</td></tr>
+  </table>
+  </div>
+  <p class="small">소송 모듈, 보고서 패널, 세율 제어, 알림(치르퍼·배지·건물 아이콘)은 아직 파일이 없다.</p>
+
+  <h2>8. 근거 자료</h2>
+  <ul>
+    <li>이론: Hood(NATO), Pressman–Wildavsky, Weber, M/M/1, Nerlove, Bass, Davis–Dempster–Wildavsky, Becker, Tyler, Bernstein, Easton, Kahneman–Tversky, Lowi, Wilson, Pierson, Kydland–Prescott, Posner, Priest–Klein, Weitzman, Ayres–Braithwaite, Allingham–Sandmo</li>
+    <li>국내 논문 20편 (PLAN §15): 공무원 규모, 사회복지직, 최저임금, 종량제, 규제·조세 순응, 배출권거래제, 노숙인 지원, 정부 신뢰</li>
+    <li>사법연감 2026 (행정소송 통계), 변호사보수의 소송비용 산입에 관한 규칙 (2020 개정)</li>
+  </ul>
+
+  <h2>9. 남은 일</h2>
+  <div class="grid">
+    <div class="card"><b>게임에서 확인할 것</b>
+      <ul>
+        <li>세이브 저장·불러오기, 모드 제거 후 세이브</li>
+        <li>검색창 타이핑과 단축키 충돌</li>
+        <li><code>Locked</code>와 마일스톤 해금</li>
+        <li>모드 치르퍼 글, 건물 아이콘 텍스처 크기·형식</li>
+        <li>큰 도시 성능</li>
+      </ul>
+    </div>
+    <div class="card"><b>구현할 것</b>
+      <ul>
+        <li>소송 모듈과 보고서 패널</li>
+        <li>첫 묶음 나머지 4개와 기업 모형</li>
+        <li>세율 하한·세무직, 직렬 선택 확장</li>
+        <li>검색창 모양 (미리보기 먼저)</li>
+      </ul>
+    </div>
+    <div class="card"><b>정할 것</b>
+      <ul>
+        <li>구현 순서 (소송 먼저 / 첫 묶음 먼저)</li>
+        <li>다음 정책 후보의 우선순위</li>
+        <li>수치 조정은 구현하면서 게임에서</li>
+      </ul>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,784 @@
+using System;
+using System.IO;
+using System.Text;
+using Colossal.Entities;
+using Colossal.IO.AssetDatabase;
+using Colossal.Serialization.Entities;
+using Game;
+using Game.Assets;
+using Game.City;
+using Game.Common;
+using Game.Policies;
+using Game.Prefabs;
+using Game.SceneFlow;
+using Game.Simulation;
+using Game.UI;
+using RealisticPolicies.Engine;
+using Unity.Collections;
+using Unity.Entities;
+using UnityEngine;
+using UnityEngine.Scripting;
+
+namespace RealisticPolicies
+{
+    /// <summary>
+    /// Prototype-only self-test. Runs only when ModsData/RealisticPolicies/selftest.flag exists:
+    /// starts a throwaway new city from the main menu, checks every hook the design relies on,
+    /// writes report.txt and screenshots next to the flag, then quits the game. Never touches saves.
+    /// </summary>
+    public sealed class SelfTestSystem : GameSystemBase
+    {
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, MoneyWatch, Finish, Quit }
+
+        private const float kTimeoutSeconds = 900f;
+        private const string kPreferredMap = "Plains";
+        private const int kSamples = 5;
+        private const uint kSampleFrames = 4096;
+        private const float kTestSpeed = 4f;
+
+        private readonly StringBuilder m_Report = new StringBuilder();
+        private string m_Directory;
+        private Stage m_Stage;
+        private float m_TestStart;
+        private float m_StageStart;
+        private uint m_SimStart;
+        private int m_Passed;
+        private int m_Failed;
+        private bool m_UiDone;
+        private Entity m_WelfareOffice;
+        private string m_SaveName;
+        private bool m_MoneyMode;
+        private float m_NextMoneySample;
+        private int m_MoneyAtStart;
+        private uint m_FrameAtStart;
+        private const float kMoneyWatchSeconds = 660f;
+        private const int kMoneyTestExpense = 50000000;
+
+        private PrefabSystem m_PrefabSystem;
+        private CitySystem m_CitySystem;
+        private SimulationSystem m_SimulationSystem;
+        private CityServiceBudgetSystem m_BudgetSystem;
+        private CityStatisticsSystem m_StatisticsSystem;
+        private BudgetInjectionSystem m_Injection;
+        private PolicyEngineSystem m_Engine;
+        private readonly float[,] m_Samples = new float[kSamples, 3];
+        private int m_SampleCount;
+        private float m_AirBefore;
+        private ModUISystem m_UISystem;
+        private EntityArchetype m_ModifyArchetype;
+        private EndFrameBarrier m_EndFrameBarrier;
+
+        private int m_MoneyStart;
+        private int m_BalanceSum;
+        private int m_BalanceSamples;
+        private int m_HostIncomeBefore;
+        private int m_HostExpenseBefore;
+
+        private static string FlagPath => Path.Combine(Application.persistentDataPath, "ModsData", Mod.kName, "selftest.flag");
+
+        /// <summary>True when the next launch should run the self-test; checked before systems are registered.</summary>
+        public static bool IsRequested => File.Exists(FlagPath);
+
+        [Preserve]
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            m_Directory = Path.Combine(Application.persistentDataPath, "ModsData", Mod.kName);
+            string flag = FlagPath;
+            if (!File.Exists(flag))
+            {
+                Enabled = false;
+                return;
+            }
+            // "save:<file name>" loads that save (a copy made for the test); anything else starts a new city.
+            string request = File.ReadAllText(flag).Trim();
+            // "save:<file name>;money" only watches city money against a large injected expense.
+            m_MoneyMode = request.EndsWith(";money", StringComparison.Ordinal);
+            if (m_MoneyMode)
+            {
+                request = request.Substring(0, request.Length - ";money".Length);
+            }
+            m_SaveName = request.StartsWith("save:", StringComparison.Ordinal) ? request.Substring(5).Trim() : null;
+            // Delete at once so a crash never makes the next normal launch start a test city.
+            File.Delete(flag);
+            Directory.CreateDirectory(Path.Combine(m_Directory, "selftest"));
+
+            m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+            m_CitySystem = World.GetOrCreateSystemManaged<CitySystem>();
+            m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+            m_BudgetSystem = World.GetOrCreateSystemManaged<CityServiceBudgetSystem>();
+            m_StatisticsSystem = World.GetOrCreateSystemManaged<CityStatisticsSystem>();
+            m_Injection = World.GetOrCreateSystemManaged<BudgetInjectionSystem>();
+            m_Engine = World.GetOrCreateSystemManaged<PolicyEngineSystem>();
+            m_UISystem = World.GetOrCreateSystemManaged<ModUISystem>();
+            m_UISystem.UiReport += OnUiReport;
+            m_EndFrameBarrier = World.GetOrCreateSystemManaged<EndFrameBarrier>();
+            m_ModifyArchetype = EntityManager.CreateArchetype(ComponentType.ReadWrite<Game.Common.Event>(), ComponentType.ReadWrite<Modify>());
+
+            // The test city must never be written: switch the autosave system off for this session only (no setting changes).
+            World.GetOrCreateSystemManaged<AutoSaveSystem>().Enabled = false;
+
+            m_TestStart = UnityEngine.Time.realtimeSinceStartup;
+            Line($"Self-test started {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            SetStage(Stage.WaitMenu);
+        }
+
+        [Preserve]
+        protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
+        {
+            base.OnGameLoadingComplete(purpose, mode);
+            if (m_Stage == Stage.Loading && mode == GameMode.Game)
+            {
+                Line($"City loaded (purpose {purpose}).");
+                SetStage(Stage.Settle);
+            }
+        }
+
+        [Preserve]
+        protected override void OnUpdate()
+        {
+            if (m_Stage != Stage.Quit && m_Stage != Stage.Off && UnityEngine.Time.realtimeSinceStartup - m_TestStart > kTimeoutSeconds)
+            {
+                Check("Self-test finished before the time limit", false, $"stuck in stage {m_Stage}");
+                SetStage(Stage.Finish);
+            }
+
+            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || m_Stage == Stage.MoneyWatch) && m_SimulationSystem.selectedSpeed != kTestSpeed)
+            {
+                // The test needs simulation frames: run at top speed whatever speed the city was loaded with.
+                m_SimulationSystem.selectedSpeed = kTestSpeed;
+            }
+
+            switch (m_Stage)
+            {
+                case Stage.WaitMenu:
+                    UpdateWaitMenu();
+                    break;
+                case Stage.Settle:
+                    // Wait until the simulation has finished loading; it re-applies "pause after loading" at that point.
+                    if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_MoneyMode)
+                    {
+                        StartMoneyWatch();
+                    }
+                    else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading)
+                    {
+                        RunStaticChecks();
+                        SetStage(Stage.Activate);
+                    }
+                    break;
+                case Stage.Activate:
+                    ActivatePolicies();
+                    SetStage(Stage.WaitModifiers);
+                    break;
+                case Stage.WaitModifiers:
+                    if (SimFrames() >= 1024)
+                    {
+                        CheckActivation();
+                        SetStage(Stage.EngineSamples);
+                    }
+                    break;
+                case Stage.EngineSamples:
+                    if (SimFrames() >= kSampleFrames)
+                    {
+                        if (TakeSample())
+                        {
+                            CheckEngine();
+                            MigrateVanillaToggle();
+                            SetStage(Stage.WaitMigration);
+                        }
+                        else
+                        {
+                            SetStage(Stage.EngineSamples);
+                        }
+                    }
+                    break;
+                case Stage.WaitMigration:
+                    if (SimFrames() >= 1024)
+                    {
+                        CheckMigration();
+                        SetStage(Stage.BudgetPrepare);
+                    }
+                    break;
+                case Stage.BudgetPrepare:
+                    UpdateBudgetPrepare();
+                    break;
+                case Stage.BudgetMeasure:
+                    UpdateBudgetMeasure();
+                    break;
+                case Stage.WaitLock:
+                    if (SimFrames() >= 2048)
+                    {
+                        Check("Locked stays on the mod policy after 2048 frames", IsLocked(PolicyCatalog.EmissionStandard), null);
+                        m_UiDone = false;
+                        m_UISystem.SetSelfTestStage(1);
+                        SetStage(Stage.Ui);
+                    }
+                    break;
+                case Stage.Ui:
+                    if (m_UiDone || StageSeconds() > 120f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("UI self-test reported back", false, "no report within 120 s");
+                        }
+                        StartWelfareCheck();
+                    }
+                    break;
+                case Stage.WelfareUi:
+                    if (m_UiDone || StageSeconds() > 60f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Welfare UI test reported back", false, "no report within 60 s");
+                        }
+                        m_Engine.RequestCensus();
+                        SetStage(Stage.WelfareCensus);
+                    }
+                    break;
+                case Stage.WelfareCensus:
+                    if (SimFrames() >= 2048)
+                    {
+                        CheckWelfareCensus();
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.MoneyWatch:
+                    UpdateMoneyWatch();
+                    break;
+                case Stage.Finish:
+                    Finish();
+                    SetStage(Stage.Quit);
+                    break;
+                case Stage.Quit:
+                    if (StageSeconds() > 3f)
+                    {
+                        Application.Quit();
+                        Enabled = false;
+                    }
+                    break;
+            }
+        }
+
+        private void UpdateWaitMenu()
+        {
+            if (GameManager.instance.gameMode == GameMode.Game)
+            {
+                // The player's own save was loaded (e.g. "Resume" in the launcher): never touch it.
+                Line("A city was loaded before the test could start its own; self-test aborted.");
+                Finish();
+                SetStage(Stage.Off);
+                Enabled = false;
+                return;
+            }
+            if (GameManager.instance.gameMode != GameMode.MainMenu || StageSeconds() < 3f)
+            {
+                return;
+            }
+            // Registration runs in the main loop; it must have happened in the menu so saves can reference the prefabs.
+            if (!PolicyCatalog.IsRegistered && StageSeconds() < 60f)
+            {
+                return;
+            }
+            Check("Policies registered while in the main menu", PolicyCatalog.IsRegistered, null);
+            if (m_SaveName != null)
+            {
+                StartFromSave();
+            }
+            else
+            {
+                StartTestCity();
+            }
+        }
+
+        private void StartFromSave()
+        {
+            SaveGameMetadata chosen = null;
+            foreach (SaveGameMetadata meta in AssetDatabase.global.GetAssets(default(SearchFilter<SaveGameMetadata>)))
+            {
+                SaveInfo info = meta.target;
+                if (info != null && ((info.path != null && Path.GetFileNameWithoutExtension(info.path) == m_SaveName) || info.displayName == m_SaveName))
+                {
+                    chosen = meta;
+                    break;
+                }
+            }
+            if (chosen == null)
+            {
+                Check($"Save copy '{m_SaveName}' found", false, null);
+                SetStage(Stage.Finish);
+                return;
+            }
+            Line($"Loading the save copy '{m_SaveName}' ({chosen.target.displayName}). It is never saved.");
+            SetStage(Stage.Loading);
+            _ = GameManager.instance.Load(GameMode.Game, Purpose.LoadGame, chosen);
+        }
+
+        private void StartTestCity()
+        {
+            MapMetadata chosen = null;
+            var names = new StringBuilder();
+            foreach (MapMetadata meta in AssetDatabase.global.GetAssets(default(SearchFilter<MapMetadata>)))
+            {
+                MapInfo info = meta.target;
+                if (info == null)
+                {
+                    continue;
+                }
+                names.Append(info.displayName).Append("; ");
+                if (chosen == null || info.displayName == kPreferredMap)
+                {
+                    chosen = meta;
+                }
+            }
+            Line($"Maps: {names}");
+            if (chosen == null)
+            {
+                Check("A map is available for the test city", false, null);
+                SetStage(Stage.Finish);
+                return;
+            }
+
+            MapInfo target = chosen.target;
+            CityConfigurationSystem config = World.GetOrCreateSystemManaged<CityConfigurationSystem>();
+            config.overrideLoadedOptions = true;
+            config.overrideCityName = "RP Selftest";
+            config.overrideThemeName = target.theme;
+            config.overrideUnlockAll = true;
+            config.overrideUnlimitedMoney = false;
+            config.overrideNaturalDisasters = false;
+            config.overrideLeftHandTraffic = false;
+            MapMetadataSystem mapMetadata = World.GetOrCreateSystemManaged<MapMetadataSystem>();
+            mapMetadata.mapName = target.displayName;
+            mapMetadata.prefabReferences = target.prefabReferences;
+            // The menu sets this too; without it the date systems throw on a new city.
+            World.GetOrCreateSystemManaged<TimeSystem>().startingYear = target.startingYear != -1 ? target.startingYear : DateTime.Now.Year;
+
+            Line($"Starting a new city on '{target.displayName}' (unlock all on, unlimited money off).");
+            SetStage(Stage.Loading);
+            _ = GameManager.instance.Load(GameMode.Game, Purpose.NewGame, chosen);
+        }
+
+        private void RunStaticChecks()
+        {
+            Entity mandate = PolicyCatalog.EquipmentMandate;
+            Entity standard = PolicyCatalog.EmissionStandard;
+            Check("Toggle policy prefab has PolicyData", mandate != Entity.Null && EntityManager.HasComponent<PolicyData>(mandate), null);
+            bool sliderOk = standard != Entity.Null && EntityManager.HasComponent<PolicySliderData>(standard);
+            string sliderInfo = null;
+            if (sliderOk)
+            {
+                PolicySliderData slider = EntityManager.GetComponentData<PolicySliderData>(standard);
+                sliderInfo = $"range [{slider.m_Range.min}, {slider.m_Range.max}], default {slider.m_Default}, step {slider.m_Step}, unit {slider.m_Unit}";
+            }
+            Check("Slider policy prefab has PolicySliderData", sliderOk, sliderInfo);
+            Check("Mod policies start unlocked", !IsLocked(mandate) && !IsLocked(standard), null);
+            Check("Vanilla toggle is hidden from the policy list",
+                m_PrefabSystem.TryGetPrefab(PolicyCatalog.VanillaPollutionManagement, out PolicyPrefab vanilla) && vanilla.m_Visibility == PolicyVisibility.HideFromPolicyList, null);
+
+            WriteBuildingTable();
+
+        }
+
+        /// <summary>Every staffed service building prefab with its series, cost, upkeep, jobs and unlock milestone (CSV).</summary>
+        private void WriteBuildingTable()
+        {
+            var csv = new StringBuilder("name,series,service,construction_cost,monthly_upkeep,max_workers,milestone\n");
+            int rows = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>(), ComponentType.ReadOnly<ServiceObjectData>(), ComponentType.ReadOnly<WorkplaceData>()))
+            using (NativeArray<Entity> prefabs = query.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < prefabs.Length; i++)
+                {
+                    Entity prefab = prefabs[i];
+                    ServiceSeries series = ServiceSeriesCensus.Classify(EntityManager, prefab);
+                    string name = m_PrefabSystem.TryGetPrefab(prefab, out PrefabBase prefabBase) ? prefabBase.name : "?";
+                    string service = m_PrefabSystem.TryGetPrefab(EntityManager.GetComponentData<ServiceObjectData>(prefab).m_Service, out PrefabBase servicePrefab) ? servicePrefab.name : "?";
+                    uint cost = EntityManager.TryGetComponent(prefab, out PlaceableObjectData placeable) ? placeable.m_ConstructionCost : 0u;
+                    int upkeep = 0;
+                    if (EntityManager.TryGetBuffer(prefab, true, out DynamicBuffer<ServiceUpkeepData> upkeeps))
+                    {
+                        for (int u = 0; u < upkeeps.Length; u++)
+                        {
+                            if (upkeeps[u].m_Upkeep.m_Resource == Game.Economy.Resource.Money)
+                            {
+                                upkeep += upkeeps[u].m_Upkeep.m_Amount;
+                            }
+                        }
+                    }
+                    int workers = EntityManager.GetComponentData<WorkplaceData>(prefab).m_MaxWorkers;
+                    int milestone = EntityManager.HasComponent<Locked>(prefab) ? Game.UI.InGame.ProgressionUtils.GetRequiredMilestone(EntityManager, prefab) : 0;
+                    csv.Append('"').Append(name).Append("\",").Append(series).Append(',').Append(service).Append(',')
+                        .Append(cost).Append(',').Append(upkeep).Append(',').Append(workers).Append(',').Append(milestone).Append('\n');
+                    rows++;
+                }
+            }
+            string file = Path.Combine(m_Directory, "selftest", "service-buildings.csv");
+            File.WriteAllText(file, csv.ToString());
+            Line($"Service building table: {rows} prefabs -> {file}");
+        }
+
+        private void ActivatePolicies()
+        {
+            Entity city = m_CitySystem.City;
+            SetPolicy(city, PolicyCatalog.EquipmentMandate, true, 0f);
+            SetPolicy(city, PolicyCatalog.EmissionStandard, true, 30f);
+            // Vanilla toggle on as well, to test stacking and the save migration.
+            SetPolicy(city, PolicyCatalog.VanillaPollutionManagement, true, 0f);
+            Line("Activated: mandate, emission standard at 30%, vanilla toggle.");
+        }
+
+        private void CheckActivation()
+        {
+            // The engine may already have switched the vanilla toggle over (its first step after loading); the
+            // migration stage below turns it on again and checks the switch.
+            Check("Mod policies are active", IsActive(PolicyCatalog.EquipmentMandate) && IsActive(PolicyCatalog.EmissionStandard), null);
+            m_AirBefore = AirModifier();
+            m_SampleCount = 0;
+            TakeSample();
+        }
+
+        /// <summary>Records engine progress for both mod policies and the city air modifier; returns true when all samples are in.</summary>
+        private bool TakeSample()
+        {
+            PolicyStepResult[] results = m_Engine.LastResults;
+            m_Samples[m_SampleCount, 0] = results[0].Progress;
+            m_Samples[m_SampleCount, 1] = results[1].Progress;
+            m_Samples[m_SampleCount, 2] = AirModifier();
+            Line($"Sample {m_SampleCount}: mandate {results[0].Progress:0.000}/{results[0].Target:0.000}, standard {results[1].Progress:0.000}/{results[1].Target:0.000}, city air {m_Samples[m_SampleCount, 2]:0.000}, legitimacy {m_Engine.LastState.m_Legitimacy:0.000}");
+            m_SampleCount++;
+            return m_SampleCount >= kSamples;
+        }
+
+        private void CheckEngine()
+        {
+            PolicyStepResult[] results = m_Engine.LastResults;
+            bool rising = true;
+            for (int i = 1; i < kSamples; i++)
+            {
+                rising &= m_Samples[i, 0] > m_Samples[i - 1, 0] && m_Samples[i, 1] > m_Samples[i - 1, 1];
+            }
+            Check("Delivered effect rises step by step (lag, not instant)", rising && m_Samples[0, 0] < 0.9f * results[0].Target, $"first {m_Samples[0, 0]:0.000}, last {m_Samples[kSamples - 1, 0]:0.000}, target {results[0].Target:0.000}");
+            Check("Vanilla applies the engine's effect to the city", m_Samples[kSamples - 1, 2] < m_AirBefore - 0.005f, $"air {m_AirBefore:0.000} -> {m_Samples[kSamples - 1, 2]:0.000}");
+            Check("Engine state is stored on the city", EntityManager.HasComponent<PolicyEngineState>(m_CitySystem.City) && EntityManager.HasBuffer<PolicyRuntime>(m_CitySystem.City), null);
+            ServiceSeriesCensus census = m_Engine.Census;
+            var staffing = new StringBuilder();
+            for (int s = 0; s < (int)ServiceSeries.Count; s++)
+            {
+                staffing.Append($"{(ServiceSeries)s} {census.Workers((ServiceSeries)s)}/{census.MaxWorkers((ServiceSeries)s)} (C {census.Capacity[s]:0.00}, demand {m_Engine.Demand[s]:0.0}); ");
+            }
+            Line($"Series census (industrial companies {census.IndustrialCompanies}): " + staffing);
+            Check("Raising two N policies lowers legitimacy", m_Engine.LastState.m_Legitimacy < EngineParameters.kLegitimacyBase, $"{m_Engine.LastState.m_Legitimacy:0.000}");
+            CheckDefinitionFramework();
+        }
+
+        /// <summary>Stage 2: money outputs become budget rows, groups are counted, parameter levers restore.</summary>
+        private void CheckDefinitionFramework()
+        {
+            ServiceSeriesCensus census = m_Engine.Census;
+            Line($"Groups: households {census.TargetCount(TargetGroup.Households)}, industrial {census.TargetCount(TargetGroup.IndustrialCompanies)}, " +
+                $"commercial {census.TargetCount(TargetGroup.CommercialCompanies)}, office {census.TargetCount(TargetGroup.OfficeCompanies)}");
+            Check("Households are counted", census.TargetCount(TargetGroup.Households) > 0, null);
+
+            float industrial = census.TargetCount(TargetGroup.IndustrialCompanies);
+            int expected = (int)Mathf.Round((500f + 20f * industrial) * m_Engine.LastResults[1].Intensity);
+            int row = m_Injection.GetRow(PolicyDefinitions.kEmissionStandardEnforcementRow);
+            Check("Emission standard enforcement is a budget row: (500 + 20 x industrial) x intensity", row == expected && row > 0, $"row {row}, expected {expected}");
+
+            int mandate = System.Array.FindIndex(PolicyDefinitions.All, d => d.Id == PolicyCatalog.kEquipmentMandate);
+            float burden = m_Engine.GroupGrievance(mandate, TargetGroup.IndustrialCompanies);
+            float benefit = m_Engine.GroupGrievance(mandate, TargetGroup.Households);
+            Line($"Mandate grievance: industrial {burden:0.000}, households {benefit:0.000}");
+
+            var lever = new ScaledFloatLever<EconomyParameterData>("SelfTest.CommuterWage",
+                (in EconomyParameterData d) => d.m_CommuterWageMultiplier,
+                (ref EconomyParameterData d, float v) => d.m_CommuterWageMultiplier = v);
+            float before = CommuterWage();
+            bool applied = lever.Apply(EntityManager, 1.5f);
+            float scaled = CommuterWage();
+            lever.Apply(EntityManager, 1.5f);
+            float again = CommuterWage();
+            lever.Restore(EntityManager);
+            float after = CommuterWage();
+            Check("Parameter lever writes original x factor, does not compound, and restores", applied && Mathf.Abs(scaled - before * 1.5f) < 1e-5f && again == scaled && after == before,
+                $"{before} -> {scaled} -> {again} -> {after}");
+        }
+
+        private float CommuterWage()
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<EconomyParameterData>()))
+            {
+                return query.GetSingleton<EconomyParameterData>().m_CommuterWageMultiplier;
+            }
+        }
+
+        private float AirModifier()
+        {
+            return Delta(EntityManager.GetBuffer<CityModifier>(m_CitySystem.City, true), CityModifierType.IndustrialAirPollution);
+        }
+
+        private void MigrateVanillaToggle()
+        {
+            // Turn the vanilla toggle on again and ask the engine for the switch it does after every load.
+            SetPolicy(m_CitySystem.City, PolicyCatalog.VanillaPollutionManagement, true, 0f);
+            m_Engine.RequestVanillaMigration();
+            Line("Vanilla toggle on again; asked the engine to migrate it.");
+        }
+
+        private void CheckMigration()
+        {
+            Check("Migration turned the vanilla toggle off and kept the mandate on", !IsActive(PolicyCatalog.VanillaPollutionManagement) && IsActive(PolicyCatalog.EquipmentMandate), null);
+        }
+
+        private void UpdateBudgetPrepare()
+        {
+            if (StageSeconds() < 0.5f)
+            {
+                return;
+            }
+            if (m_Injection.GetRow(BudgetInjectionSystem.kIncomeRowId) == 0)
+            {
+                m_HostIncomeBefore = m_BudgetSystem.GetIncome(IncomeSource.TaxIndustrial);
+                m_HostExpenseBefore = m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial);
+                m_Injection.SetRow(BudgetInjectionSystem.kIncomeRowId, true, (int)IncomeSource.TaxIndustrial, 200000);
+                m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, 50000);
+                m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+                return;
+            }
+            int income = m_BudgetSystem.GetIncome(IncomeSource.TaxIndustrial);
+            int expense = m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial);
+            Check("Injected income shows in the vanilla budget source", income - m_HostIncomeBefore == m_Injection.GetRow(BudgetInjectionSystem.kIncomeRowId), $"{m_HostIncomeBefore} -> {income}");
+            Check("Injected expense shows in the vanilla budget source", expense - m_HostExpenseBefore == m_Injection.GetRow(BudgetInjectionSystem.kExpenseRowId), $"{m_HostExpenseBefore} -> {expense}");
+            m_MoneyStart = Money();
+            m_BalanceSum = 0;
+            m_BalanceSamples = 0;
+            SetStage(Stage.BudgetMeasure);
+        }
+
+        private void UpdateBudgetMeasure()
+        {
+            m_BalanceSum += m_BudgetSystem.GetBalance();
+            m_BalanceSamples++;
+            uint frames = SimFrames();
+            if (frames < 8192)
+            {
+                return;
+            }
+            int delta = Money() - m_MoneyStart;
+            // BudgetApplySystem adds balance / 1024 every 256 frames.
+            float expected = (float)m_BalanceSum / m_BalanceSamples * frames / 262144f;
+            Line($"Money moved {delta} over {frames} frames; expected about {expected:0} from the average balance {m_BalanceSum / Math.Max(1, m_BalanceSamples)}.");
+            if (EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City).m_Unlimited)
+            {
+                Line("Unlimited money: the money movement check is skipped.");
+            }
+            else
+            {
+                Check("City money follows the vanilla balance including the injection", Math.Abs(delta - expected) <= Math.Max(200f, Math.Abs(expected) * 0.05f), null);
+            }
+
+            // Lock the slider for the next check; a slider tweak makes the vanilla policy binding refresh.
+            Entity standard = PolicyCatalog.EmissionStandard;
+            if (!EntityManager.HasComponent<Locked>(standard))
+            {
+                EntityManager.AddComponent<Locked>(standard);
+            }
+            EntityManager.SetComponentEnabled<Locked>(standard, true);
+            SetPolicy(m_CitySystem.City, standard, true, 35f);
+            Line("Locked the emission standard.");
+            SetStage(Stage.WaitLock);
+        }
+
+        /// <summary>Books a large monthly expense through the vanilla budget and watches city money for ~11 real minutes.</summary>
+        private void StartMoneyWatch()
+        {
+            PlayerMoney money = EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City);
+            m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, kMoneyTestExpense);
+            m_MoneyAtStart = money.money;
+            m_FrameAtStart = m_SimulationSystem.frameIndex;
+            m_NextMoneySample = 0f;
+            Line($"Money watch: unlimited {money.m_Unlimited}, money {m_MoneyAtStart:N0}, injected expense {kMoneyTestExpense:N0} per month.");
+            SetStage(Stage.MoneyWatch);
+        }
+
+        private void UpdateMoneyWatch()
+        {
+            float seconds = StageSeconds();
+            if (seconds < m_NextMoneySample)
+            {
+                return;
+            }
+            m_NextMoneySample = seconds + 30f;
+            int money = EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City).money;
+            uint frames = m_SimulationSystem.frameIndex - m_FrameAtStart;
+            Line($"  {seconds:0} s, {frames} frames: money {money:N0} (change {money - m_MoneyAtStart:N0}), balance {m_BudgetSystem.GetBalance():N0}, subsidy row {m_BudgetSystem.GetExpense(ExpenseSource.SubsidyIndustrial):N0}");
+            if (seconds >= kMoneyWatchSeconds)
+            {
+                Check("City money moves under a large deficit", money != m_MoneyAtStart, $"{m_MoneyAtStart:N0} -> {money:N0} over {frames} frames");
+                SetStage(Stage.Finish);
+            }
+        }
+
+        /// <summary>Selects a welfare office so its info panel (with the mod's checkbox) opens, then hands over to the UI test.</summary>
+        private void StartWelfareCheck()
+        {
+            m_WelfareOffice = Entity.Null;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Game.Tools.Temp>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> buildings = query.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < buildings.Length && m_WelfareOffice == Entity.Null; i++)
+                {
+                    if (EntityManager.HasComponent<WelfareOfficeData>(EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab)
+                        && !EntityManager.HasComponent<SocialWelfareDesignation>(buildings[i]))
+                    {
+                        m_WelfareOffice = buildings[i];
+                    }
+                }
+            }
+            if (m_WelfareOffice == Entity.Null)
+            {
+                Line("No unmarked welfare office in this city; the checkbox check is skipped.");
+                SetStage(Stage.Finish);
+                return;
+            }
+            ServiceSeriesCensus census = m_Engine.Census;
+            Line($"Welfare office {m_WelfareOffice.Index}: general administration {census.Workers(ServiceSeries.GeneralAdministration)}, social welfare {census.Workers(ServiceSeries.SocialWelfare)} before the checkbox.");
+            World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(m_WelfareOffice);
+            m_UiDone = false;
+            m_UISystem.SetSelfTestStage(2);
+            SetStage(Stage.WelfareUi);
+        }
+
+        private void CheckWelfareCensus()
+        {
+            ServiceSeriesCensus census = m_Engine.Census;
+            bool marked = EntityManager.HasComponent<SocialWelfareDesignation>(m_WelfareOffice);
+            Check("Checkbox marks the welfare office", marked, null);
+            Check("Marked office's staff count as social welfare", census.MaxWorkers(ServiceSeries.SocialWelfare) > 0,
+                $"general administration {census.Workers(ServiceSeries.GeneralAdministration)}, social welfare {census.Workers(ServiceSeries.SocialWelfare)}/{census.MaxWorkers(ServiceSeries.SocialWelfare)}");
+            World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(Entity.Null);
+        }
+
+        private void OnUiReport(string message)
+        {
+            if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi)
+            {
+                return;
+            }
+            if (message == "done")
+            {
+                m_UiDone = true;
+            }
+            else if (message.StartsWith("shot:", StringComparison.Ordinal))
+            {
+                string file = Path.Combine(m_Directory, "selftest", message.Substring(5) + ".png");
+                ScreenCapture.CaptureScreenshot(file);
+                Line($"Screenshot {file}");
+            }
+            else if (message.StartsWith("check:", StringComparison.Ordinal))
+            {
+                // check:<0|1>:<name>|<detail>
+                string body = message.Substring(8);
+                int bar = body.IndexOf('|');
+                Check("[UI] " + (bar >= 0 ? body.Substring(0, bar) : body), message[6] == '1', bar >= 0 ? body.Substring(bar + 1) : null);
+            }
+            else
+            {
+                Line("[UI] " + message);
+            }
+        }
+
+        private void Finish()
+        {
+            m_Injection.SetRow(BudgetInjectionSystem.kIncomeRowId, true, (int)IncomeSource.TaxIndustrial, 0);
+            m_Injection.SetRow(BudgetInjectionSystem.kExpenseRowId, false, (int)ExpenseSource.SubsidyIndustrial, 0);
+            Line($"Result: {m_Passed} passed, {m_Failed} failed, {UnityEngine.Time.realtimeSinceStartup - m_TestStart:0} s.");
+            File.WriteAllText(Path.Combine(m_Directory, "selftest", "report.txt"), m_Report.ToString());
+        }
+
+        private void SetPolicy(Entity target, Entity policy, bool active, float adjustment)
+        {
+            // Same path as the vanilla policy panel: an event created at the end of the frame survives
+            // until ModifiedSystem reads it (events made mid-frame are cleaned up first).
+            EntityCommandBuffer buffer = m_EndFrameBarrier.CreateCommandBuffer();
+            Entity e = buffer.CreateEntity(m_ModifyArchetype);
+            buffer.SetComponent(e, new Modify(target, policy, active, adjustment));
+        }
+
+        private bool IsActive(Entity policy)
+        {
+            DynamicBuffer<Policy> policies = EntityManager.GetBuffer<Policy>(m_CitySystem.City, true);
+            for (int i = 0; i < policies.Length; i++)
+            {
+                if (policies[i].m_Policy == policy)
+                {
+                    return (policies[i].m_Flags & PolicyFlags.Active) != 0;
+                }
+            }
+            return false;
+        }
+
+        private int CountActive()
+        {
+            DynamicBuffer<Policy> policies = EntityManager.GetBuffer<Policy>(m_CitySystem.City, true);
+            int count = 0;
+            for (int i = 0; i < policies.Length; i++)
+            {
+                if ((policies[i].m_Flags & PolicyFlags.Active) != 0)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private bool IsLocked(Entity prefab)
+        {
+            return prefab != Entity.Null && EntityManager.HasComponent<Locked>(prefab) && EntityManager.IsComponentEnabled<Locked>(prefab);
+        }
+
+        private static float Delta(DynamicBuffer<CityModifier> modifiers, CityModifierType type)
+        {
+            return modifiers.Length > (int)type ? modifiers[(int)type].m_Delta.y : 0f;
+        }
+
+        private int Money()
+        {
+            return EntityManager.GetComponentData<PlayerMoney>(m_CitySystem.City).money;
+        }
+
+        private void SetStage(Stage stage)
+        {
+            m_Stage = stage;
+            m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+            m_SimStart = m_SimulationSystem.frameIndex;
+        }
+
+        private float StageSeconds() => UnityEngine.Time.realtimeSinceStartup - m_StageStart;
+
+        private uint SimFrames() => m_SimulationSystem.frameIndex - m_SimStart;
+
+        private void Check(string name, bool ok, string detail)
+        {
+            if (ok)
+            {
+                m_Passed++;
+            }
+            else
+            {
+                m_Failed++;
+            }
+            Line($"[{(ok ? "PASS" : "FAIL")}] {name}{(detail != null ? " — " + detail : string.Empty)}");
+        }
+
+        private void Line(string text)
+        {
+            m_Report.AppendLine(text);
+            Mod.Log.Info(text);
+        }
+
+        [Preserve]
+        public SelfTestSystem()
+        {
+        }
+    }
+}
