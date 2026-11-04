@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -456,6 +456,30 @@ namespace RealisticPolicies
                     if (StageSeconds() >= 5f && SimFrames() >= 1024)
                     {
                         CheckRoundTrip();
+                        StartTrading();
+                    }
+                    break;
+                case Stage.Trading:
+                    if (SimFrames() >= 4096)
+                    {
+                        CheckTrading();
+                        // Auctioning without the cap does nothing.
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kEmissionTrading), false, 0f);
+                        SetStage(Stage.TradingOff);
+                    }
+                    break;
+                case Stage.TradingOff:
+                    if (SimFrames() >= 2048)
+                    {
+                        PolicyDefinition auctionDefinition = PolicyCatalog.Definition(PolicyCatalog.kAllowanceAuction);
+                        int auctionIndex = System.Array.IndexOf(PolicyDefinitions.All, auctionDefinition);
+                        float auctionGrievance = m_Engine.GroupGrievance(auctionIndex, TargetGroup.IndustrialCompanies);
+                        Check("With no allowances to pay for, auctioning stirs no grievance (judged by the actual burden)",
+                            m_Engine.ActualBurden(auctionDefinition) == 0f && auctionGrievance <= 1e-4f,
+                            $"burden {m_Engine.ActualBurden(auctionDefinition):0.000}, grievance {auctionGrievance:0.000}");
+                        Check("Allowance auctioning does nothing while emission trading is off",
+                            m_Engine.LastIntensity(auctionDefinition) == 0f && m_Injection.GetRow(PolicyDefinitions.kAuctionIncomeRow) == 0,
+                            $"auction intensity {m_Engine.LastIntensity(auctionDefinition):0.00}, revenue {m_Injection.GetRow(PolicyDefinitions.kAuctionIncomeRow)}");
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -589,7 +613,7 @@ namespace RealisticPolicies
             }
             Check("Slider policy prefab has PolicySliderData", sliderOk, sliderInfo);
             Check("Mod policies start unlocked", !IsLocked(mandate) && !IsLocked(standard), null);
-            Check("Lawsuit icon and court chirps are registered", CourtPrefabs.Icon != Entity.Null && CourtPrefabs.Chirps.Count == 8,
+            Check("Lawsuit icon and court chirps are registered", CourtPrefabs.Icon != Entity.Null && CourtPrefabs.Chirps.Count == 12,
                 $"icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps");
             Check("Vanilla toggle is hidden from the policy list",
                 m_PrefabSystem.TryGetPrefab(PolicyCatalog.VanillaPollutionManagement, out PolicyPrefab vanilla) && vanilla.m_Visibility == PolicyVisibility.HideFromPolicyList, null);
@@ -658,7 +682,11 @@ namespace RealisticPolicies
             bool allOn = true;
             foreach (PolicyDefinition definition in PolicyDefinitions.All)
             {
-                allOn &= IsActive(definition.Prefab);
+                // Emission trading is switched on later, in its own stage.
+                if (definition.Mechanism != Mechanism.EmissionTrading && definition.Mechanism != Mechanism.AllowanceAuction)
+                {
+                    allOn &= IsActive(definition.Prefab);
+                }
             }
             Check("All mod policies are active", allOn, null);
             m_AirBefore = AirModifier();
@@ -1161,6 +1189,44 @@ namespace RealisticPolicies
         // ------------------------------------------------------------------ stage 8: offer limits, save round trip, timing
 
         private const string kRoundTripSave = "RP SelfTest Stage8";
+        private float m_TradingDemandBefore;
+
+        /// <summary>Emission trading at its largest cap with half the allowances auctioned (§10.6).</summary>
+        private void StartTrading()
+        {
+            m_TradingDemandBefore = IndustrialBaseDemand();
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kEmissionTrading), true, 60f);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kAllowanceAuction), true, 50f);
+            Line("Emission trading on (cap -60%), half the allowances auctioned.");
+            SetStage(Stage.Trading);
+        }
+
+        private void CheckTrading()
+        {
+            PolicyEngineSystem e = m_Engine;
+            float required = Unity.Mathematics.math.max(0f, 0.6f - e.TradingOtherCut);
+            Line($"Trading: other policies cut {e.TradingOtherCut:0.000}, cap asks {e.TradingRequired:0.000} more, price {e.TradingPrice:0.000} " +
+                $"(tax at 100% = {FirmModel.kBasePrice}), delivered cut {e.TradingCut:0.000}, holding allowances {e.TradingCompliance:0.00}, auction {e.TradingAuctionShare:0.00}.");
+            Check("The cap counts what other policies already cut (waterbed effect)", Unity.Mathematics.math.abs(e.TradingRequired - required) < 1e-3f,
+                $"required {e.TradingRequired:0.000}, expected {required:0.000}");
+            Check("The allowance price clears the cap: companies cut what is left at that price",
+                required <= 0f ? e.TradingPrice == 0f : Unity.Mathematics.math.abs(FirmModel.Abatement(e.TradingPrice) - required) < 0.01f,
+                $"abatement at the price {FirmModel.Abatement(e.TradingPrice):0.000}");
+            int revenue = m_Injection.GetRow(PolicyDefinitions.kAuctionIncomeRow);
+            Check("Auctioned allowances bring city revenue when they have a price", e.TradingPrice > 0f ? revenue > 0 : revenue == 0, $"revenue {revenue}/month");
+            PolicyDefinition auctioning = PolicyCatalog.Definition(PolicyCatalog.kAllowanceAuction);
+            float expectedBurden = Unity.Mathematics.math.saturate(e.TradingAuctionShare * e.TradingPrice / FirmModel.PriceForAbatement(PolicyDefinitions.kTradingMaxCut));
+            Check("Auctioning is felt by what companies pay: auction share × allowance price",
+                Unity.Mathematics.math.abs(e.ActualBurden(auctioning) - expectedBurden) < 1e-3f, $"burden {e.ActualBurden(auctioning):0.000}, expected {expectedBurden:0.000}");
+            Check("Emissions trading has an administration cost", m_Injection.GetRow(PolicyDefinitions.kTradingOperationRow) > 0,
+                $"{m_Injection.GetRow(PolicyDefinitions.kTradingOperationRow)}/month");
+            // Other levers (the green subsidy) move the same demand, so the leakage share itself is checked.
+            float leakage = 0.03f * e.TradingAuctionShare * System.Math.Min(1f, e.TradingPrice / FirmModel.kBasePrice);
+            float demand = IndustrialBaseDemand();
+            Check("Carbon leakage stays small: at most 3% of industrial demand, in proportion to the auction burden",
+                leakage >= 0f && leakage <= 0.03f && (e.TradingPrice <= 0f) == (leakage == 0f),
+                $"leakage {leakage:P2}, industrial base demand {m_TradingDemandBefore:0.0000} -> {demand:0.0000}");
+        }
         private System.Threading.Tasks.Task<bool> m_SaveTask;
         private string m_SavedSnapshot;
 

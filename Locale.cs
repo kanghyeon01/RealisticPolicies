@@ -94,6 +94,33 @@ namespace RealisticPolicies
                 "Every company's emissions are published. Only a few cut on publicity alone; " +
                 "its real effect is making companies comply with rules willingly, and only where inspections are credible."
             },
+            { PolicyTitle(PolicyCatalog.kEmissionTrading), "Emissions Trading" },
+            {
+                PolicyDescription(PolicyCatalog.kEmissionTrading),
+                "Caps the pollution industry may emit and lets companies trade allowances. Those who can cut cheaply cut the most, " +
+                "so the cap is met at the lowest cost. The market sets the allowance price: it falls when the cap is loose or other " +
+                "policies already cut a lot. Air pollution stands in for carbon."
+            },
+            { PolicyTitle(PolicyCatalog.kAllowanceAuction), "Allowance Auctioning" },
+            {
+                PolicyDescription(PolicyCatalog.kAllowanceAuction),
+                "Sells part of the allowances at auction instead of giving them away. The city earns revenue, but companies pay more, " +
+                "and a heavy burden drives some industry away. Works only while Emissions Trading is on."
+            },
+            { BudgetItem(Engine.PolicyDefinitions.kTradingOperationRow), "Emissions trading administration" },
+            { BudgetItem(Engine.PolicyDefinitions.kAuctionIncomeRow), "Allowance auction revenue" },
+            { Chirp(PolicyCatalog.kEmissionTrading, true), "Buying allowances will shut our plant down. We have taken the city to court." },
+            { Chirp(PolicyCatalog.kEmissionTrading, false), "Loosen the emissions cap and who protects our air? Residents are taking it to court." },
+            { Chirp(PolicyCatalog.kAllowanceAuction, true), "Allowances were free, and now we must buy them? We have filed suit." },
+            { Chirp(PolicyCatalog.kAllowanceAuction, false), "Cut the auction revenue and who fills the gap? Residents have filed suit." },
+            { "RealisticPolicies.UI.Report.AllowancePrice", "Allowance price" },
+            { "RealisticPolicies.UI.Report.AllowancePrice.Value", "{PERCENT} of the base" },
+            { "RealisticPolicies.UI.Report.AllowancePrice.Tooltip", "100% = the burden of the pollution tax at 100%. It falls when the cap is loose or other policies already cut a lot" },
+            { "RealisticPolicies.UI.Report.OtherCut", "Already cut by other policies" },
+            { "RealisticPolicies.UI.Report.OtherCut.Tooltip", "Counts toward the cap, so allowances get cheaper (waterbed effect)" },
+            { "RealisticPolicies.UI.Report.NoAllowance", "Companies emitting without allowances" },
+            { "RealisticPolicies.UI.Report.AuctionShare", "Allowances sold at auction" },
+            { "RealisticPolicies.UI.Report.NeedsTrading", "Works only while Emissions Trading is on." },
             { "RealisticPolicies.Search.Placeholder", "Search policies" },
             { "RealisticPolicies.Series.Header", "Staff series" },
             { "RealisticPolicies.Series.GeneralAdministration", "General administration" },
@@ -287,6 +314,33 @@ namespace RealisticPolicies
                 "기업별 배출량을 공개합니다. 공개만으로 줄이는 기업은 소수입니다. " +
                 "진짜 효과는 기업이 규제를 스스로 따르게 만드는 것이고, 단속을 믿을 수 있을 때만 통합니다."
             },
+            { PolicyTitle(PolicyCatalog.kEmissionTrading), "탄소배출권 거래제" },
+            {
+                PolicyDescription(PolicyCatalog.kEmissionTrading),
+                "산업체가 내보낼 수 있는 오염 총량을 정하고, 배출권을 사고팔게 합니다. 줄이는 비용이 싼 기업이 많이 줄이므로 " +
+                "같은 감축을 가장 적은 비용으로 해냅니다. 배출권 가격은 시장이 정합니다. 총량이 느슨하거나 다른 정책이 이미 많이 줄였으면 " +
+                "가격이 떨어집니다. 탄소 대신 대기 오염으로 계산합니다."
+            },
+            { PolicyTitle(PolicyCatalog.kAllowanceAuction), "배출권 유상할당" },
+            {
+                PolicyDescription(PolicyCatalog.kAllowanceAuction),
+                "배출권을 공짜로 나눠 주는 대신 일부를 경매로 팝니다. 도시 수입이 생기지만 기업 부담이 커지고, 부담이 크면 일부 산업이 " +
+                "도시를 떠납니다. 탄소배출권 거래제가 켜져 있어야 작동합니다."
+            },
+            { BudgetItem(Engine.PolicyDefinitions.kTradingOperationRow), "배출권 거래제 운영비" },
+            { BudgetItem(Engine.PolicyDefinitions.kAuctionIncomeRow), "배출권 경매 수입" },
+            { Chirp(PolicyCatalog.kEmissionTrading, true), "배출권을 사느라 공장 문을 닫게 생겼습니다. 결국 행정소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kEmissionTrading, false), "배출 총량을 이렇게 풀어 주면 공기는 누가 지킵니까. 주민들이 행정소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kAllowanceAuction, true), "공짜이던 배출권을 이제 돈 주고 사라니요. 행정소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kAllowanceAuction, false), "배출권 경매 수입을 줄이면 그 돈은 누가 메웁니까. 주민들이 행정소송을 냈습니다." },
+            { "RealisticPolicies.UI.Report.AllowancePrice", "배출권 가격" },
+            { "RealisticPolicies.UI.Report.AllowancePrice.Value", "기준의 {PERCENT}" },
+            { "RealisticPolicies.UI.Report.AllowancePrice.Tooltip", "100% = 오염세를 100%로 매긴 것과 같은 부담. 총량이 느슨하거나 다른 정책이 이미 많이 줄였으면 떨어집니다" },
+            { "RealisticPolicies.UI.Report.OtherCut", "다른 정책이 이미 줄인 오염" },
+            { "RealisticPolicies.UI.Report.OtherCut.Tooltip", "총량 감축에 포함되므로 그만큼 배출권이 싸집니다 (물침대 효과)" },
+            { "RealisticPolicies.UI.Report.NoAllowance", "배출권 없이 내뿜는 기업" },
+            { "RealisticPolicies.UI.Report.AuctionShare", "경매로 파는 배출권" },
+            { "RealisticPolicies.UI.Report.NeedsTrading", "탄소배출권 거래제가 켜져 있어야 작동합니다." },
             { "RealisticPolicies.Search.Placeholder", "정책 검색" },
             { "RealisticPolicies.Series.Header", "공무원 직렬" },
             { "RealisticPolicies.Series.GeneralAdministration", "일반행정직" },

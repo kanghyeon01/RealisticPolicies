@@ -25,6 +25,38 @@ namespace RealisticPolicies.Engine
         /// <summary>Average c across companies.</summary>
         public static readonly float MeanCost = Mean(s_Costs);
 
+        /// <summary>
+        /// Price at which companies together cut the given share of emissions: the clearing price of an emission
+        /// trading cap (Montgomery 1972). Abatement rises with the price, so bisection is enough.
+        /// </summary>
+        public static float PriceForAbatement(float cut)
+        {
+            if (cut <= 0f)
+            {
+                return 0f;
+            }
+            cut = math.min(cut, 0.999f);
+            float low = 0f;
+            float high = kBasePrice;
+            while (Abatement(high) < cut && high < 1000f)
+            {
+                high *= 2f;
+            }
+            for (int i = 0; i < 40; i++)
+            {
+                float middle = 0.5f * (low + high);
+                if (Abatement(middle) < cut)
+                {
+                    low = middle;
+                }
+                else
+                {
+                    high = middle;
+                }
+            }
+            return high;
+        }
+
         private static float Mean(float[] values)
         {
             float sum = 0f;

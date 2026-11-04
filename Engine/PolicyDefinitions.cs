@@ -36,6 +36,12 @@ namespace RealisticPolicies.Engine
         /// <summary>Payment per unit cut; same cutting rule as the tax, no evasion, money flows the other way.</summary>
         AbatementSubsidy,
 
+        /// <summary>Cap on emissions; the allowance price clears the market (Dales 1968, Montgomery 1972). Evasion as for the tax.</summary>
+        EmissionTrading,
+
+        /// <summary>Share of the trading cap sold at auction instead of given away; only works with emission trading on.</summary>
+        AllowanceAuction,
+
         /// <summary>Inspectors: no effect of its own, raises detection for regulation and taxes.</summary>
         Monitoring,
 
@@ -180,6 +186,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Name of a vanilla toggle this policy replaces: hidden from the list, and switched over when a city loads.</summary>
         public string ReplacesVanilla;
 
+        /// <summary>Mod policy this one only works with; while that one is off, this one counts as off.</summary>
+        public string RequiresPolicy;
+
         public bool IsSlider;
         public Bounds1 SliderRange;
         public float SliderDefault;
@@ -242,6 +251,11 @@ namespace RealisticPolicies.Engine
         public const string kEmissionStandardEnforcementRow = "RealisticPolicies.EmissionStandard.Enforcement";
         public const string kMonitoringRow = "RealisticPolicies.EnvironmentalMonitoring.Staff";
         public const string kDisclosureRow = "RealisticPolicies.EmissionDisclosure.Operation";
+        public const string kTradingOperationRow = "RealisticPolicies.EmissionTrading.Operation";
+        public const string kAuctionIncomeRow = "RealisticPolicies.AllowanceAuction.Income";
+
+        /// <summary>Largest cap cut the emission trading slider allows (60%, as the emission standard).</summary>
+        public const float kTradingMaxCut = 0.6f;
 
         // Starting values from docs/PLAN.md §5 and §10.5; all are meant to be tuned in game.
         public static readonly PolicyDefinition[] All =
@@ -478,6 +492,85 @@ namespace RealisticPolicies.Engine
                 {
                     new GroupStake(TargetGroup.IndustrialCompanies, 0.3f, 0f),
                     new GroupStake(TargetGroup.Households, 0f, 0.1f),
+                },
+            },
+            // §10.6 emission trading: a cap on industrial air pollution (stands in for carbon); the price clears it.
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kEmissionTrading,
+                Icon = "Media/Game/Policies/NoSmoking.svg",
+                Instrument = Instrument.Authority,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.EmissionTrading,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, kTradingMaxCut * 100f),
+                SliderDefault = 20f,
+                SliderStep = 5f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.5f),
+                    new SeriesWeight(ServiceSeries.Environment, 0.5f),
+                },
+                ClearancePoints = 3,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.GeneralAdministration, 4f, 0f),
+                    new StaffRequirement(ServiceSeries.Environment, 0f, 1f / 25f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ChangeBand = 0.15f,
+                ChangeCost = 2.5f,
+                BaseLagDays = 8f / 24f,
+                Outputs = new[]
+                {
+                    // Full effects at the largest cap; the market shapes them (PolicyEngineSystem.Shape).
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialAirPollution, -kTradingMaxCut),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialEfficiency, -0.1f),
+                    PolicyOutput.Expense(kTradingOperationRow, ExpenseSource.ServiceUpkeep, 400f, 10f, TargetGroup.IndustrialCompanies, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 1f, 0f),
+                    new GroupStake(TargetGroup.Households, 0f, 0.2f),
+                },
+            },
+            // §10.6 auctioning: the share of the cap sold instead of given away; city income, small carbon leakage.
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kAllowanceAuction,
+                Icon = "Media/Game/Policies/BigBusinessBenefactor.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.AllowanceAuction,
+                RequiresPolicy = PolicyCatalog.kEmissionTrading,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 10f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 1f),
+                },
+                ClearancePoints = 2,
+                Staff = new[]
+                {
+                    new StaffRequirement(ServiceSeries.GeneralAdministration, 2f, 0f),
+                },
+                Target = TargetGroup.IndustrialCompanies,
+                ChangeBand = 0.2f,
+                ChangeCost = 1.5f,
+                BaseLagDays = 4f / 24f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Income(kAuctionIncomeRow, IncomeSource.TaxIndustrial, 0f, 2000f, TargetGroup.IndustrialCompanies, MoneyBasis.Mechanism),
+                    // Carbon leakage, in proportion to what companies pay for allowances (Dechezleprêtre et al. 2022: little so far).
+                    PolicyOutput.Parameter(ParameterLevers.kIndustrialBaseDemand, -0.03f),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0.6f, 0f),
                 },
             },
         };

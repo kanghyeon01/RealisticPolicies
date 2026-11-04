@@ -270,6 +270,15 @@ namespace RealisticPolicies
                     voluntaryGain = EngineParameters.kDisclosureVoluntaryGain * m_Engine.LastDisclosure
                         * math.min(1f, standardResult.Detection / EngineParameters.kDisclosureReferenceDetection);
                 }
+                // Emission trading market (§10.6), the same for both trading policies.
+                writer.PropertyName("intensity");
+                writer.Write(result.Intensity);
+                writer.PropertyName("tradingPrice");
+                writer.Write(m_Engine.TradingPrice / FirmModel.kBasePrice);
+                writer.PropertyName("tradingOther");
+                writer.Write(m_Engine.TradingOtherCut);
+                writer.PropertyName("tradingCut");
+                writer.Write(m_Engine.TradingCut);
                 writer.PropertyName("detectionBefore");
                 writer.Write(baseDetection);
                 writer.PropertyName("detectionAfter");

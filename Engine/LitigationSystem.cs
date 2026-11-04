@@ -603,7 +603,7 @@ namespace RealisticPolicies.Engine
             EntityManager.SetComponentData(city, state);
 
             // Damages cover the plaintiffs' losses since the policy took effect, not only the suit (§7: loss × time in force).
-            suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit)
+            suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit) * m_Engine.BurdenFactor(definition)
                 * (againstCut ? math.max(0f, suit.m_PriorIntensity - result.Intensity) : result.Intensity) * runtime.m_AgeDays;
             suit.m_IconBuilding = m_Notifications.PickIconBuilding(suit.m_Representative);
             suit.m_ActMonth = CurrentMonth() - (int)math.floor(runtime.m_AgeDays * 12f / math.max(1, m_TimeSystem.daysPerYear));
@@ -643,7 +643,8 @@ namespace RealisticPolicies.Engine
                 float burden = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - intensity) : intensity;
                 if (suit.m_Injunction != (byte)InjunctionStage.InEffect)
                 {
-                    suit.m_Claim += suit.m_Plaintiffs * LossPerDay((TargetGroup)suit.m_Group) * burden * Stake(definition, suit) * dtDays;
+                    suit.m_Claim += suit.m_Plaintiffs * LossPerDay((TargetGroup)suit.m_Group) * burden * Stake(definition, suit)
+                        * m_Engine.BurdenFactor(definition) * dtDays;
                 }
 
                 if (suit.m_Injunction == (byte)InjunctionStage.Requested && age >= kInjunctionDecisionFrames * TestTimeScale)

@@ -50,7 +50,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct PolicyRuntime : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 2;
+        private const byte kVersion = 3;
 
         /// <summary>Policy prefab (remapped by the serializer like vanilla policy references).</summary>
         public Entity m_Policy;
@@ -74,6 +74,9 @@ namespace RealisticPolicies.Engine
         public float m_BaselineAir;
         public bool m_HasBaseline;
 
+        /// <summary>Actual burden people are used to, for policies whose burden follows a market price (emission trading).</summary>
+        public float m_BurdenReference;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -85,6 +88,7 @@ namespace RealisticPolicies.Engine
             writer.Write(m_Surge);
             writer.Write(m_BaselineAir);
             writer.Write(m_HasBaseline);
+            writer.Write(m_BurdenReference);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -100,6 +104,10 @@ namespace RealisticPolicies.Engine
             {
                 reader.Read(out m_BaselineAir);
                 reader.Read(out m_HasBaseline);
+            }
+            if (version >= 3)
+            {
+                reader.Read(out m_BurdenReference);
             }
         }
     }

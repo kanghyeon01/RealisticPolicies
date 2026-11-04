@@ -432,8 +432,9 @@ function PolicyReport({ id }) {
         return React.createElement("div", { className: "rp-policy-report" }, sections);
     }
     if (!report.on) {
+        const off = report.mechanism === "AllowanceAuction" ? "Report.NeedsTrading" : "Report.Off";
         return React.createElement("div", { className: "rp-policy-report" },
-            React.createElement(InfoSection, { disableFocus: true }, Row({ left: text("Report.Off") })));
+            React.createElement(InfoSection, { disableFocus: true }, Row({ left: text(off) })));
     }
 
     const seriesName = (series) => translate(`RealisticPolicies.SeriesName.${series}`, series);
@@ -473,6 +474,16 @@ function PolicyReport({ id }) {
             break;
         case "Disclosure":
             output.push(Row({ key: "vol", left: text("Report.Voluntary"), right: points(report.voluntaryGain), subRow: true }));
+            break;
+        case "EmissionTrading":
+            output.push(Row({ key: "price", left: text("Report.AllowancePrice"), right: text("Report.AllowancePrice.Value", { PERCENT: percent(report.tradingPrice) }), subRow: true, tooltip: text("Report.AllowancePrice.Tooltip") }));
+            output.push(Row({ key: "other", left: text("Report.OtherCut"), right: percent(report.tradingOther), subRow: true, tooltip: text("Report.OtherCut.Tooltip") }));
+            output.push(Row({ key: "evade", left: text("Report.NoAllowance"), right: percent(1 - report.compliance), subRow: true }));
+            output.push(Row({ key: "abate", left: text("Report.Abatement"), right: percent(report.tradingCut), subRow: true }));
+            break;
+        case "AllowanceAuction":
+            output.push(Row({ key: "share", left: text("Report.AuctionShare"), right: percent(report.intensity), subRow: true }));
+            output.push(Row({ key: "price", left: text("Report.AllowancePrice"), right: text("Report.AllowancePrice.Value", { PERCENT: percent(report.tradingPrice) }), subRow: true, tooltip: text("Report.AllowancePrice.Tooltip") }));
             break;
     }
     output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true }));

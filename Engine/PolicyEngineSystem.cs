@@ -116,6 +116,59 @@ namespace RealisticPolicies.Engine
         /// <summary>City-wide mean of the air pollution map at the last step.</summary>
         public float AirPollution { get; private set; }
 
+        // Emission trading market (§10.6), set at each step before the outputs.
+
+        /// <summary>Allowance price (same units as the firm model; the pollution tax at 100% is 0.6).</summary>
+        public float TradingPrice { get; private set; }
+
+        /// <summary>Cut the cap still asks for after what the other mod policies already cut (the waterbed effect).</summary>
+        public float TradingRequired { get; private set; }
+
+        /// <summary>Industrial air pollution the other mod policies already cut.</summary>
+        public float TradingOtherCut { get; private set; }
+
+        /// <summary>Cut delivered so far under the cap.</summary>
+        public float TradingCut { get; private set; }
+
+        /// <summary>Share of companies holding allowances for what they emit.</summary>
+        public float TradingCompliance { get; private set; }
+
+        /// <summary>Share of the cap sold at auction.</summary>
+        public float TradingAuctionShare { get; private set; }
+
+        private static readonly float s_TradingMaxPrice = FirmModel.PriceForAbatement(PolicyDefinitions.kTradingMaxCut);
+        private static readonly float s_TradingMaxCost = FirmModel.AbatementCost(s_TradingMaxPrice);
+
+        // Actual burden 0..1 of the price-driven policies, from the last market update (user decision (다), 2026-11-04).
+        private float m_TradingBurden;
+        private float m_AuctionBurden;
+
+        /// <summary>
+        /// Whether people judge the policy by what it actually costs them rather than by its slider: emission trading
+        /// (cutting costs at the allowance price) and auctioning (allowances bought). In this model the price moves only
+        /// with the player's decisions (the cap and the other policies), so raising auctioning while allowances are
+        /// worthless stirs nothing, and cutting the cap later stirs both.
+        /// </summary>
+        public static bool UsesActualBurden(PolicyDefinition definition) =>
+            definition.Mechanism == Mechanism.EmissionTrading || definition.Mechanism == Mechanism.AllowanceAuction;
+
+        /// <summary>Actual burden 0..1 of a price-driven policy (see <see cref="UsesActualBurden"/>).</summary>
+        public float ActualBurden(PolicyDefinition definition) =>
+            definition.Mechanism == Mechanism.EmissionTrading ? m_TradingBurden
+            : definition.Mechanism == Mechanism.AllowanceAuction ? m_AuctionBurden
+            : LastIntensity(definition);
+
+        /// <summary>Actual burden per unit of slider intensity (1 for the other policies); scales damages claimed.</summary>
+        public float BurdenFactor(PolicyDefinition definition)
+        {
+            if (!UsesActualBurden(definition))
+            {
+                return 1f;
+            }
+            float intensity = LastIntensity(definition);
+            return intensity > 0f ? math.saturate(ActualBurden(definition) / intensity) : 0f;
+        }
+
         [Preserve]
         protected override void OnCreate()
         {
@@ -361,7 +414,9 @@ namespace RealisticPolicies.Engine
                         capture = Capture(runtime);
                         break;
                     case Mechanism.EmissionTax:
+                    case Mechanism.EmissionTrading:
                         // Reporting rate: evaders pay on what they report, so they also face a lower effective price.
+                        // Under a cap, the same share holds allowances for what it emits.
                         compliance = (voluntary + (1f - voluntary) * Deterrence(detection)) * state.m_Credibility;
                         capture = Capture(runtime);
                         break;
@@ -382,8 +437,12 @@ namespace RealisticPolicies.Engine
                 runtime.m_Progress += (1f - math.exp(-dt / tau)) * (target - runtime.m_Progress);
 
                 // ⑧ Grievance against the reference point, with loss aversion, per group (option (나)).
-                float up = math.max(0f, s - runtime.m_Reference);
-                float down = math.max(0f, runtime.m_Reference - s);
+                // Price-driven policies are judged by their actual burden against the burden people are used to.
+                bool actual = UsesActualBurden(definition);
+                float felt = actual ? ActualBurden(definition) : s;
+                float reference = actual ? runtime.m_BurdenReference : runtime.m_Reference;
+                float up = math.max(0f, felt - reference);
+                float down = math.max(0f, reference - felt);
                 for (int g = 0; g < (int)TargetGroup.Count; g++)
                 {
                     m_GroupGrievance[i, g] = 0f;
@@ -403,7 +462,9 @@ namespace RealisticPolicies.Engine
                 // People do not get used to a policy that is in court (§6).
                 if (m_Litigation.FindSuit(definition.Prefab) < 0)
                 {
-                    runtime.m_Reference += (1f - math.exp(-dt / EngineParameters.kReferenceDays)) * (s - runtime.m_Reference);
+                    float adapt = 1f - math.exp(-dt / EngineParameters.kReferenceDays);
+                    runtime.m_Reference += adapt * (s - runtime.m_Reference);
+                    runtime.m_BurdenReference += adapt * (felt - runtime.m_BurdenReference);
                 }
                 runtimes[r] = runtime;
 
@@ -505,6 +566,19 @@ namespace RealisticPolicies.Engine
                 changed |= intensity != m_Intensity[i];
                 m_Intensity[i] = intensity;
             }
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].RequiresPolicy == null || m_Intensity[i] == 0f)
+                {
+                    continue;
+                }
+                int required = System.Array.FindIndex(all, d => d.Id == all[i].RequiresPolicy);
+                if (required >= 0 && m_Intensity[required] <= 0f)
+                {
+                    changed = true;
+                    m_Intensity[i] = 0f;
+                }
+            }
             return changed;
         }
 
@@ -533,6 +607,7 @@ namespace RealisticPolicies.Engine
         /// </summary>
         private void WriteOutputs(PolicyDefinition[] all, DynamicBuffer<PolicyRuntime> runtimes)
         {
+            UpdateTradingMarket(all, runtimes);
             m_LeverFactors.Clear();
             for (int i = 0; i < all.Length; i++)
             {
@@ -562,7 +637,7 @@ namespace RealisticPolicies.Engine
                             {
                                 factor = 1f;
                             }
-                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * progress);
+                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity));
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
@@ -614,12 +689,77 @@ namespace RealisticPolicies.Engine
             1f / (1f + math.pow(1f / math.max(detection * EngineParameters.kFineToMedianGain, 1e-4f), EngineParameters.kGainSpread));
 
         /// <summary>
+        /// Emission trading (§10.6): the cap asks for a cut of industrial air pollution; what the other mod policies
+        /// already cut counts against it (waterbed effect, Perino 2018), and the allowance price is the one at which
+        /// companies cut the rest (Montgomery 1972). Evaders and the policy's delay lower the delivered cut.
+        /// </summary>
+        private void UpdateTradingMarket(PolicyDefinition[] all, DynamicBuffer<PolicyRuntime> runtimes)
+        {
+            int trading = System.Array.FindIndex(all, d => d.Mechanism == Mechanism.EmissionTrading);
+            int auction = System.Array.FindIndex(all, d => d.Mechanism == Mechanism.AllowanceAuction);
+            TradingPrice = 0f;
+            TradingRequired = 0f;
+            TradingCut = 0f;
+            TradingOtherCut = 0f;
+            TradingCompliance = trading >= 0 ? LastResults[trading].Compliance : 0f;
+            TradingAuctionShare = auction >= 0 ? m_Intensity[auction] : 0f;
+            m_TradingBurden = 0f;
+            m_AuctionBurden = 0f;
+            if (trading < 0 || m_Intensity[trading] <= 0f)
+            {
+                return;
+            }
+            float other = 0f;
+            for (int i = 0; i < all.Length; i++)
+            {
+                float air = ModifierFor(all[i], CityModifierType.IndustrialAirPollution);
+                if (i == trading || air == 0f)
+                {
+                    continue;
+                }
+                float progress = runtimes[FindRuntime(runtimes, all[i].Prefab)].m_Progress;
+                other -= air * Shape(all[i], CityModifierType.IndustrialAirPollution, progress, m_Intensity[i], LastResults[i].Compliance);
+            }
+            TradingOtherCut = math.saturate(other);
+            float intensity = m_Intensity[trading];
+            TradingRequired = math.max(0f, intensity * PolicyDefinitions.kTradingMaxCut - TradingOtherCut);
+            TradingPrice = FirmModel.PriceForAbatement(TradingRequired);
+            float delivered = math.saturate(runtimes[FindRuntime(runtimes, all[trading].Prefab)].m_Progress / intensity);
+            TradingCut = TradingRequired * delivered;
+            // Companies feel the cap by its cutting cost, and auctioning by the allowances they buy (both against the
+            // largest cap); used for grievance at the next step.
+            m_TradingBurden = math.saturate(FirmModel.AbatementCost(TradingPrice) / s_TradingMaxCost);
+            m_AuctionBurden = math.saturate(TradingAuctionShare * TradingPrice / s_TradingMaxPrice);
+        }
+
+        /// <summary>Share of a parameter lever's full effect: allowance auctioning by what companies pay; others by delivery.</summary>
+        private float LeverShape(PolicyDefinition definition, float progress, float intensity) =>
+            definition.Mechanism == Mechanism.AllowanceAuction ? intensity * math.min(1f, TradingPrice / FirmModel.kBasePrice) : progress;
+
+        /// <summary>
         /// Share of a modifier's full value at the current delivery. Prices (tax, subsidy) work through the firm model:
         /// delivery is the effective price relative to the base price, pollution follows the companies' cuts and the
         /// tax's efficiency loss follows their cutting costs plus part of the bill. Everything else is linear.
         /// </summary>
-        private static float Shape(PolicyDefinition definition, CityModifierType type, float progress, float intensity, float reporting)
+        private float Shape(PolicyDefinition definition, CityModifierType type, float progress, float intensity, float reporting)
         {
+            if (definition.Mechanism == Mechanism.EmissionTrading)
+            {
+                if (type == CityModifierType.IndustrialAirPollution)
+                {
+                    return TradingCut / PolicyDefinitions.kTradingMaxCut;
+                }
+                if (type == CityModifierType.IndustrialEfficiency)
+                {
+                    // Cutting costs plus the allowances bought at auction, against the same at the largest cap, all auctioned.
+                    float full = FirmModel.AbatementCost(s_TradingMaxPrice)
+                        + EngineParameters.kTaxEfficiencyBurden * s_TradingMaxPrice * (1f - PolicyDefinitions.kTradingMaxCut);
+                    float now = FirmModel.AbatementCost(FirmModel.PriceForAbatement(TradingCut))
+                        + EngineParameters.kTaxEfficiencyBurden * TradingAuctionShare * TradingPrice * (1f - TradingCut) * TradingCompliance;
+                    return now / full;
+                }
+                return progress;
+            }
             if (definition.Mechanism != Mechanism.EmissionTax && definition.Mechanism != Mechanism.AbatementSubsidy)
             {
                 return progress;
@@ -641,7 +781,7 @@ namespace RealisticPolicies.Engine
         }
 
         /// <summary>Per-unit multiplier for mechanism money: tax on reported remaining emissions, subsidy per unit cut.</summary>
-        private static float MoneyShape(PolicyDefinition definition, float progress, float intensity, float reporting)
+        private float MoneyShape(PolicyDefinition definition, float progress, float intensity, float reporting)
         {
             float cut = FirmModel.Abatement(progress * FirmModel.kBasePrice);
             switch (definition.Mechanism)
@@ -650,6 +790,9 @@ namespace RealisticPolicies.Engine
                     return intensity * (1f - cut) * reporting;
                 case Mechanism.AbatementSubsidy:
                     return intensity * cut;
+                case Mechanism.AllowanceAuction:
+                    // Auction share × allowance price (in tax units) × allowances companies hold for what they still emit.
+                    return intensity * (TradingPrice / FirmModel.kBasePrice) * (1f - TradingCut) * TradingCompliance;
                 default:
                     return progress;
             }
