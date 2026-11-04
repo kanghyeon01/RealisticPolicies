@@ -37,6 +37,12 @@ namespace RealisticPolicies.Engine
         /// <summary>-1 draws the verdict; 0 city wins, 1 city loses fully, 2 city loses partly.</summary>
         public static int TestForcedVerdict = -1;
 
+        /// <summary>Lets the self-test make settlement offers back to back.</summary>
+        public static bool TestSkipSettlementWait;
+
+        /// <summary>Overrides the "default response" setting while set (the self-test answers by hand).</summary>
+        public static DefaultSuitResponse? TestDefaultResponse;
+
         // Filing: daily logit on the plaintiff group's grievance (McFadden; only "none" and "suit" are on).
         private const float kFilingIntercept = -4f;
         private const float kFilingSlope = 2f;
@@ -72,6 +78,10 @@ namespace RealisticPolicies.Engine
         // Share of the grievance that saved costs can count for in a settlement.
         private const float kSettlementSavingCap = 0.3f;
 
+        // Settlement offers per suit, and the wait after a refused one (2026-11-04 user proposal: 3 offers, 3 hours apart).
+        public const int kMaxSettlementOffers = 3;
+        public const int kSettlementWaitFrames = 3 * kFramesPerDay / 24;
+
         // Costs (§7 "소송 대응", "소송 비용 부담").
         private const float kLawyerShareOfIncome = 0.005f;
         private const float kStandardWorkload = 66f;
@@ -106,6 +116,12 @@ namespace RealisticPolicies.Engine
 
         /// <summary>General administration staff the city's officials need for suits right now.</summary>
         public float OfficialStaff { get; private set; }
+
+        /// <summary>Outcome of the last settlement offer.</summary>
+        public SettlementResult LastSettlementResult { get; private set; }
+
+        /// <summary>Changes whenever suits, bans or debts may look different to the player (UI refresh).</summary>
+        public int Version { get; private set; }
 
         public override int GetUpdateInterval(SystemUpdatePhase phase) => 1024;
 
@@ -184,6 +200,79 @@ namespace RealisticPolicies.Engine
             return chance < 0.35f ? 0 : chance > 0.65f ? 2 : 1;
         }
 
+        /// <summary>Game hours until the verdict (at least 0).</summary>
+        public float RemainingHours(Lawsuit suit)
+        {
+            uint age = m_SimulationSystem.frameIndex - suit.m_FiledFrame;
+            float frames = suit.m_DurationFrames - math.min(age, suit.m_DurationFrames);
+            return frames * 24f / (kFramesPerDay * TestTimeScale);
+        }
+
+        /// <summary>Share of the suit already over, 0..1.</summary>
+        public float Progress(Lawsuit suit)
+        {
+            uint age = m_SimulationSystem.frameIndex - suit.m_FiledFrame;
+            return suit.m_DurationFrames > 0 ? math.saturate(age / (float)suit.m_DurationFrames) : 1f;
+        }
+
+        /// <summary>Lawyer fee if the city hired a lawyer now (fixed once chosen).</summary>
+        public float LawyerFeeNow(Lawsuit suit)
+        {
+            if (suit.m_Response == (byte)SuitResponse.Lawyer)
+            {
+                return suit.m_LawyerFee;
+            }
+            float remaining = RemainingShare(suit, m_SimulationSystem.frameIndex);
+            return AnnualIncome() * kLawyerShareOfIncome * suit.m_Workload / kStandardWorkload * (remaining <= kLateShare ? kLateLawyerSurcharge : 1f);
+        }
+
+        /// <summary>True when hiring a lawyer now costs the late surcharge.</summary>
+        public bool IsLate(Lawsuit suit) => RemainingShare(suit, m_SimulationSystem.frameIndex) <= kLateShare;
+
+        /// <summary>General administration staff the suit needs if officials take it now: workload over the remaining hours.</summary>
+        public int OfficialsNeeded(Lawsuit suit)
+        {
+            float hours = math.max(1f, math.ceil(RemainingHours(suit)));
+            return (int)math.ceil(suit.m_Workload / hours);
+        }
+
+        /// <summary>Game hours until the injunction granted takes effect (0 when not pending).</summary>
+        public float InjunctionHours(Lawsuit suit)
+        {
+            if (suit.m_Injunction != (byte)InjunctionStage.Granted)
+            {
+                return 0f;
+            }
+            uint age = m_SimulationSystem.frameIndex - suit.m_FiledFrame;
+            return math.max(0f, kInjunctionEffectFrames * TestTimeScale - age) * 24f / (kFramesPerDay * TestTimeScale);
+        }
+
+        /// <summary>Frames before the next settlement offer may be made (0 = now).</summary>
+        public uint SettlementWaitFrames(Lawsuit suit, uint frame)
+        {
+            if (TestSkipSettlementWait || suit.m_Offers == 0)
+            {
+                return 0u;
+            }
+            uint wait = (uint)(kSettlementWaitFrames * TestTimeScale);
+            uint since = frame - suit.m_LastOfferFrame;
+            return since >= wait ? 0u : wait - since;
+        }
+
+        /// <summary>Game hours before the next settlement offer may be made.</summary>
+        public float SettlementWaitHours(Lawsuit suit) =>
+            SettlementWaitFrames(suit, m_SimulationSystem.frameIndex) * 24f / (kFramesPerDay * TestTimeScale);
+
+        /// <summary>Game days left on a ban.</summary>
+        public float BanDaysLeft(PolicyBan ban)
+        {
+            uint frame = m_SimulationSystem.frameIndex;
+            return ban.m_UntilFrame > frame ? (ban.m_UntilFrame - frame) / (kFramesPerDay * TestTimeScale) : 0f;
+        }
+
+        /// <summary>Current month as year × 12 + month (0-based), the unit of <see cref="Lawsuit.m_ActMonth"/>.</summary>
+        public int CurrentMonth() => m_TimeSystem.year * 12 + math.min(11, (int)math.floor(m_TimeSystem.normalizedDate * 12f));
+
         // ------------------------------------------------------------------ player actions
 
         /// <summary>Answers a suit (also the objection to an injunction granted before answering).</summary>
@@ -224,6 +313,7 @@ namespace RealisticPolicies.Engine
             }
             suit.m_DecidedUnanswered = false;
             suits[suitIndex] = suit;
+            Version++;
             Mod.Log.Info($"Case {suit.m_CaseNumber}: city answers with {response}{(response == SuitResponse.Lawyer ? $", fee {suit.m_LawyerFee:0}" : "")}.");
             return true;
         }
@@ -235,6 +325,7 @@ namespace RealisticPolicies.Engine
         /// </summary>
         public bool ProposeSettlement(int suitIndex, float newIntensity, int compensation)
         {
+            LastSettlementResult = SettlementResult.Invalid;
             Entity city = m_CitySystem.City;
             DynamicBuffer<Lawsuit> suits = EntityManager.GetBuffer<Lawsuit>(city);
             if (suitIndex < 0 || suitIndex >= suits.Length)
@@ -245,6 +336,18 @@ namespace RealisticPolicies.Engine
             PolicyDefinition definition = Definition(suit.m_Policy);
             if (definition == null)
             {
+                return false;
+            }
+            // Three offers per suit, and a refused offer must wait three hours, so the player cannot probe the limit.
+            uint frame = m_SimulationSystem.frameIndex;
+            if (suit.m_Offers >= kMaxSettlementOffers)
+            {
+                LastSettlementResult = SettlementResult.NoOffersLeft;
+                return false;
+            }
+            if (SettlementWaitFrames(suit, frame) > 0)
+            {
+                LastSettlementResult = SettlementResult.Waiting;
                 return false;
             }
             newIntensity = math.saturate(newIntensity);
@@ -260,6 +363,11 @@ namespace RealisticPolicies.Engine
             float limit = (1f - plaintiffWin * 0.8f) * suit.m_Grievance + saving;
             bool accepted = remaining <= limit;
             LastSettlementLimitShare = suit.m_Grievance > 0f ? limit / suit.m_Grievance : 0f;
+            LastSettlementResult = accepted ? SettlementResult.Accepted : SettlementResult.Refused;
+            suit.m_Offers++;
+            suit.m_LastOfferFrame = frame;
+            suits[suitIndex] = suit;
+            Version++;
             Mod.Log.Info($"Case {suit.m_CaseNumber}: settlement offer intensity {newIntensity:0.00}, compensation {compensation} -> remaining grievance {remaining:0.000}, " +
                 $"limit {limit:0.000} (plaintiff win {plaintiffWin:0.00}, saving {saving:0.000}), {(accepted ? "accepted" : "refused")}.");
             if (!accepted)
@@ -318,6 +426,7 @@ namespace RealisticPolicies.Engine
             }
             UnansweredCount = unanswered;
             m_Notifications.Refresh(suits);
+            Version++;
         }
 
         private void EnsureState(Entity city)
@@ -481,8 +590,16 @@ namespace RealisticPolicies.Engine
             suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit)
                 * (againstCut ? math.max(0f, suit.m_PriorIntensity - result.Intensity) : result.Intensity) * runtime.m_AgeDays;
             suit.m_IconBuilding = m_Notifications.PickIconBuilding(suit.m_Representative);
-            EntityManager.GetBuffer<Lawsuit>(city).Add(suit);
+            suit.m_ActMonth = CurrentMonth() - (int)math.floor(runtime.m_AgeDays * 12f / math.max(1, m_TimeSystem.daysPerYear));
+            DynamicBuffer<Lawsuit> suits = EntityManager.GetBuffer<Lawsuit>(city);
+            suits.Add(suit);
             m_Notifications.PostChirp(definition.Id, suit);
+            // The "default response" setting answers at once, so no late-lawyer surcharge applies (§7).
+            DefaultSuitResponse automatic = TestDefaultResponse ?? (Mod.Setting != null ? Mod.Setting.DefaultResponse : DefaultSuitResponse.AskEachTime);
+            if (automatic != DefaultSuitResponse.AskEachTime)
+            {
+                Respond(suits.Length - 1, automatic == DefaultSuitResponse.AlwaysLawyer ? SuitResponse.Lawyer : SuitResponse.Official);
+            }
             Mod.Log.Info($"Case {year}-{suit.m_CaseNumber}: {plaintiffs} {stake.Group} sue over {definition.Id}{(againstCut ? " (benefit cut)" : "")}, grievance {grievance:0.00}, " +
                 $"grounds {grounds}, workload {suit.m_Workload:0.0}, {durationDays:0.00} days, injunction requested {injunction}.");
         }
@@ -625,6 +742,9 @@ namespace RealisticPolicies.Engine
                 m_UntilFrame = until,
                 m_Grounds = (byte)(wonGrounds == SuitGrounds.None ? claimed : wonGrounds),
                 m_ProportionalLimit = limit,
+                m_Year = suit.m_Year,
+                m_CaseNumber = suit.m_CaseNumber,
+                m_Partial = partial,
             });
             if (!definition.IsSlider || suit.m_AgainstCut)
             {
@@ -644,6 +764,7 @@ namespace RealisticPolicies.Engine
                 EntityManager.GetBuffer<CourtDebt>(city).Add(new CourtDebt
                 {
                     m_CaseNumber = suit.m_CaseNumber,
+                    m_Year = suit.m_Year,
                     m_Remaining = rest,
                     m_DailyCap = annual * (kDailyCapBase + kDailyCapSeverity * severity),
                     m_Ceiling = annual * kDamagesCeiling,
@@ -932,7 +1053,7 @@ namespace RealisticPolicies.Engine
 
         // ------------------------------------------------------------------ helpers
 
-        private static PolicyDefinition Definition(Entity policy)
+        public static PolicyDefinition Definition(Entity policy)
         {
             foreach (PolicyDefinition definition in PolicyDefinitions.All)
             {

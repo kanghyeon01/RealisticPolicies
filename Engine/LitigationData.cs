@@ -11,6 +11,16 @@ namespace RealisticPolicies.Engine
         Official,
     }
 
+    /// <summary>Outcome of a settlement offer.</summary>
+    public enum SettlementResult
+    {
+        Invalid,
+        Accepted,
+        Refused,
+        Waiting,
+        NoOffersLeft,
+    }
+
     public enum InjunctionStage : byte
     {
         NotRequested,
@@ -43,7 +53,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct Lawsuit : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 2;
+        private const byte kVersion = 3;
 
         public Entity m_Policy;
         public int m_Year;
@@ -94,6 +104,13 @@ namespace RealisticPolicies.Engine
         public float m_HintNoise;
         public uint m_Seed;
 
+        /// <summary>Settlement offers made so far (at most 3), and when the last one was refused (§7 "화해안 횟수").</summary>
+        public byte m_Offers;
+        public uint m_LastOfferFrame;
+
+        /// <summary>Month the contested disposition was made, as year × 12 + month (0-based); for the claim text.</summary>
+        public int m_ActMonth;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -122,6 +139,9 @@ namespace RealisticPolicies.Engine
             writer.Write(m_HintNoise);
             writer.Write(m_Seed);
             writer.Write(m_IconBuilding);
+            writer.Write(m_Offers);
+            writer.Write(m_LastOfferFrame);
+            writer.Write(m_ActMonth);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -155,6 +175,12 @@ namespace RealisticPolicies.Engine
             {
                 reader.Read(out m_IconBuilding);
             }
+            if (version >= 3)
+            {
+                reader.Read(out m_Offers);
+                reader.Read(out m_LastOfferFrame);
+                reader.Read(out m_ActMonth);
+            }
         }
     }
 
@@ -162,7 +188,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct PolicyBan : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 1;
+        private const byte kVersion = 2;
 
         public Entity m_Policy;
         public uint m_UntilFrame;
@@ -176,6 +202,11 @@ namespace RealisticPolicies.Engine
         /// <summary>Highest intensity accepted so far during the ban; a slider may only step up from it within its band.</summary>
         public float m_Accepted;
 
+        /// <summary>The case that led to the ban, for the report (0 in saves from before version 2).</summary>
+        public int m_Year;
+        public int m_CaseNumber;
+        public bool m_Partial;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -184,6 +215,9 @@ namespace RealisticPolicies.Engine
             writer.Write(m_Grounds);
             writer.Write(m_ProportionalLimit);
             writer.Write(m_Accepted);
+            writer.Write(m_Year);
+            writer.Write(m_CaseNumber);
+            writer.Write(m_Partial);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -194,6 +228,12 @@ namespace RealisticPolicies.Engine
             reader.Read(out m_Grounds);
             reader.Read(out m_ProportionalLimit);
             reader.Read(out m_Accepted);
+            if (version >= 2)
+            {
+                reader.Read(out m_Year);
+                reader.Read(out m_CaseNumber);
+                reader.Read(out m_Partial);
+            }
         }
     }
 
@@ -201,7 +241,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct CourtDebt : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 1;
+        private const byte kVersion = 2;
 
         public int m_CaseNumber;
         public double m_Remaining;
@@ -213,6 +253,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Remaining + arrears never exceed this (annual income × 2 at the verdict).</summary>
         public double m_Ceiling;
 
+        /// <summary>Year of the case (0 in saves from before version 2).</summary>
+        public int m_Year;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -221,6 +264,7 @@ namespace RealisticPolicies.Engine
             writer.Write(m_Arrears);
             writer.Write(m_DailyCap);
             writer.Write(m_Ceiling);
+            writer.Write(m_Year);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -231,6 +275,10 @@ namespace RealisticPolicies.Engine
             reader.Read(out m_Arrears);
             reader.Read(out m_DailyCap);
             reader.Read(out m_Ceiling);
+            if (version >= 2)
+            {
+                reader.Read(out m_Year);
+            }
         }
     }
 

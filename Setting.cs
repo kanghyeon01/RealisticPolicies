@@ -4,6 +4,22 @@ using Game.Settings;
 
 namespace RealisticPolicies
 {
+    /// <summary>Kind of local government; names the defendants of a suit (docs/PLAN.md §7 "자치단체 종류").</summary>
+    public enum GovernmentType
+    {
+        City,
+        County,
+        State,
+    }
+
+    /// <summary>How the city answers a new suit (docs/PLAN.md §7 "기본 대응 방식").</summary>
+    public enum DefaultSuitResponse
+    {
+        AskEachTime,
+        AlwaysLawyer,
+        AlwaysOfficials,
+    }
+
     [FileLocation("ModsSettings/" + Mod.kName + "/" + Mod.kName)]
     [SettingsUIGroupOrder(kLitigationGroup)]
     [SettingsUIShowGroupName(kLitigationGroup)]
@@ -24,9 +40,17 @@ namespace RealisticPolicies
         [SettingsUISection(kSection, kLitigationGroup)]
         public bool PunitiveDamages { get; set; }
 
+        [SettingsUISection(kSection, kLitigationGroup)]
+        public GovernmentType Government { get; set; }
+
+        [SettingsUISection(kSection, kLitigationGroup)]
+        public DefaultSuitResponse DefaultResponse { get; set; }
+
         public override void SetDefaults()
         {
             PunitiveDamages = false;
+            Government = GovernmentType.City;
+            DefaultResponse = DefaultSuitResponse.AskEachTime;
         }
     }
 }

@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -376,11 +376,41 @@ namespace RealisticPolicies
                     if (SuitIndex(PolicyCatalog.Find(PolicyCatalog.kPollutionTax)) >= 0)
                     {
                         CheckSettlement();
-                        SetStage(Stage.Finish);
+                        // Next suit is answered by the "default response" setting (here: always a lawyer).
+                        LitigationSystem.TestDefaultResponse = DefaultSuitResponse.AlwaysLawyer;
+                        LitigationSystem.TestFilingPolicy = PolicyCatalog.Find(PolicyCatalog.kPollutionTax);
+                        SetStage(Stage.SuitAuto);
                     }
                     else if (SimFrames() > 8192)
                     {
                         Check("A suit is filed against the pollution tax", false, "none within 8192 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitAuto:
+                    if (SuitIndex(PolicyCatalog.Find(PolicyCatalog.kPollutionTax)) >= 0)
+                    {
+                        Lawsuit auto = Suit(PolicyCatalog.Find(PolicyCatalog.kPollutionTax));
+                        Check("Default response answers a new suit at once with a lawyer, without the late surcharge",
+                            auto.m_Response == (byte)SuitResponse.Lawyer && auto.m_LawyerFee > 0f, $"response {auto.m_Response}, fee {auto.m_LawyerFee:0}");
+                        LitigationSystem.TestDefaultResponse = null;
+                        m_UiDone = false;
+                        m_UISystem.SetSelfTestStage(3);
+                        SetStage(Stage.ReportUi);
+                    }
+                    else if (SimFrames() > 8192)
+                    {
+                        Check("A second suit is filed against the pollution tax", false, "none within 8192 frames");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.ReportUi:
+                    if (m_UiDone || StageSeconds() > 90f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Report UI test reported back", false, "no report within 90 s");
+                        }
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -1072,8 +1102,14 @@ namespace RealisticPolicies
                 Line("Plaintiffs dropped the suit for nothing; the compensated offer is not tried.");
                 return;
             }
+            // A refused offer must wait three game hours (2026-11-04 user proposal), so the limit cannot be probed.
+            bool retried = litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            Check("A refused settlement offer blocks the next one for 3 hours", !retried && litigation.LastSettlementResult == SettlementResult.Waiting,
+                $"{litigation.LastSettlementResult}, offers {Suit(tax).m_Offers}");
+            LitigationSystem.TestSkipSettlementWait = true;
             int compensation = (int)(suit.m_Claim + 1000000f);
             bool accepted = litigation.ProposeSettlement(SuitIndex(tax), 0.1f, compensation);
+            LitigationSystem.TestSkipSettlementWait = false;
             Check("Settlement that lowers the tax and compensates is accepted and ends the suit", accepted && SuitIndex(tax) < 0, $"compensation {compensation}");
         }
 
@@ -1097,7 +1133,7 @@ namespace RealisticPolicies
 
         private void OnUiReport(string message)
         {
-            if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi)
+            if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi && m_Stage != Stage.ReportUi)
             {
                 return;
             }
@@ -1130,6 +1166,8 @@ namespace RealisticPolicies
             LitigationSystem.TestForceInjunctionRequest = false;
             LitigationSystem.TestForcedVerdict = -1;
             LitigationSystem.TestFilingPolicy = Entity.Null;
+            LitigationSystem.TestDefaultResponse = null;
+            LitigationSystem.TestSkipSettlementWait = false;
             m_Injection.SetRow(kTestIncomeRow, true, (int)IncomeSource.FeeParking, 0);
             m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, 0);
             Line($"Result: {m_Passed} passed, {m_Failed} failed, {UnityEngine.Time.realtimeSinceStartup - m_TestStart:0} s.");

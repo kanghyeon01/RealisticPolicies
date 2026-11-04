@@ -35,8 +35,11 @@ function getGameModule(path, name) {
 const TextInput = getGameModule(TEXT_INPUT_MODULE, "TextInput");
 const InfoSection = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-section/info-section.tsx", "InfoSection");
 const InfoRow = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-row/info-row.tsx", "InfoRow");
-const Checkbox = getGameModule("game-ui/common/input/toggle/checkbox/checkbox.tsx", "Checkbox");
 const AnimatedNumberBadge = getGameModule(NUMBER_BADGE_MODULE, "AnimatedNumberBadge");
+const Dropdown = getGameModule("game-ui/common/input/dropdown/dropdown.tsx", "Dropdown");
+const DropdownToggle = getGameModule("game-ui/common/input/dropdown/dropdown-toggle.tsx", "DropdownToggle");
+const DropdownItem = getGameModule("game-ui/common/input/dropdown/items/dropdown-item.tsx", "DropdownItem");
+const gameDropdownTheme = getGameModule("game-ui/game/themes/game-dropdown.module.scss", "classes");
 const budgetRows$ = api.bindValue(GROUP, "budgetRows", []);
 const unansweredSuits$ = api.bindValue(GROUP, "unansweredSuits", 0);
 const selfTestStage$ = api.bindValue(GROUP, "selfTestStage", 0);
@@ -98,6 +101,10 @@ function matches(text, query) {
 // Rows currently shown, for the self-test only.
 const visibleRows = new Set();
 
+// Policy the self-test wants selected on the policy page, and whether suits open their claims.
+let testSelectPolicy = null;
+let testOpenClaims = false;
+
 function extendCityPolicy(Row) {
     return function RealisticPoliciesCityPolicy(props) {
         const query = useSearchQuery();
@@ -111,6 +118,11 @@ function extendCityPolicy(Row) {
         } else {
             visibleRows.delete(id);
         }
+        React.useEffect(() => {
+            if (testSelectPolicy && testSelectPolicy === id && props.onSelect) {
+                props.onSelect(policy);
+            }
+        });
         return shown ? React.createElement(Row, props) : null;
     };
 }
@@ -132,12 +144,13 @@ function extendPoliciesPage(Page) {
     return function RealisticPoliciesPage(props) {
         // Clear the filter when the page closes so the next visit starts with the full list.
         React.useEffect(() => () => search.set(""), []);
-        return React.createElement(
+        // The policy detail column below reads this to add the policy report (stage 7).
+        return React.createElement(PolicyPageContext.Provider, { value: true }, React.createElement(
             "div",
             { style: { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 } },
             React.createElement(SearchBox),
             React.createElement(Page, props),
-        );
+        ));
     };
 }
 
@@ -180,21 +193,496 @@ function extendBudgetSection(Section) {
 
 // ---------------------------------------------------------------- welfare office series
 
-// Welfare office info panel: which civil-service series its staff count as (one choice, drawn as checkboxes).
+// Welfare office info panel: which civil-service series its staff count as, picked from the game's dropdown
+// (the one the route panel uses for vehicles).
 const SERIES_CHOICES = ["GeneralAdministration", "SocialWelfare", "Tax"];
 
 function WelfareSeriesSection(props) {
     const { translate } = l10n.useLocalization();
-    const rows = SERIES_CHOICES.map((name, index) => React.createElement(InfoRow, {
+    const label = (name) => translate(`RealisticPolicies.Series.${name}`, name);
+    const tooltip = (name) => translate(`RealisticPolicies.Series.${name}.Tooltip`, "");
+    const current = SERIES_CHOICES[props.series] || SERIES_CHOICES[0];
+    const items = SERIES_CHOICES.map((name, index) => React.createElement(DropdownItem, {
         key: name,
-        left: translate(`RealisticPolicies.Series.${name}`, name),
-        right: React.createElement(Checkbox, { checked: props.series === index, onChange: () => api.trigger(GROUP, "SetWelfareSeries", index) }),
-        tooltip: translate(`RealisticPolicies.Series.${name}.Tooltip`, ""),
-        subRow: true,
-    }));
+        value: index,
+        selected: props.series === index,
+        tooltip: tooltip(name),
+        onChange: (value) => api.trigger(GROUP, "SetWelfareSeries", value),
+    }, label(name)));
+    const dropdown = React.createElement(Dropdown, { theme: gameDropdownTheme, content: items },
+        React.createElement(DropdownToggle, null, label(current)));
     return React.createElement(InfoSection, { focusKey: props.focusKey, disableFocus: true },
-        React.createElement(InfoRow, { left: translate("RealisticPolicies.Series.Header", "Staff series"), uppercase: true }),
-        ...rows);
+        React.createElement(InfoRow, {
+            left: translate("RealisticPolicies.Series.Header", "Staff series"),
+            right: dropdown,
+            tooltip: tooltip(current),
+            uppercase: true,
+        }));
+}
+
+// ---------------------------------------------------------------- report panel (stage 7)
+
+// Game parts the report is built from: the City Info panel's tab bar and content, the policy detail column, info
+// rows, buttons, slider, number input, scrolling and entity names.
+const CITY_INFO_PANEL_MODULE = "game-ui/game/components/city-info-panel/city-info-panel.tsx";
+const TABS_MODULE = "game-ui/common/tabs/tabs.tsx";
+const DETAIL_LAYOUT_MODULE = "game-ui/common/section/detail-layout/detail-layout.tsx";
+const Tab = getGameModule(TABS_MODULE, "Tab");
+const Slider = getGameModule("game-ui/common/input/slider/slider.tsx", "Slider");
+const useStepTransformer = getGameModule("game-ui/common/input/slider/slider.tsx", "useStepTransformer");
+const IntInput = getGameModule("game-ui/common/input/text/int-input.tsx", "IntInput");
+const Scrollable = getGameModule("game-ui/common/scrolling/scrollable.tsx", "Scrollable");
+const Checkbox = getGameModule("game-ui/common/input/toggle/checkbox/checkbox.tsx", "Checkbox");
+const useNameFormat = getGameModule("game-ui/common/localization/localized-entity-name.tsx", "useNameFormat");
+const ui = window["cs2/ui"];
+
+const LAWSUITS_TAB = 2;
+const policyReports$ = api.bindValue(GROUP, "policyReports", []);
+const lawsuits$ = api.bindValue(GROUP, "lawsuits", null);
+
+// Set by the City Info panel wrapper for its tab bar and tab content; set by the policy page for its detail column.
+const CityInfoContext = React.createContext(null);
+const PolicyPageContext = React.createContext(false);
+
+function useText() {
+    const { translate } = l10n.useLocalization();
+    return React.useCallback((key, args) => {
+        let text = translate(`RealisticPolicies.UI.${key}`, key) || key;
+        if (args) {
+            for (const name in args) {
+                text = text.split(`{${name}}`).join(args[name]);
+            }
+        }
+        return text;
+    }, [translate]);
+}
+
+function groupDigits(value) {
+    const sign = value < 0 ? "-" : "";
+    const digits = String(Math.round(Math.abs(value)));
+    return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// Money as the game writes it (Korean "¢12,130", monthly "¢12,130/월").
+function useMoney() {
+    const { translate } = l10n.useLocalization();
+    return React.useCallback((value, monthly) => {
+        const pattern = translate(monthly ? "Common.VALUE_MONEY_PER_MONTH" : "Common.VALUE_MONEY", "{SIGN}¢{VALUE}") || "{SIGN}¢{VALUE}";
+        return pattern.split("{SIGN}").join(value < 0 ? "-" : "").split("{VALUE}").join(groupDigits(Math.abs(value)));
+    }, [translate]);
+}
+
+const percent = (value) => `${Math.round(value * 100)}%`;
+const signedPercent = (value) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
+const points = (value) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%p`;
+
+// Korean particles (이/가, 은/는, 을/를) follow the final consonant of the word as read in Korean (docs/PLAN.md §7 "조사"):
+// Hangul by its last syllable, numbers as read aloud, romanized Korean by the Revised Romanization finals (k t p n m ng l),
+// English by the loanword rules (final nasals and l stay; p t k only after a short vowel; others gain 으).
+// Returns null only where the spelling cannot tell (-oot: foot 풋, boot 부트); both forms are written then.
+function finalConsonant(text) {
+    const word = String(text).trim().split(/\s+/).pop() || "";
+    const digits = word.match(/[0-9]+$/);
+    if (digits) {
+        const trimmed = digits[0].replace(/0+$/, "");
+        return trimmed.length < digits[0].length || "13678".includes(trimmed.slice(-1));
+    }
+    const c = word.charCodeAt(word.length - 1);
+    if (c >= 0xac00 && c <= 0xd7a3) {
+        return (c - 0xac00) % 28 !== 0;
+    }
+    if (!/[a-z]$/i.test(word)) {
+        return null;
+    }
+    const w = word.toLowerCase();
+    if (/(m|n|ng|l)$/.test(w) || /[lmn]e$/.test(w)) {
+        return true;
+    }
+    if (/[ptk]$/.test(w)) {
+        if (/(eo|eu|ae|oe|wi|ui)[ptk]$/.test(w) || /ck$/.test(w) || /(^|[^aeiouy])[aeiouy][ptk]$/.test(w) || /ook$/.test(w)) {
+            return true;
+        }
+        return /oot$/.test(w) ? null : false;
+    }
+    return false;
+}
+
+function josa(word, withFinal, withoutFinal) {
+    const f = finalConsonant(word);
+    return word + (f === null ? `${withFinal}(${withoutFinal})` : f ? withFinal : withoutFinal);
+}
+
+const GOVERNMENTS = ["City", "County", "State"];
+
+// Defendants: the office that made the disposition and the body that pays (docs/PLAN.md §7 "자치단체 종류").
+function defendants(text, korean, cityName, government) {
+    const kind = GOVERNMENTS[government] || "City";
+    let name = (cityName || "").trim() || "City";
+    if (korean) {
+        const suffix = kind === "City" ? "시" : kind === "County" ? "군" : "";
+        if (suffix && name.endsWith(suffix) && name.length > suffix.length) {
+            name = name.slice(0, -suffix.length).trimEnd();
+        }
+        const joined = /[가-힣]$/.test(name) ? name : `${name} `;
+        return {
+            holder: text(`Defendant.${kind}.Holder`, { NAME: joined }).trim(),
+            body: text(`Defendant.${kind}.Body`, { NAME: kind === "State" ? name : joined }).trim(),
+        };
+    }
+    if (kind === "State" && /state$/i.test(name)) {
+        return { holder: text("Defendant.State.Holder", { NAME: name }), body: name };
+    }
+    return { holder: text(`Defendant.${kind}.Holder`, { NAME: name }), body: text(`Defendant.${kind}.Body`, { NAME: name }) };
+}
+
+function Row(props) {
+    return React.createElement(InfoRow, Object.assign({ disableFocus: true }, props));
+}
+
+// ---- City Info panel: a third tab, Lawsuits
+
+// Opening the panel while suits wait for an answer goes straight to the Lawsuits tab (the badge leads there).
+function extendCityInfoPanel(Panel) {
+    return function RealisticPoliciesCityInfoPanel(props) {
+        const unanswered = api.useValue(unansweredSuits$);
+        React.useEffect(() => {
+            if (unanswered > 0 && props.selectedTab !== LAWSUITS_TAB) {
+                api.trigger("game", "showCityInfoPanel", LAWSUITS_TAB);
+            }
+        }, []);
+        const value = React.useMemo(() => ({ selectedTab: props.selectedTab, onSelectTab: props.onSelectTab }), [props.selectedTab, props.onSelectTab]);
+        return React.createElement(CityInfoContext.Provider, { value }, React.createElement(Panel, props));
+    };
+}
+
+function extendTabBar(TabBar) {
+    return function RealisticPoliciesTabBar(props) {
+        const panel = React.useContext(CityInfoContext);
+        const text = useText();
+        if (!panel || !Tab) {
+            return React.createElement(TabBar, props);
+        }
+        const children = React.Children.toArray(props.children);
+        children.push(React.createElement(Tab, {
+            key: "rp-lawsuits",
+            id: LAWSUITS_TAB,
+            selectedId: panel.selectedTab,
+            onSelect: panel.onSelectTab,
+        }, text("Tab.Lawsuits")));
+        // The tab content below must not see this context as its own tab bar.
+        return React.createElement(CityInfoContext.Provider, { value: null }, React.createElement(TabBar, props, ...children));
+    };
+}
+
+function extendTabNav(TabNav) {
+    return function RealisticPoliciesTabNav(props) {
+        const panel = React.useContext(CityInfoContext);
+        if (!panel) {
+            return React.createElement(TabNav, props);
+        }
+        const tabs = (props.tabs || []).concat([LAWSUITS_TAB]);
+        const children = props.selectedTab === LAWSUITS_TAB ? React.createElement(LawsuitsPage) : props.children;
+        return React.createElement(CityInfoContext.Provider, { value: null }, React.createElement(TabNav, Object.assign({}, props, { tabs }), children));
+    };
+}
+
+// ---- Policy report under the policy description
+
+function extendDetailLayout(Layout) {
+    return function RealisticPoliciesDetailLayout(props) {
+        const onPolicyPage = React.useContext(PolicyPageContext);
+        const id = onPolicyPage && props.title && props.title.props ? props.title.props.hash : null;
+        if (!id || typeof id !== "string" || id.indexOf(`${GROUP}.`) !== 0) {
+            return React.createElement(Layout, props);
+        }
+        return React.createElement(Layout, props, props.children, React.createElement(PolicyReport, { key: "rp-report", id }));
+    };
+}
+
+function PolicyReport({ id }) {
+    const reports = api.useValue(policyReports$) || [];
+    const suits = api.useValue(lawsuits$);
+    const text = useText();
+    const money = useMoney();
+    const { translate } = l10n.useLocalization();
+    const report = reports.find((r) => r.id === id);
+    if (!report) {
+        return null;
+    }
+    const sections = [];
+    const caseNo = (year, number) => text("Suit.CaseNumber", { YEAR: year, N: number });
+
+    const ban = suits && suits.bans ? suits.bans.find((b) => b.policyId === id) : null;
+    if (ban) {
+        sections.push(React.createElement(InfoSection, { key: "ban", disableFocus: true },
+            Row({ left: text("Report.Banned"), right: text("Report.DaysLeft", { DAYS: ban.daysLeft.toFixed(1) }) }),
+            ban.number > 0 ? Row({ left: text("Report.Verdict"), right: text(ban.partial ? "Suit.LostPart" : "Suit.Lost", { CASE: caseNo(ban.year, ban.number) }) }) : null));
+        return React.createElement("div", { className: "rp-policy-report" }, sections);
+    }
+    if (!report.on) {
+        return React.createElement("div", { className: "rp-policy-report" },
+            React.createElement(InfoSection, { disableFocus: true }, Row({ left: text("Report.Off") })));
+    }
+
+    const seriesName = (series) => translate(`RealisticPolicies.SeriesName.${series}`, series);
+    const input = report.staff.map((s) => Row({
+        key: `staff-${s.series}`, left: seriesName(s.series), subRow: true, tooltip: text("Report.Staff.Tooltip"),
+        right: text("Report.Staff", { NEED: Math.ceil(s.need), WORKERS: s.workers }),
+    })).concat(report.money.filter((m) => !m.income).map((m) => Row({
+        key: `money-${m.row}`, left: translate(`EconomyPanel.BUDGET_ITEM[${m.row}]`, m.row), subRow: true, right: money(m.monthly, true),
+    })));
+
+    const activity = [
+        Row({ key: "eff", left: text("Report.Effectiveness"), right: percent(report.effectiveness), subRow: true, tooltip: text("Report.Effectiveness.Tooltip") }),
+        report.busiest ? Row({ key: "rho", left: text("Report.Utilization", { SERIES: seriesName(report.busiest) }), right: percent(report.utilization), subRow: true, tooltip: text("Report.Utilization.Tooltip") }) : null,
+        Row({ key: "lag", left: text("Report.Lag"), right: text("Report.LagValue", { DAYS: report.lagDays.toFixed(1) }), subRow: true }),
+        report.capture >= 0.005 ? Row({ key: "cap", left: text("Report.Capture"), right: percent(report.capture), subRow: true, tooltip: text("Report.Capture.Tooltip") }) : null,
+    ];
+
+    const output = [];
+    switch (report.mechanism) {
+        case "PerformanceStandard":
+        case "Generic":
+            if (report.authority) {
+                output.push(Row({ key: "det", left: text("Report.Detection"), right: percent(report.detection), subRow: true }));
+                output.push(Row({ key: "comp", left: text("Report.Compliance"), right: percent(report.compliance), subRow: true }));
+            }
+            break;
+        case "EmissionTax":
+            output.push(Row({ key: "rep", left: text("Report.Reporting"), right: percent(report.compliance), subRow: true }));
+            output.push(Row({ key: "rate", left: text("Report.EffectiveRate"), right: `${Math.round(report.effectiveRate)}%`, subRow: true }));
+            output.push(Row({ key: "abate", left: text("Report.Abatement"), right: percent(report.abatement), subRow: true }));
+            break;
+        case "AbatementSubsidy":
+            output.push(Row({ key: "abate", left: text("Report.Abatement"), right: percent(report.abatement), subRow: true }));
+            break;
+        case "Monitoring":
+            output.push(Row({ key: "watch", left: text("Report.WatchDetection"), right: `${percent(report.detectionBefore)} → ${percent(report.detectionAfter)}`, subRow: true }));
+            break;
+        case "Disclosure":
+            output.push(Row({ key: "vol", left: text("Report.Voluntary"), right: points(report.voluntaryGain), subRow: true }));
+            break;
+    }
+    output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true }));
+
+    // Outcome: air and ground pollution of the same size read as one row.
+    const outcome = [];
+    const mods = report.modifiers.slice();
+    const air = mods.find((m) => m.type === "IndustrialAirPollution");
+    const ground = mods.find((m) => m.type === "IndustrialGroundPollution");
+    if (air && ground && Math.abs(air.value - ground.value) < 1e-4) {
+        mods.splice(mods.indexOf(ground), 1);
+        air.type = "IndustrialPollution";
+    }
+    for (const m of mods) {
+        // Less pollution and garbage is good; less efficiency is bad.
+        const good = m.type === "IndustrialEfficiency" ? m.value > 0 : m.value < 0;
+        outcome.push(Row({ key: `mod-${m.type}`, left: text(`Report.Modifier.${m.type}`), right: React.createElement("span", { style: { color: m.value === 0 ? undefined : good ? "var(--positiveColor)" : "var(--negativeColor)" } }, signedPercent(m.value)), subRow: true }));
+    }
+    for (const m of report.money.filter((r) => r.income)) {
+        outcome.push(Row({ key: `income-${m.row}`, left: translate(`EconomyPanel.BUDGET_ITEM[${m.row}]`, m.row), right: money(m.monthly, true), subRow: true }));
+    }
+    for (const l of report.levers) {
+        outcome.push(Row({ key: `lever-${l.key}`, left: text(`Report.Lever.${l.key.split(".").pop()}`), right: signedPercent(l.value), subRow: true }));
+    }
+    if (report.hasAir) {
+        outcome.push(Row({ key: "air", left: text("Report.Air"), right: React.createElement("span", { style: { color: report.airChange < 0 ? "var(--positiveColor)" : report.airChange > 0 ? "var(--negativeColor)" : undefined } }, signedPercent(report.airChange)), subRow: true }));
+    }
+
+    const section = (key, title, rows) => React.createElement(InfoSection, { key, disableFocus: true },
+        Row({ left: text(title), uppercase: true }), ...rows.filter(Boolean));
+    sections.push(section("input", "Report.Input", input));
+    sections.push(section("activity", "Report.Activity", activity));
+    sections.push(section("output", "Report.Output", output));
+    sections.push(section("outcome", "Report.Outcome", outcome));
+
+    const notes = [];
+    if (report.suspended) {
+        notes.push(React.createElement("div", { key: "susp", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Suspended")));
+    }
+    if (report.warning) {
+        notes.push(React.createElement("div", { key: "warn", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Warning")));
+    }
+    const suit = suits && suits.suits ? suits.suits.find((s) => s.policyId === id) : null;
+    if (suit) {
+        notes.push(React.createElement("div", { key: "suit", style: { padding: "4rem 10rem" } },
+            text("Report.InCourt", { CASE: caseNo(suit.year, suit.number) }), " ",
+            ui && ui.Button
+                ? React.createElement(ui.Button, { variant: "text", onSelect: () => api.trigger("game", "showCityInfoPanel", LAWSUITS_TAB) }, text("Report.OpenLawsuits"))
+                : null));
+    }
+    if (notes.length) {
+        sections.push(React.createElement(InfoSection, { key: "notes", disableFocus: true }, ...notes));
+    }
+    return React.createElement("div", { className: "rp-policy-report" }, sections);
+}
+
+// ---- Lawsuits tab
+
+function LawsuitsPage() {
+    const data = api.useValue(lawsuits$);
+    const text = useText();
+    const content = !data ? null : [
+        data.settlementResult === "Accepted" && !data.suits.some((s) => s.key === data.settlementKey)
+            ? React.createElement("div", { key: "settled", style: { color: "var(--positiveColor)", padding: "8rem 10rem" } }, text("Suit.Settle.Accepted"))
+            : null,
+        data.suits.length === 0
+            ? React.createElement("div", { key: "none", style: { padding: "20rem 10rem", opacity: 0.7 } }, text("Suit.None"))
+            : null,
+        ...data.suits.map((suit) => React.createElement(SuitSection, { key: suit.key, suit, data })),
+        data.bans.length || data.debts.length ? React.createElement(AfterVerdict, { key: "after", data }) : null,
+    ];
+    const body = Scrollable
+        ? React.createElement(Scrollable, { style: { flex: "1 1 auto" } }, content)
+        : React.createElement("div", { style: { flex: "1 1 auto", overflowY: "auto" } }, content);
+    return React.createElement("div", { className: "rp-lawsuits", style: { display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: "560rem" } }, body);
+}
+
+function SuitSection({ suit, data }) {
+    const text = useText();
+    const money = useMoney();
+    const formatName = useNameFormat ? useNameFormat() : null;
+    const { translate } = l10n.useLocalization();
+    const [open, setOpen] = React.useState(testOpenClaims);
+    const korean = text("Lang") === "ko";
+    const policy = translate(`Policy.TITLE[${suit.policyId}]`, suit.policyId);
+    const unit = suit.slider ? "%" : "";
+    const value = (v) => `${Math.round(v)}${unit}`;
+    const names = defendants(text, korean, data.cityName, data.government);
+    const caseNo = text("Suit.CaseNumber", { YEAR: suit.year, N: suit.number });
+    const titleKey = `Suit.Title${suit.againstCut ? ".Cut" : ""}${suit.claim > 0 ? "" : ".NoClaim"}`;
+
+    const representative = suit.representative && formatName ? formatName(suit.representative) : "";
+    const others = Math.max(0, suit.plaintiffs - 1);
+    const plaintiffs = others > 0 ? text(`Plaintiffs.${suit.group}`, { NAME: representative, N: groupDigits(others) }) : representative;
+
+    const rows = [
+        Row({ key: "p", left: text("Suit.Plaintiffs"), right: plaintiffs }),
+        Row({ key: "d", left: text("Suit.Defendants"), right: `${names.holder}, ${names.body}` }),
+        Row({ key: "t", left: text("Suit.UntilVerdict"), right: text("Suit.HoursLeft", { HOURS: Math.ceil(suit.remainingHours) }) }),
+        Row({ key: "w", left: text("Suit.WinChance"), right: text(`Suit.Hint.${suit.hint}`), tooltip: text("Suit.WinChance.Tooltip") }),
+    ];
+    if (suit.response === 0) {
+        rows.push(Row({ key: "r", left: text("Suit.Response"), right: React.createElement("span", { style: { color: "var(--warningColor)" } }, text("Suit.Response.None")), tooltip: text("Suit.Response.None.Tooltip") }));
+    } else {
+        rows.push(Row({ key: "r", left: text("Suit.Response"), right: suit.response === 1 ? text("Suit.Response.Lawyer", { FEE: money(suit.lawyerFee) }) : text("Suit.Response.Official") }));
+    }
+    // Injunction stages: 0 not requested, 1 requested, 2 granted, 3 in effect, 4 denied, 5 cancelled.
+    const injunction = [null, text("Suit.Injunction.Requested"), text("Suit.Injunction.Granted", { MINUTES: Math.max(1, Math.ceil(suit.injunctionHours * 60)) }),
+        text("Suit.Injunction.InEffect"), text("Suit.Injunction.Denied"), text("Suit.Injunction.Cancelled")][suit.injunction];
+    if (injunction) {
+        const warn = suit.injunction === 2 || suit.injunction === 3;
+        rows.push(Row({ key: "i", left: text("Suit.Injunction"), right: React.createElement("span", { style: warn ? { color: "var(--warningColor)" } : null }, injunction),
+            tooltip: suit.injunction === 2 && suit.response === 0 ? text("Suit.Injunction.Granted.Tooltip") : undefined }));
+    }
+
+    const claims = [];
+    if (open) {
+        const date = text("Claim.Date", { YEAR: suit.actYear, MONTH: suit.actMonth });
+        const args = {
+            DATE: date, POLICY: policy, VALUE: value(suit.contested), PRIOR: value(suit.prior), HOLDER: names.holder, BODY: names.body, CLAIM: money(suit.claim),
+            HOLDER_SUBJECT: josa(names.holder, "이", "가"), BODY_TOPIC: josa(names.body, "은", "는"),
+            POLICY_OBJECT: josa(policy, "을", "를"), CLAIM_OBJECT: josa(money(suit.claim), "을", "를"),
+        };
+        const first = suit.againstCut ? (suit.slider ? "Claim.Cut" : "Claim.CutToggle") : (suit.slider ? "Claim.Burden" : "Claim.BurdenToggle");
+        const lines = [text(first, args)];
+        if (suit.claim > 0) {
+            lines.push(text("Claim.Pay", args));
+        }
+        lines.push(text("Claim.Costs", args));
+        const grounds = [["Proportionality", 1], ["LegitimateExpectation", 2], ["Procedure", 4]].filter(([, bit]) => (suit.grounds & bit) !== 0);
+        claims.push(React.createElement("div", { key: "claims", style: { padding: "4rem 10rem 8rem 20rem", lineHeight: 1.5, opacity: 0.9 } },
+            React.createElement("div", { style: { opacity: 0.7 } }, text("Suit.Claims")),
+            ...lines.map((line, i) => React.createElement("div", { key: `c${i}` }, line)),
+            React.createElement("div", { style: { opacity: 0.7, marginTop: "6rem" } }, text("Suit.Grounds")),
+            ...grounds.map(([name]) => React.createElement("div", { key: name }, `· ${text(`Suit.Ground.${name}`)}`))));
+    }
+    const toggle = ui && ui.Button
+        ? React.createElement(ui.Button, { key: "toggle", variant: "text", onSelect: () => setOpen(!open), style: { padding: "4rem 10rem" } }, text(open ? "Suit.HideClaims" : "Suit.ShowClaims"))
+        : null;
+
+    const actions = suit.response === 0
+        ? React.createElement("div", { key: "actions", style: { display: "flex", padding: "6rem 10rem", gap: "6rem" } },
+            ActionButton(text("Suit.Hire"), text(suit.late ? "Suit.Hire.Late" : "Suit.Hire.Detail", { FEE: money(suit.lawyerFee) }), () => api.trigger(GROUP, "respondSuit", suit.key, 1)),
+            ActionButton(text("Suit.Assign"), text("Suit.Assign.Detail", { N: suit.officials }), () => api.trigger(GROUP, "respondSuit", suit.key, 2)))
+        : React.createElement(SettlementRows, { key: "settle", suit, data });
+
+    return React.createElement(InfoSection, { disableFocus: true },
+        React.createElement("div", { style: { padding: "8rem 10rem 4rem" } },
+            React.createElement("div", { style: { opacity: 0.6, fontSize: "var(--fontSizeS)" } }, caseNo),
+            React.createElement("div", { style: { fontSize: "var(--fontSizeL)", fontWeight: "bold", marginTop: "2rem" } }, text(titleKey, { POLICY: policy }))),
+        ...rows, toggle, ...claims, actions);
+}
+
+function ActionButton(title, detail, onSelect) {
+    const children = [
+        React.createElement("div", { key: "t" }, title),
+        React.createElement("div", { key: "d", style: { opacity: 0.65, fontSize: "var(--fontSizeS)", marginTop: "2rem" } }, detail),
+    ];
+    const style = { flex: "1 1 0", padding: "8rem 10rem", textAlign: "left", display: "block" };
+    return ui && ui.Button
+        ? React.createElement(ui.Button, { key: title, variant: "flat", onSelect, style }, children)
+        : React.createElement("button", { key: title, onClick: onSelect, style }, children);
+}
+
+// Settlement: a policy level between the contested and the earlier one (a switch for toggles), plus compensation.
+function SettlementRows({ suit, data }) {
+    const text = useText();
+    const lo = Math.min(suit.contested, suit.prior);
+    const hi = Math.max(suit.contested, suit.prior);
+    const [level, setLevel] = React.useState(suit.contested);
+    const [compensation, setCompensation] = React.useState(0);
+    const transformer = useStepTransformer ? useStepTransformer(1) : undefined;
+    const left = data.maxOffers - suit.offers;
+    const waiting = suit.waitHours > 0;
+    const refused = data.settlementKey === suit.key && data.settlementResult === "Refused";
+
+    let control;
+    if (suit.slider && Slider) {
+        control = React.createElement("div", { style: { display: "flex", alignItems: "center" } },
+            React.createElement("div", { style: { width: "60rem", textAlign: "right", marginRight: "12rem" } }, `${Math.round(level)}%`),
+            React.createElement("div", { style: { width: "200rem" } },
+                React.createElement(Slider, { value: level, start: lo, end: hi, valueTransformer: transformer, onChange: setLevel })));
+    } else if (Checkbox) {
+        const changed = level !== suit.contested;
+        control = React.createElement(Checkbox, { checked: changed, onChange: () => setLevel(changed ? suit.contested : suit.prior) });
+    }
+    const label = !suit.slider ? text(suit.againstCut ? "Suit.Settle.Restore" : "Suit.Settle.TurnOff") : text("Suit.Settle.Intensity");
+    const input = IntInput
+        ? React.createElement(IntInput, { value: compensation, min: 0, onChange: (v) => setCompensation(Math.max(0, v | 0)), style: { width: "140rem" } })
+        : null;
+    const buttonText = left <= 0 ? text("Suit.Settle.NoneLeft") : waiting ? text("Suit.Settle.Wait", { HOURS: Math.ceil(suit.waitHours) }) : text("Suit.Settle.Offer");
+    const disabled = left <= 0 || waiting;
+    const button = ui && ui.Button
+        ? React.createElement(ui.Button, { variant: "flat", disabled, onSelect: disabled ? undefined : () => api.trigger(GROUP, "proposeSettlement", suit.key, level, compensation),
+            style: { padding: "8rem 10rem", margin: "6rem 10rem", textAlign: "center", opacity: disabled ? 0.5 : 1 } }, buttonText)
+        : null;
+    return React.createElement("div", null,
+        Row({ left: text("Suit.Settle"), right: text("Suit.Settle.Left", { N: Math.max(0, left) }), tooltip: text("Suit.Settle.Tooltip") }),
+        Row({ left: label, right: control, subRow: true }),
+        Row({ left: text("Suit.Settle.Compensation"), right: input, subRow: true }),
+        refused ? React.createElement("div", { style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Suit.Settle.Refused")) : null,
+        button);
+}
+
+function AfterVerdict({ data }) {
+    const text = useText();
+    const money = useMoney();
+    const { translate } = l10n.useLocalization();
+    const caseNo = (year, number) => text("Suit.CaseNumber", { YEAR: year, N: number });
+    const rows = [Row({ key: "h", left: text("Suit.After"), uppercase: true })];
+    for (const ban of data.bans) {
+        rows.push(Row({ key: `ban-${ban.policyId}`, left: translate(`Policy.TITLE[${ban.policyId}]`, ban.policyId),
+            right: ban.number > 0 ? text(ban.partial ? "Suit.LostPart" : "Suit.Lost", { CASE: caseNo(ban.year, ban.number) }) : "" }));
+        rows.push(Row({ key: `ban-days-${ban.policyId}`, left: text("Suit.Ban"), subRow: true,
+            right: React.createElement("span", { style: { color: "var(--warningColor)" } }, text("Report.DaysLeft", { DAYS: ban.daysLeft.toFixed(1) })),
+            tooltip: text(ban.toggle ? "Suit.Ban.Toggle.Tooltip" : "Suit.Ban.Slider.Tooltip") }));
+    }
+    for (const debt of data.debts) {
+        rows.push(Row({ key: `debt-${debt.year}-${debt.number}`, left: debt.number > 0 ? `${text("Suit.Debt")} (${caseNo(debt.year, debt.number)})` : text("Suit.Debt"),
+            right: money(debt.remaining), tooltip: text("Suit.Debt.Tooltip", { CAP: money(debt.dailyCap), ARREARS: money(debt.arrears) }) }));
+    }
+    return React.createElement(InfoSection, { disableFocus: true }, ...rows);
 }
 
 // ---------------------------------------------------------------- prototype self-test
@@ -255,9 +743,9 @@ async function runSelfTest(translate) {
 async function runWelfareTest(translate) {
     try {
         await sleep(2500);
-        const label = translate("RealisticPolicies.Series.Tax", "");
+        const label = translate("RealisticPolicies.Series.Header", "");
         const text = document.body ? document.body.textContent || "" : "";
-        check("Welfare office panel shows the series choices", !!label && text.indexOf(label) >= 0, label);
+        check("Welfare office panel shows the series dropdown", !!label && text.indexOf(label) >= 0, label);
         report("shot:welfare-before");
         await sleep(1500);
         api.trigger(GROUP, "SetWelfareSeries", 1);
@@ -270,6 +758,39 @@ async function runWelfareTest(translate) {
     report("done");
 }
 
+async function runReportTest(translate) {
+    try {
+        testOpenClaims = true;
+        api.trigger("game", "showCityInfoPanel", 2);
+        await sleep(3000);
+        const page = document.querySelector(".rp-lawsuits");
+        const text = page ? page.textContent || "" : "";
+        check("Lawsuits tab is rendered", !!page);
+        const hire = translate("RealisticPolicies.UI.Suit.Settle", "");
+        check("Lawsuits tab lists the pending suit with its settlement rows", !!hire && text.indexOf(hire) >= 0, text.substring(0, 200));
+        const costs = translate("RealisticPolicies.UI.Claim.Costs", "");
+        check("Claims are written out", !!costs && text.indexOf(costs.substring(3, 12)) >= 0);
+        report("shot:lawsuits");
+        await sleep(1500);
+        testOpenClaims = false;
+
+        // The pollution tax is on (and in court); the emission standard is banned by now.
+        testSelectPolicy = "RealisticPolicies.PollutionTax";
+        api.trigger("game", "showCityInfoPanel", 1);
+        await sleep(3000);
+        testSelectPolicy = null;
+        const panel = document.querySelector(".rp-policy-report");
+        const input = translate("RealisticPolicies.UI.Report.Input", "");
+        check("Policy report is shown under the policy description", !!panel && (panel.textContent || "").indexOf(input) >= 0, panel ? (panel.textContent || "").substring(0, 200) : "none");
+        report("shot:policy-report");
+        await sleep(1500);
+        api.trigger("game", "closeActiveGamePanel");
+    } catch (e) {
+        check("Report UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
 function SelfTestRunner() {
     const stage = api.useValue(selfTestStage$);
     const { translate } = l10n.useLocalization();
@@ -278,6 +799,8 @@ function SelfTestRunner() {
             runSelfTest(translate);
         } else if (stage === 2) {
             runWelfareTest(translate);
+        } else if (stage === 3) {
+            runReportTest(translate);
         }
     }, [stage]);
     return null;
@@ -288,8 +811,16 @@ export default function register(moduleRegistry) {
     moduleRegistry.extend(CITY_POLICY_MODULE, "CityPolicy", extendCityPolicy);
     moduleRegistry.extend(BUDGET_SECTION_MODULE, "BudgetSection", extendBudgetSection);
     moduleRegistry.extend(CITY_INFO_FIELD_MODULE, "CityInfoField", extendCityInfoField);
+    if (InfoSection && InfoRow) {
+        moduleRegistry.extend(CITY_INFO_PANEL_MODULE, "CityInfoPanel", extendCityInfoPanel);
+        moduleRegistry.extend(TABS_MODULE, "TabBar", extendTabBar);
+        moduleRegistry.extend(TABS_MODULE, "TabNav", extendTabNav);
+        moduleRegistry.extend(DETAIL_LAYOUT_MODULE, "DetailLayout", extendDetailLayout);
+    } else {
+        console.error("RealisticPolicies: info row components not found; the report panel is unavailable.");
+    }
     moduleRegistry.append("Game", SelfTestRunner);
-    if (InfoSection && InfoRow && Checkbox) {
+    if (InfoSection && InfoRow && Dropdown && DropdownToggle && DropdownItem) {
         moduleRegistry.extend(SECTIONS_MODULE, "selectedInfoSectionComponents", (components) => {
             components[WELFARE_SECTION_TYPE] = WelfareSeriesSection;
             return components;

@@ -51,6 +51,11 @@ namespace RealisticPolicies.Engine
         private float[] m_Intensity;
         private readonly float[] m_Demand = new float[(int)ServiceSeries.Count];
         private readonly float[] m_Utilization = new float[(int)ServiceSeries.Count];
+
+        // Policy report (stage 7): each policy's own staff need per series, and the frame of its last legitimacy warning.
+        private float[,] m_PolicyStaff;
+        private uint[] m_WarningFrame;
+        private AirPollutionSystem m_AirPollutionSystem;
         private bool m_CensusDue = true;
         private uint m_LastCensusDay = uint.MaxValue;
         private uint m_LastFrame;
@@ -102,6 +107,15 @@ namespace RealisticPolicies.Engine
         /// <summary>Grievance of one group about one policy at the last step (loss-averse, against the reference point).</summary>
         public float GroupGrievance(int definitionIndex, TargetGroup group) => m_GroupGrievance[definitionIndex, (int)group];
 
+        /// <summary>Staff of one series the policy needs at the last step (intensity and change surge included).</summary>
+        public float PolicyStaff(int definitionIndex, ServiceSeries series) => m_PolicyStaff[definitionIndex, (int)series];
+
+        /// <summary>Frame of the last legitimacy warning this policy caused (0 = none).</summary>
+        public uint WarningFrame(int definitionIndex) => m_WarningFrame[definitionIndex];
+
+        /// <summary>City-wide mean of the air pollution map at the last step.</summary>
+        public float AirPollution { get; private set; }
+
         [Preserve]
         protected override void OnCreate()
         {
@@ -135,6 +149,9 @@ namespace RealisticPolicies.Engine
             m_Intensity = new float[count];
             m_GroupGrievance = new float[count, (int)TargetGroup.Count];
             LastResults = new PolicyStepResult[count];
+            m_PolicyStaff = new float[count, (int)ServiceSeries.Count];
+            m_WarningFrame = new uint[count];
+            m_AirPollutionSystem = World.GetOrCreateSystemManaged<AirPollutionSystem>();
         }
 
         [Preserve]
@@ -144,6 +161,7 @@ namespace RealisticPolicies.Engine
             m_HasLastFrame = false;
             m_CensusDue = true;
             m_MigrationDue = true;
+            System.Array.Clear(m_WarningFrame, 0, m_WarningFrame.Length);
             // The previous city's money rows and parameter changes must not leak into this one.
             m_Budget.ClearRows();
             m_TaxControl.Restore();
@@ -200,6 +218,7 @@ namespace RealisticPolicies.Engine
             // Residential floor from social welfare staff, rates held without tax staff (§5.1).
             int population = EntityManager.TryGetComponent(city, out Population cityPopulation) ? cityPopulation.m_Population : 0;
             m_TaxControl.Apply(ref state, m_Census.Workers(ServiceSeries.Tax), m_Census.Workers(ServiceSeries.SocialWelfare), population);
+            AirPollution = MeanAirPollution();
             DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
             state.m_Credibility += (1f - math.exp(-dt / EngineParameters.kCredibilityDays)) * (1f - state.m_Credibility);
             float surgeDecay = math.exp(-dt / EngineParameters.kSurgeDecayDays);
@@ -227,17 +246,29 @@ namespace RealisticPolicies.Engine
                     state.m_Credibility = math.max(0f, state.m_Credibility + EngineParameters.kCredibilityLoss * change);
                 }
                 runtime.m_AgeDays = s > 0f ? runtime.m_AgeDays + dt : 0f;
+                // Outcome baseline for the report: the city's air when the policy was switched on.
+                if (s > 0f && runtime.m_LastIntensity <= 0f)
+                {
+                    runtime.m_BaselineAir = AirPollution;
+                    runtime.m_HasBaseline = true;
+                }
                 runtime.m_LastIntensity = s;
                 runtimes[r] = runtime;
 
                 // Ongoing work scales with intensity; a change adds work even while switching off.
                 float workload = s + runtime.m_Surge;
+                for (int j = 0; j < (int)ServiceSeries.Count; j++)
+                {
+                    m_PolicyStaff[i, j] = 0f;
+                }
                 if (workload > 0f)
                 {
                     float targets = m_Census.TargetCount(definition.Target);
                     foreach (StaffRequirement staff in definition.Staff)
                     {
-                        m_Demand[(int)staff.Series] += workload * (staff.Fixed + staff.PerUnit * targets);
+                        float need = workload * (staff.Fixed + staff.PerUnit * targets);
+                        m_Demand[(int)staff.Series] += need;
+                        m_PolicyStaff[i, (int)staff.Series] += need;
                     }
                 }
             }
@@ -288,9 +319,14 @@ namespace RealisticPolicies.Engine
 
                 // ④ The busiest series the policy needs sets its delay and rationing.
                 float rho = 0f;
+                ServiceSeries busiest = ServiceSeries.None;
                 foreach (StaffRequirement staff in definition.Staff)
                 {
-                    rho = math.max(rho, m_Utilization[(int)staff.Series]);
+                    if (busiest == ServiceSeries.None || m_Utilization[(int)staff.Series] > rho)
+                    {
+                        rho = m_Utilization[(int)staff.Series];
+                        busiest = staff.Series;
+                    }
                 }
                 float delayFactor = 1f / (1f - math.min(rho, EngineParameters.kMaxUtilization));
                 float rationing = rho > 1f ? 1f / rho : 1f;
@@ -369,6 +405,8 @@ namespace RealisticPolicies.Engine
                     Target = target,
                     Progress = runtime.m_Progress,
                     LagDays = tau,
+                    BusiestSeries = busiest,
+                    Voluntary = voluntary,
                 };
             }
 
@@ -379,6 +417,26 @@ namespace RealisticPolicies.Engine
                 - dt * EngineParameters.kLegitimacyReturnRate * (state.m_Legitimacy - EngineParameters.kLegitimacyBase));
             if (drop > EngineParameters.kWarningDrop)
             {
+                // The report's "recent warning" goes to the policy whose grievance weighs most.
+                int worst = -1;
+                float worstGrievance = 0f;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    float sum = 0f;
+                    for (int g = 0; g < (int)TargetGroup.Count; g++)
+                    {
+                        sum += m_GroupGrievance[i, g];
+                    }
+                    if (sum > worstGrievance)
+                    {
+                        worstGrievance = sum;
+                        worst = i;
+                    }
+                }
+                if (worst >= 0)
+                {
+                    m_WarningFrame[worst] = math.max(1u, frame);
+                }
                 // Chirper and report-panel warnings come later; the log records it for now.
                 Mod.Log.Warn($"Legitimacy warning: a decision cost {drop:0.000} legitimacy in one step.");
             }
@@ -519,6 +577,20 @@ namespace RealisticPolicies.Engine
                     m_LeverWritten[entry.Key] = factor;
                 }
             }
+        }
+
+        /// <summary>Mean of the air pollution map (a small grid, read once per step).</summary>
+        private float MeanAirPollution()
+        {
+            NativeArray<AirPollution> map = m_AirPollutionSystem.GetMap(true, out Unity.Jobs.JobHandle dependencies);
+            dependencies.Complete();
+            long sum = 0;
+            for (int c = 0; c < map.Length; c++)
+            {
+                sum += map[c].m_Pollution;
+            }
+            m_AirPollutionSystem.AddReader(default);
+            return map.Length > 0 ? sum / (float)map.Length : 0f;
         }
 
         private static float Capture(PolicyRuntime runtime) =>
@@ -670,5 +742,11 @@ namespace RealisticPolicies.Engine
         public float Target;
         public float Progress;
         public float LagDays;
+
+        /// <summary>The series whose workload sets the policy's delay and rationing.</summary>
+        public ServiceSeries BusiestSeries;
+
+        /// <summary>Share of companies that comply of their own accord (legitimacy and disclosure).</summary>
+        public float Voluntary;
     }
 }

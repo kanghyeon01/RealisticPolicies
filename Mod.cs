@@ -50,6 +50,7 @@ namespace RealisticPolicies
             updateSystem.UpdateAt<Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<Engine.LitigationSystem, Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
+            updateSystem.UpdateAt<ReportUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<SelfTestSystem>(SystemUpdatePhase.MainLoop);
 
             // Info panel sections aren't scheduled; the selected-info system updates the ones it knows about.
