@@ -58,6 +58,19 @@ namespace RealisticPolicies
         [Preserve]
         protected override void OnUpdate()
         {
+            long start = Engine.Perf.Start();
+            try
+            {
+                Step();
+            }
+            finally
+            {
+                Engine.Perf.Stop("ReportUI", start);
+            }
+        }
+
+        private void Step()
+        {
             int government = Mod.Setting != null ? (int)Mod.Setting.Government : 0;
             string cityName = m_CityConfiguration.cityName;
             bool litigationChanged = m_Litigation.Version != m_LastLitigationVersion

@@ -175,6 +175,19 @@ namespace RealisticPolicies.Engine
         [Preserve]
         protected override void OnUpdate()
         {
+            long start = Perf.Start();
+            try
+            {
+                Step();
+            }
+            finally
+            {
+                Perf.Stop("Engine", start);
+            }
+        }
+
+        private void Step()
+        {
             Entity city = m_CitySystem.City;
             if (city == Entity.Null || !PolicyCatalog.IsRegistered)
             {

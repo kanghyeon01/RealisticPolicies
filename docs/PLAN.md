@@ -595,6 +595,17 @@ Bemelmans-Videc·Rist·Vedung(1998)의 "당근·채찍·설교"와 Ayres & Brait
   - 치르퍼: 소송이 걸리면 대표 원고(가구는 그 집 시민, 기업은 기업 자신)가 글을 올림. 정책 4개 × 원고 종류 2가지 = 8개 프리팹, 영어·한국어 문구 (로캘 `RealisticPolicies.Chirp.Suit.{정책}.{Companies|Residents}:0`). 글에 시청 링크.
   - 도시 정보 버튼 배지: 게임 `AnimatedNumberBadge`(파랑), 대응하지 않은 소송 수. 클릭은 버튼으로 그대로.
     - 판결·화해·금지 조건으로 바뀐 경우는 N 정책 신뢰도 손실에서 뺀다.
+- **8단계 검증 (2026-11-04, RiverPort 복제본 자동 시험 62개 중 61개 통과, 실패 1개는 자금 상한):**
+  - **저장·불러오기 버그를 찾아 고침:** 모드 버퍼(정책 상태, 소송, 사용 금지)의 정책 프리팹 참조가 불러오기 때 새 세션의 프리팹으로 이어지지 않아, 소송·금지가 사라지고 정책 진행도가 처음부터 다시 쌓였음. 게임은 자기가 아는 데이터(바닐라 `Policy` 버퍼 등)만 `PrimaryPrefabReferencesSystem`에서 `PrefabReferences.Check`로 다시 잇는다. `Engine/ModPrefabReferencesSystem.cs`를 `SystemUpdatePhase.PrefabReferences`에서 그 바로 뒤에 돌려 모드 버퍼도 같은 방법으로 잇게 함 (저장 때는 참조 표시, 불러오기 때는 다시 잇기).
+  - 고친 뒤: 시험 도시를 새 이름으로 저장하고 다시 불러와 비교 → 소송(대응·화해 횟수·근거·처분 월·원고 수·변호사 비용), 사용 금지, 배상금, 정책 상태 6개, 대기 오염 기준값 6개, 세무직 기록 모두 같음. 정책 진행도도 이어짐.
+  - **모드를 뺀 뒤 세이브 열기:** 정상으로 열림 (사용자 확인). 게임이 모드 데이터 8종을 "모르는 형식"으로, 모드 정책·치르퍼 프리팹을 "모르는 프리팹" 경고로 건너뜀.
+  - **성능 (인구 약 30만, 시험은 엔진 512프레임마다):** 엔진 평균 3.6ms·최대 13ms (하루 1번 인원 집계 때), 소송 평균 1.2ms·최대 11ms (1024프레임마다), 화면 갱신 0.001ms. 평소 엔진은 8192프레임마다.
+  - **검색창:** 게임 용어집 패널의 검색창 부품(`SearchField`, 용어집 테마)으로 바꿈 (미리보기 docs/previews/search-box.html, 사용자 선택). 검색창과 정책 목록을 게임 포커스 묶음(`AutoNavigationScope`) 하나로 감싸 "포커스 키 중복" 오류 없어짐 (로그 0건).
+  - 화해 제한 확인: 첫 거절 뒤 3.00시간 대기, 세 번 거절 뒤 "남은 제안 없음".
+  - **소송 화면 문구를 법률 용어로 (2026-11-04 사용자 요청):** 대응 → 응소(미응소), 외부 변호사 → 소송대리인 선임, 소송수행 공무원 → 소송수행자 지정, 판결까지 → 판결 선고까지, 화해 제안 → 화해·조정, 화해안 제시 → 화해안 제출, 남은 제안 없음 → 화해·조정 기회 소진, 받아들임/거절 → 화해 성립/불성립, 판결 이후 → 판결 확정 후, 사용 금지 → 반복 처분 금지 (판결의 기속력), 남은 배상금 → 미지급 배상금, 밀린 금액 → 연체액, 집행정지 인용·기각·취소. 설정 "기본 대응 방식" → "기본 응소 방식".
+    - **게임 문구에는 법 조항 번호와 "국내 규정" 같은 한국 근거를 넣지 않는다 (한국어·영어 모두, 사용자 결정).** 근거는 PLAN에만 적는다.
+    - **영어는 직역하지 않고 영어 법률 용어로 쓴다 (사용자 결정):** Action to Set Aside the … Order and for Damages, Case No. 2050-1004 (한국 사건 부호 "구합"은 영어판에서 뺌), prayer for relief, grounds (breach of proportionality / legitimate expectations, procedural impropriety), enter an appearance / default judgment, retain an attorney / attorney of record (미국식, 사용자 결정), designate city officials to litigate, stay of the order (granted / denied / vacated on objection), settlement offer, judgment for the plaintiffs, bar on re-issuing the order, likelihood of prevailing.
+  - 시험 저장 때문에 게임의 "마지막 세이브"와 런처 RESUME가 지운 시험 세이브를 가리킴 (그 전에도 없는 예전 시험 도시를 가리키고 있었음).
 - **7단계 완료 (2026-11-04, RiverPort 복제본 자동 시험 57개 중 56개 통과, 실패 1개는 자금 상한; 화면 docs/previews/stage7-lawsuits.png, stage7-policy-report.png):**
   - 도시 정보 패널 "행정소송" 탭 (`ReportUISystem.cs`, UI 모듈): 게임 패널은 그대로 두고 탭 막대·탭 내용에만 끼워 넣음 (게임 탭 번호 2를 그대로 씀). 대응하지 않은 소송이 있으면 패널을 열 때 이 탭으로 감.
     - 소송마다 사건번호, 사건명, 원고(대표 원고 이름은 게임 이름 표시 그대로), 피고(자치단체 종류 설정), 남은 시간, 승소 확률, 대응, 집행정지, 청구 취지와 청구 원인 요지(펼치기), 대응 버튼 2개 또는 화해 제안.

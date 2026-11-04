@@ -48,6 +48,8 @@ namespace RealisticPolicies
                 Engine.LitigationSystem.TestDisableRandomFiling = true;
             }
             updateSystem.UpdateAt<Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
+            // Saved policy references in the mod's buffers go through the game's prefab reference mapping (save and load).
+            updateSystem.UpdateAfter<Engine.ModPrefabReferencesSystem, Game.Serialization.PrimaryPrefabReferencesSystem>(SystemUpdatePhase.PrefabReferences);
             updateSystem.UpdateAfter<Engine.LitigationSystem, Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<ReportUISystem>(SystemUpdatePhase.UIUpdate);

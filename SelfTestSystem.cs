@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -137,6 +137,13 @@ namespace RealisticPolicies
             {
                 Line($"City loaded (purpose {purpose}).");
                 SetStage(Stage.Settle);
+            }
+            else if (m_Stage == Stage.Reloading && mode == GameMode.Game)
+            {
+                Line("Saved city loaded again.");
+                World.GetOrCreateSystemManaged<AutoSaveSystem>().Enabled = false;
+                m_SimulationSystem.selectedSpeed = kTestSpeed;
+                SetStage(Stage.ReloadSettle);
             }
         }
 
@@ -394,6 +401,7 @@ namespace RealisticPolicies
                         Check("Default response answers a new suit at once with a lawyer, without the late surcharge",
                             auto.m_Response == (byte)SuitResponse.Lawyer && auto.m_LawyerFee > 0f, $"response {auto.m_Response}, fee {auto.m_LawyerFee:0}");
                         LitigationSystem.TestDefaultResponse = null;
+                        CheckSettlementLimits();
                         m_UiDone = false;
                         m_UISystem.SetSelfTestStage(3);
                         SetStage(Stage.ReportUi);
@@ -411,6 +419,43 @@ namespace RealisticPolicies
                         {
                             Check("Report UI test reported back", false, "no report within 90 s");
                         }
+                        StartSaveRoundTrip();
+                    }
+                    break;
+                case Stage.SaveGame:
+                    if (m_SaveTask != null && m_SaveTask.IsCompleted)
+                    {
+                        bool saved = !m_SaveTask.IsFaulted && m_SaveTask.Result && FindSave(kRoundTripSave) != null;
+                        Check("The city saves with the mod's data", saved, m_SaveTask.IsFaulted ? m_SaveTask.Exception?.GetBaseException().Message : null);
+                        m_SaveTask = null;
+                        if (saved)
+                        {
+                            Line($"Reloading '{kRoundTripSave}'.");
+                            SetStage(Stage.Reloading);
+                            _ = GameManager.instance.Load(GameMode.Game, Purpose.LoadGame, FindSave(kRoundTripSave));
+                        }
+                        else
+                        {
+                            SetStage(Stage.Finish);
+                        }
+                    }
+                    else if (StageSeconds() > 120f)
+                    {
+                        Check("The city saves with the mod's data", false, "no result within 120 s");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.Reloading:
+                    if (StageSeconds() > 300f)
+                    {
+                        Check("The saved city loads again", false, "not loaded within 300 s");
+                        SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.ReloadSettle:
+                    if (StageSeconds() >= 5f && SimFrames() >= 1024)
+                    {
+                        CheckRoundTrip();
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -1113,6 +1158,125 @@ namespace RealisticPolicies
             Check("Settlement that lowers the tax and compensates is accepted and ends the suit", accepted && SuitIndex(tax) < 0, $"compensation {compensation}");
         }
 
+        // ------------------------------------------------------------------ stage 8: offer limits, save round trip, timing
+
+        private const string kRoundTripSave = "RP SelfTest Stage8";
+        private System.Threading.Tasks.Task<bool> m_SaveTask;
+        private string m_SavedSnapshot;
+
+        /// <summary>Three offers per suit and three hours after a refusal (2026-11-04 user proposal), with every offer refused.</summary>
+        private void CheckSettlementLimits()
+        {
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            Entity tax = PolicyCatalog.Find(PolicyCatalog.kPollutionTax);
+            LitigationSystem.TestRefuseSettlement = true;
+            bool first = litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            SettlementResult firstResult = litigation.LastSettlementResult;
+            litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            SettlementResult waiting = litigation.LastSettlementResult;
+            float waitHours = litigation.SettlementWaitHours(Suit(tax));
+            Check("A refused offer is counted and the next one must wait about 3 hours", !first && firstResult == SettlementResult.Refused
+                && waiting == SettlementResult.Waiting && waitHours > 2.9f && waitHours <= 3.01f && Suit(tax).m_Offers == 1,
+                $"{firstResult}, then {waiting}, wait {waitHours:0.00} h, offers {Suit(tax).m_Offers}");
+            LitigationSystem.TestSkipSettlementWait = true;
+            litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            litigation.ProposeSettlement(SuitIndex(tax), 0.1f, 0);
+            Check("After three refused offers no more can be made", litigation.LastSettlementResult == SettlementResult.NoOffersLeft && Suit(tax).m_Offers == 3,
+                $"{litigation.LastSettlementResult}, offers {Suit(tax).m_Offers}");
+            LitigationSystem.TestSkipSettlementWait = false;
+            LitigationSystem.TestRefuseSettlement = false;
+        }
+
+        private static SaveGameMetadata FindSave(string name)
+        {
+            foreach (SaveGameMetadata meta in AssetDatabase.global.GetAssets(default(SearchFilter<SaveGameMetadata>)))
+            {
+                SaveInfo info = meta.target;
+                if (info != null && ((info.path != null && Path.GetFileNameWithoutExtension(info.path) == name) || info.displayName == name))
+                {
+                    return meta;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Saves the test city under a new name (deleted after the test) and remembers what the mod stored.</summary>
+        private void StartSaveRoundTrip()
+        {
+            m_SavedSnapshot = Snapshot();
+            Line($"Mod data before saving: {m_SavedSnapshot}");
+            var preview = Game.UI.ScreenCaptureHelper.CreateRenderTarget("RealisticPoliciesSelfTest", 680, 383);
+            Game.UI.ScreenCaptureHelper.CaptureScreenshot(Camera.main, preview, new Game.UI.Menu.MenuHelpers.SaveGamePreviewSettings());
+            SaveInfo info = World.GetOrCreateSystemManaged<Game.UI.Menu.MenuUISystem>().GetSaveInfo(false);
+            m_SaveTask = GameManager.instance.Save(kRoundTripSave, info, AssetDatabase.user, preview);
+            SetStage(Stage.SaveGame);
+        }
+
+        /// <summary>The mod's saved data in a comparable text: suits, bans, debts, runtime baselines and series designations.</summary>
+        private string Snapshot()
+        {
+            Entity city = m_CitySystem.City;
+            var text = new StringBuilder();
+            if (EntityManager.TryGetBuffer(city, true, out DynamicBuffer<Lawsuit> suits))
+            {
+                for (int i = 0; i < suits.Length; i++)
+                {
+                    Lawsuit s = suits[i];
+                    text.Append($"suit {s.m_Year}-{s.m_CaseNumber} r{s.m_Response} o{s.m_Offers} g{s.m_Grounds} m{s.m_ActMonth} p{s.m_Plaintiffs} fee{s.m_LawyerFee:0}; ");
+                }
+            }
+            if (EntityManager.TryGetBuffer(city, true, out DynamicBuffer<PolicyBan> bans))
+            {
+                for (int i = 0; i < bans.Length; i++)
+                {
+                    text.Append($"ban {bans[i].m_Year}-{bans[i].m_CaseNumber} partial {bans[i].m_Partial}; ");
+                }
+            }
+            if (EntityManager.TryGetBuffer(city, true, out DynamicBuffer<CourtDebt> debts))
+            {
+                text.Append($"debts {debts.Length}; ");
+            }
+            if (EntityManager.TryGetBuffer(city, true, out DynamicBuffer<PolicyRuntime> runtimes))
+            {
+                int baselines = 0;
+                for (int i = 0; i < runtimes.Length; i++)
+                {
+                    baselines += runtimes[i].m_HasBaseline ? 1 : 0;
+                }
+                text.Append($"runtimes {runtimes.Length}, baselines {baselines}; ");
+            }
+            using (EntityQuery welfare = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SocialWelfareDesignation>()))
+            using (EntityQuery tax = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TaxDesignation>()))
+            {
+                text.Append($"welfare {welfare.CalculateEntityCount()}, tax {tax.CalculateEntityCount()}; ");
+            }
+            if (EntityManager.TryGetComponent(city, out PolicyEngineState state))
+            {
+                text.Append($"tax staff seen {state.m_TaxStaffSeen}");
+            }
+            return text.ToString();
+        }
+
+        private void CheckRoundTrip()
+        {
+            string loaded = Snapshot();
+            Line($"Mod data after loading: {loaded}");
+            Check("Suits, bans, debts, baselines and series choices survive saving and loading", loaded == m_SavedSnapshot, loaded == m_SavedSnapshot ? null : $"before: {m_SavedSnapshot}");
+            var reports = World.GetOrCreateSystemManaged<LitigationSystem>();
+            Check("Litigation runs after loading", reports.Version > 0, $"version {reports.Version}");
+        }
+
+        /// <summary>Average and worst time of each mod system over the whole test (RiverPort: about 300,000 people).</summary>
+        private void ReportTiming()
+        {
+            foreach (System.Collections.Generic.KeyValuePair<string, Perf.Entry> entry in Perf.Entries)
+            {
+                Perf.Entry e = entry.Value;
+                Line($"Timing {entry.Key}: {e.Count} updates, average {e.TotalMs / System.Math.Max(1, e.Count):0.000} ms, worst {e.MaxMs:0.00} ms");
+            }
+        }
+
         private TaxParameterData TaxLimits()
         {
             using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TaxParameterData>()))
@@ -1168,6 +1332,8 @@ namespace RealisticPolicies
             LitigationSystem.TestFilingPolicy = Entity.Null;
             LitigationSystem.TestDefaultResponse = null;
             LitigationSystem.TestSkipSettlementWait = false;
+            LitigationSystem.TestRefuseSettlement = false;
+            ReportTiming();
             m_Injection.SetRow(kTestIncomeRow, true, (int)IncomeSource.FeeParking, 0);
             m_Injection.SetRow(kTestExpenseRow, false, (int)ExpenseSource.MapTileUpkeep, 0);
             Line($"Result: {m_Passed} passed, {m_Failed} failed, {UnityEngine.Time.realtimeSinceStartup - m_TestStart:0} s.");

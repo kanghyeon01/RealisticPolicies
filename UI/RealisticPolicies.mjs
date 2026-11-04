@@ -33,6 +33,11 @@ function getGameModule(path, name) {
 }
 
 const TextInput = getGameModule(TEXT_INPUT_MODULE, "TextInput");
+// The glossary panel's search field (rounded, with a clear button), in the glossary theme (2026-11-04 user choice).
+const SearchField = getGameModule("game-ui/editor/widgets/search-field/search-field.tsx", "SearchField");
+const glossarySearchTheme = getGameModule("game-ui/editor/widgets/search-field/themes/search-field-glossary.module.scss", "classes");
+const AutoNavigationScope = getGameModule("game-ui/common/focus/auto-navigation-scope.tsx", "AutoNavigationScope");
+const NavigationDirection = getGameModule("game-ui/common/focus/navigation.ts", "NavigationDirection");
 const InfoSection = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-section/info-section.tsx", "InfoSection");
 const InfoRow = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-row/info-row.tsx", "InfoRow");
 const AnimatedNumberBadge = getGameModule(NUMBER_BADGE_MODULE, "AnimatedNumberBadge");
@@ -132,12 +137,14 @@ function SearchBox() {
     const { translate } = l10n.useLocalization();
     const placeholder = translate("RealisticPolicies.Search.Placeholder", "Search policies");
     const onChange = (e) => search.set((e && e.target ? e.target.value : e) || "");
-    const props = { className: "rp-policy-search", value: query, placeholder, onChange };
-    return React.createElement(
-        "div",
-        { style: { padding: "8rem 10rem 0 10rem" } },
-        TextInput ? React.createElement(TextInput, props) : React.createElement("input", Object.assign({ type: "text" }, props)),
-    );
+    let field;
+    if (SearchField && glossarySearchTheme) {
+        field = React.createElement(SearchField, { value: query, placeholder, onChange, theme: glossarySearchTheme });
+    } else {
+        const props = { value: query, placeholder, onChange };
+        field = TextInput ? React.createElement(TextInput, props) : React.createElement("input", Object.assign({ type: "text" }, props));
+    }
+    return React.createElement("div", { className: "rp-policy-search", style: { padding: "8rem 6rem 6rem 6rem" } }, field);
 }
 
 function extendPoliciesPage(Page) {
@@ -145,12 +152,17 @@ function extendPoliciesPage(Page) {
         // Clear the filter when the page closes so the next visit starts with the full list.
         React.useEffect(() => () => search.set(""), []);
         // The policy detail column below reads this to add the policy report (stage 7).
-        return React.createElement(PolicyPageContext.Provider, { value: true }, React.createElement(
+        const column = React.createElement(
             "div",
             { style: { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 } },
             React.createElement(SearchBox),
             React.createElement(Page, props),
-        ));
+        );
+        // The tab content hosts a single focus child: the search box and the page share one navigation scope.
+        const scoped = AutoNavigationScope && NavigationDirection
+            ? React.createElement(AutoNavigationScope, { direction: NavigationDirection.Vertical }, column)
+            : column;
+        return React.createElement(PolicyPageContext.Provider, { value: true }, scoped);
     };
 }
 
@@ -702,7 +714,7 @@ async function runSelfTest(translate) {
         // The policy list itself is checked through the rendered rows below (a second binding subscription stays empty).
         const title = translate(`Policy.TITLE[${MANDATE_ID}]`, "");
         check("Mod policy title is localized", !!title && title !== MANDATE_ID, title);
-        check("Game text input component found", !!TextInput);
+        check("Game search field component found", !!SearchField && !!glossarySearchTheme);
 
         api.trigger("game", "showCityInfoPanel", 1);
         await sleep(3000);

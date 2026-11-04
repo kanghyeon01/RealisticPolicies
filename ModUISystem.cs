@@ -36,6 +36,19 @@ namespace RealisticPolicies
         [Preserve]
         protected override void OnUpdate()
         {
+            long start = Engine.Perf.Start();
+            try
+            {
+                Step();
+            }
+            finally
+            {
+                Engine.Perf.Stop("ModUI", start);
+            }
+        }
+
+        private void Step()
+        {
             // ValueBinding only sends when the value changes.
             m_UnansweredSuitsBinding.Update(m_Litigation.UnansweredCount);
             if (m_Budget.Version != m_LastBudgetVersion)

@@ -40,6 +40,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Lets the self-test make settlement offers back to back.</summary>
         public static bool TestSkipSettlementWait;
 
+        /// <summary>Makes the plaintiffs refuse every offer, so the self-test can reach the offer limits.</summary>
+        public static bool TestRefuseSettlement;
+
         /// <summary>Overrides the "default response" setting while set (the self-test answers by hand).</summary>
         public static DefaultSuitResponse? TestDefaultResponse;
 
@@ -361,7 +364,7 @@ namespace RealisticPolicies.Engine
             // counts for at most 30% of the grievance (2026-11-04 user decision, to be tuned).
             float saving = math.min(perMoney * PlaintiffCosts(suit), kSettlementSavingCap * suit.m_Grievance);
             float limit = (1f - plaintiffWin * 0.8f) * suit.m_Grievance + saving;
-            bool accepted = remaining <= limit;
+            bool accepted = !TestRefuseSettlement && remaining <= limit;
             LastSettlementLimitShare = suit.m_Grievance > 0f ? limit / suit.m_Grievance : 0f;
             LastSettlementResult = accepted ? SettlementResult.Accepted : SettlementResult.Refused;
             suit.m_Offers++;
@@ -391,6 +394,19 @@ namespace RealisticPolicies.Engine
 
         [Preserve]
         protected override void OnUpdate()
+        {
+            long start = Perf.Start();
+            try
+            {
+                Step();
+            }
+            finally
+            {
+                Perf.Stop("Litigation", start);
+            }
+        }
+
+        private void Step()
         {
             Entity city = m_CitySystem.City;
             if (city == Entity.Null || !PolicyCatalog.IsRegistered || !EntityManager.HasComponent<PolicyEngineState>(city))
