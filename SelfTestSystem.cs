@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -48,6 +48,7 @@ namespace RealisticPolicies
         private Entity m_WelfareOffice;
         private Entity m_TaxOffice;
         private bool m_FeeChecked;
+        private Entity m_IconBuilding;
         private string m_SaveName;
         private bool m_MoneyMode;
         private float m_NextMoneySample;
@@ -286,12 +287,20 @@ namespace RealisticPolicies
                     if (SuitIndex(PolicyCatalog.EmissionStandard) >= 0)
                     {
                         CheckSuitFiled();
-                        SetStage(Stage.SuitInjunction);
+                        FocusIconBuilding();
+                        SetStage(Stage.SuitIcon);
                     }
                     else if (SimFrames() > 8192)
                     {
                         Check("A suit is filed against the emission standard", false, "none within 8192 frames");
                         SetStage(Stage.Finish);
+                    }
+                    break;
+                case Stage.SuitIcon:
+                    if (StageSeconds() >= 4f && SimFrames() >= 256)
+                    {
+                        CheckSuitNotifications();
+                        SetStage(Stage.SuitInjunction);
                     }
                     break;
                 case Stage.SuitInjunction:
@@ -311,6 +320,8 @@ namespace RealisticPolicies
                     {
                         m_FeeChecked = true;
                         Check("Lawyer fees are a budget row while the suit runs", m_Injection.GetRow(LitigationSystem.kLawyerFeeRow) > 0, $"row {m_Injection.GetRow(LitigationSystem.kLawyerFeeRow)}");
+                        Check("Answering removes the warning icon and the badge count", !HasLawsuitIcon(m_IconBuilding)
+                            && World.GetOrCreateSystemManaged<LitigationSystem>().UnansweredCount == 0, null);
                     }
                     if (SuitIndex(PolicyCatalog.EmissionStandard) < 0 && SimFrames() >= 2048)
                     {
@@ -503,6 +514,8 @@ namespace RealisticPolicies
             }
             Check("Slider policy prefab has PolicySliderData", sliderOk, sliderInfo);
             Check("Mod policies start unlocked", !IsLocked(mandate) && !IsLocked(standard), null);
+            Check("Lawsuit icon and court chirps are registered", CourtPrefabs.Icon != Entity.Null && CourtPrefabs.Chirps.Count == 8,
+                $"icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps");
             Check("Vanilla toggle is hidden from the policy list",
                 m_PrefabSystem.TryGetPrefab(PolicyCatalog.VanillaPollutionManagement, out PolicyPrefab vanilla) && vanilla.m_Visibility == PolicyVisibility.HideFromPolicyList, null);
 
@@ -946,6 +959,61 @@ namespace RealisticPolicies
                 $"{suit.m_Year}구합{suit.m_CaseNumber}, {suit.m_Plaintiffs} {(TargetGroup)suit.m_Group}, grounds {grounds}, workload {suit.m_Workload:0.0}, " +
                 $"prior {suit.m_PriorIntensity:0.00} -> contested {suit.m_ContestedIntensity:0.00}, representative {suit.m_Representative.Index}");
             Line($"Win chance {litigation.WinChance(index):0.00}, hint {litigation.WinHint(index)} (0 low, 1 medium, 2 high), noise {suit.m_HintNoise:0.00}");
+        }
+
+        /// <summary>Follows the city hall that shows the warning icon with the game's orbit camera, for the screenshot.</summary>
+        private void FocusIconBuilding()
+        {
+            m_IconBuilding = Suit(PolicyCatalog.EmissionStandard).m_IconBuilding;
+            Game.Rendering.CameraUpdateSystem cameras = World.GetOrCreateSystemManaged<Game.Rendering.CameraUpdateSystem>();
+            if (m_IconBuilding != Entity.Null && cameras.orbitCameraController != null)
+            {
+                cameras.orbitCameraController.followedEntity = m_IconBuilding;
+                cameras.orbitCameraController.zoom = 250f;
+                cameras.activeCameraController = cameras.orbitCameraController;
+            }
+        }
+
+        private void CheckSuitNotifications()
+        {
+            LitigationSystem litigation = World.GetOrCreateSystemManaged<LitigationSystem>();
+            bool hall = m_IconBuilding != Entity.Null && EntityManager.HasComponent<AdminBuildingData>(EntityManager.GetComponentData<PrefabRef>(m_IconBuilding).m_Prefab);
+            Check("The warning icon sits on the city hall nearest the representative", hall && HasLawsuitIcon(m_IconBuilding),
+                $"building {m_IconBuilding.Index}, city hall {hall}");
+            Check("The badge counts one unanswered suit", litigation.UnansweredCount == 1, $"{litigation.UnansweredCount}");
+            int chirps = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Triggers.Chirp>(), ComponentType.ReadOnly<PrefabRef>()))
+            using (NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity entity in entities)
+                {
+                    Entity prefab = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
+                    foreach (Entity chirp in CourtPrefabs.Chirps.Values)
+                    {
+                        chirps += prefab == chirp ? 1 : 0;
+                    }
+                }
+            }
+            Check("The representative plaintiff posted a chirp", chirps > 0, $"{chirps} court chirps");
+            string file = Path.Combine(m_Directory, "selftest", "suit-icon.png");
+            ScreenCapture.CaptureScreenshot(file);
+            Line($"Screenshot {file}");
+        }
+
+        private bool HasLawsuitIcon(Entity building)
+        {
+            if (building == Entity.Null || !EntityManager.TryGetBuffer(building, true, out DynamicBuffer<Game.Notifications.IconElement> icons))
+            {
+                return false;
+            }
+            for (int i = 0; i < icons.Length; i++)
+            {
+                if (EntityManager.TryGetComponent(icons[i].m_Icon, out PrefabRef prefab) && prefab.m_Prefab == CourtPrefabs.Icon)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void CheckInjunctionAndRespond()

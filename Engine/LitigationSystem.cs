@@ -93,12 +93,16 @@ namespace RealisticPolicies.Engine
         private EndFrameBarrier m_EndFrameBarrier;
         private EntityArchetype m_ModifyArchetype;
         private EntityQuery m_EconomyQuery;
+        private CourtNotifications m_Notifications;
         private int m_LastEngineStep = -1;
         private uint m_LastFrame;
         private bool m_HasLastFrame;
 
         /// <summary>Acceptance limit of the last settlement offer as a share of the grievance (self-test).</summary>
         public float LastSettlementLimitShare { get; private set; }
+
+        /// <summary>Suits the city has not answered yet (badge on the City Info button).</summary>
+        public int UnansweredCount { get; private set; }
 
         /// <summary>General administration staff the city's officials need for suits right now.</summary>
         public float OfficialStaff { get; private set; }
@@ -118,6 +122,8 @@ namespace RealisticPolicies.Engine
             m_EndFrameBarrier = World.GetOrCreateSystemManaged<EndFrameBarrier>();
             m_ModifyArchetype = EntityManager.CreateArchetype(ComponentType.ReadWrite<Event>(), ComponentType.ReadWrite<Modify>());
             m_EconomyQuery = GetEntityQuery(ComponentType.ReadOnly<EconomyParameterData>());
+            m_Notifications = new CourtNotifications(EntityManager, World.GetOrCreateSystemManaged<Game.Notifications.IconCommandSystem>(),
+                World.GetOrCreateSystemManaged<Game.Triggers.CreateChirpSystem>(), GetEntityQuery(CourtNotifications.OfficeQueryDesc));
         }
 
         [Preserve]
@@ -127,6 +133,8 @@ namespace RealisticPolicies.Engine
             m_HasLastFrame = false;
             m_LastEngineStep = -1;
             OfficialStaff = 0f;
+            UnansweredCount = 0;
+            m_Notifications.Reset();
         }
 
         // ------------------------------------------------------------------ queries for the engine and the UI
@@ -301,6 +309,15 @@ namespace RealisticPolicies.Engine
             UpdateSuits(city, frame, dtDays);
             UpdateBans(city, frame);
             UpdateDebts(city, dtDays);
+
+            DynamicBuffer<Lawsuit> suits = EntityManager.GetBuffer<Lawsuit>(city, true);
+            int unanswered = 0;
+            for (int i = 0; i < suits.Length; i++)
+            {
+                unanswered += suits[i].m_Response == (byte)SuitResponse.None ? 1 : 0;
+            }
+            UnansweredCount = unanswered;
+            m_Notifications.Refresh(suits);
         }
 
         private void EnsureState(Entity city)
@@ -463,7 +480,9 @@ namespace RealisticPolicies.Engine
             // Damages cover the plaintiffs' losses since the policy took effect, not only the suit (§7: loss × time in force).
             suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit)
                 * (againstCut ? math.max(0f, suit.m_PriorIntensity - result.Intensity) : result.Intensity) * runtime.m_AgeDays;
+            suit.m_IconBuilding = m_Notifications.PickIconBuilding(suit.m_Representative);
             EntityManager.GetBuffer<Lawsuit>(city).Add(suit);
+            m_Notifications.PostChirp(definition.Id, suit);
             Mod.Log.Info($"Case {year}-{suit.m_CaseNumber}: {plaintiffs} {stake.Group} sue over {definition.Id}{(againstCut ? " (benefit cut)" : "")}, grievance {grievance:0.00}, " +
                 $"grounds {grounds}, workload {suit.m_Workload:0.0}, {durationDays:0.00} days, injunction requested {injunction}.");
         }

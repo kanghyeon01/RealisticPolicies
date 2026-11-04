@@ -14,6 +14,8 @@ namespace RealisticPolicies
         private BudgetInjectionSystem m_Budget;
         private RawValueBinding m_BudgetRowsBinding;
         private ValueBinding<int> m_SelfTestStageBinding;
+        private ValueBinding<int> m_UnansweredSuitsBinding;
+        private Engine.LitigationSystem m_Litigation;
         private int m_LastBudgetVersion = -1;
 
         /// <summary>Raised when the UI module reports a self-test result line.</summary>
@@ -26,12 +28,16 @@ namespace RealisticPolicies
             m_Budget = World.GetOrCreateSystemManaged<BudgetInjectionSystem>();
             AddBinding(m_BudgetRowsBinding = new RawValueBinding(kGroup, "budgetRows", WriteBudgetRows));
             AddBinding(m_SelfTestStageBinding = new ValueBinding<int>(kGroup, "selfTestStage", 0));
+            AddBinding(m_UnansweredSuitsBinding = new ValueBinding<int>(kGroup, "unansweredSuits", 0));
+            m_Litigation = World.GetOrCreateSystemManaged<Engine.LitigationSystem>();
             AddBinding(new TriggerBinding<string>(kGroup, "uiReport", message => UiReport?.Invoke(message)));
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
+            // ValueBinding only sends when the value changes.
+            m_UnansweredSuitsBinding.Update(m_Litigation.UnansweredCount);
             if (m_Budget.Version != m_LastBudgetVersion)
             {
                 m_LastBudgetVersion = m_Budget.Version;

@@ -18,6 +18,8 @@ const CITY_POLICY_MODULE = "game-ui/game/components/city-info-panel/city-info-po
 const BUDGET_SECTION_MODULE = "game-ui/game/components/economy-panel/budget-page/budget-section/budget-section.tsx";
 const TEXT_INPUT_MODULE = "game-ui/common/input/text/text-input.tsx";
 const SECTIONS_MODULE = "game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx";
+const CITY_INFO_FIELD_MODULE = "game-ui/game/components/toolbar/top/city-info-field/city-info-field.tsx";
+const NUMBER_BADGE_MODULE = "game-ui/game/components/toolbar/components/number-badge/number-badge.tsx";
 const WELFARE_SECTION_TYPE = "RealisticPolicies.WelfareSeriesSection";
 const MANDATE_ID = "RealisticPolicies.EquipmentMandate";
 const VANILLA_ID = "Advanced Pollution Management";
@@ -34,8 +36,39 @@ const TextInput = getGameModule(TEXT_INPUT_MODULE, "TextInput");
 const InfoSection = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-section/info-section.tsx", "InfoSection");
 const InfoRow = getGameModule("game-ui/game/components/selected-info-panel/shared-components/info-row/info-row.tsx", "InfoRow");
 const Checkbox = getGameModule("game-ui/common/input/toggle/checkbox/checkbox.tsx", "Checkbox");
+const AnimatedNumberBadge = getGameModule(NUMBER_BADGE_MODULE, "AnimatedNumberBadge");
 const budgetRows$ = api.bindValue(GROUP, "budgetRows", []);
+const unansweredSuits$ = api.bindValue(GROUP, "unansweredSuits", 0);
 const selfTestStage$ = api.bindValue(GROUP, "selfTestStage", 0);
+
+// ---------------------------------------------------------------- unanswered suits badge
+
+// The game's own number badge (the one on the milestone and map tile buttons) on the City Info button,
+// counting suits the city has not answered. It ignores the mouse, so the button works as before.
+function extendCityInfoField(Field) {
+    return function RealisticPoliciesCityInfoField(props) {
+        const count = api.useValue(unansweredSuits$);
+        const ref = React.useRef(null);
+        const [left, setLeft] = React.useState(null);
+        React.useLayoutEffect(() => {
+            // The button is the field's first element; put the badge on its top-right corner.
+            const field = ref.current && ref.current.firstElementChild;
+            const button = field && field.firstElementChild;
+            if (field && button) {
+                setLeft(button.getBoundingClientRect().right - ref.current.getBoundingClientRect().left);
+            }
+        });
+        const field = React.createElement(Field, props);
+        if (!count || !AnimatedNumberBadge) {
+            return React.createElement("div", { ref, style: { display: "flex" } }, field);
+        }
+        return React.createElement("div", { ref, style: { display: "flex", position: "relative" } },
+            field,
+            left === null ? null : React.createElement("div", {
+                style: { position: "absolute", top: 0, left: `${left}px`, width: 0, height: 0, pointerEvents: "none" },
+            }, React.createElement(AnimatedNumberBadge, { value: count })));
+    };
+}
 
 // ---------------------------------------------------------------- policy search
 
@@ -254,6 +287,7 @@ export default function register(moduleRegistry) {
     moduleRegistry.extend(POLICIES_PAGE_MODULE, "CityInfoPolicies", extendPoliciesPage);
     moduleRegistry.extend(CITY_POLICY_MODULE, "CityPolicy", extendCityPolicy);
     moduleRegistry.extend(BUDGET_SECTION_MODULE, "BudgetSection", extendBudgetSection);
+    moduleRegistry.extend(CITY_INFO_FIELD_MODULE, "CityInfoField", extendCityInfoField);
     moduleRegistry.append("Game", SelfTestRunner);
     if (InfoSection && InfoRow && Checkbox) {
         moduleRegistry.extend(SECTIONS_MODULE, "selectedInfoSectionComponents", (components) => {

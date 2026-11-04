@@ -9,7 +9,19 @@ namespace RealisticPolicies
 
         public IEnumerable<KeyValuePair<string, string>> ReadEntries(IList<IDictionaryEntryError> errors, Dictionary<string, int> indexCounts)
         {
-            return Entries();
+            Dictionary<string, string> entries = Entries();
+            // Indexed texts ("id:0", "id:1", ...) tell the game how many variants a random text (chirps) has.
+            foreach (string key in entries.Keys)
+            {
+                int colon = key.LastIndexOf(':');
+                if (colon > 0 && int.TryParse(key.Substring(colon + 1), out int index))
+                {
+                    string id = key.Substring(0, colon);
+                    indexCounts.TryGetValue(id, out int count);
+                    indexCounts[id] = System.Math.Max(count, index + 1);
+                }
+            }
+            return entries;
         }
 
         public void Unload()
@@ -21,6 +33,12 @@ namespace RealisticPolicies
         protected static string PolicyDescription(string id) => $"Policy.DESCRIPTION[{id}]";
 
         protected static string BudgetItem(string id) => $"EconomyPanel.BUDGET_ITEM[{id}]";
+
+        protected static string Chirp(string policyId, bool companies) => Engine.CourtPrefabs.ChirpId(policyId, companies) + ":0";
+
+        protected static string NotificationTitle(string id) => $"Notifications.TITLE[{id}]";
+
+        protected static string NotificationDescription(string id) => $"Notifications.DESCRIPTION[{id}]";
     }
 
     public sealed class LocaleEN : LocaleBase
@@ -40,6 +58,16 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "Emission standard inspections" },
             { BudgetItem(Engine.PolicyDefinitions.kMonitoringRow), "Environmental monitoring staff" },
             { BudgetItem(Engine.LitigationSystem.kLawyerFeeRow), "Legal fees" },
+            { NotificationTitle(Engine.CourtPrefabs.kIconName), "Lawsuit awaiting a response" },
+            { NotificationDescription(Engine.CourtPrefabs.kIconName), "Citizens or companies have sued the city over a policy. Choose a lawyer or city officials before the verdict, or the city loses by default judgment." },
+            { Chirp(PolicyCatalog.kEquipmentMandate, true), "The filter mandate costs us more than the plant can carry. We have taken the city to court." },
+            { Chirp(PolicyCatalog.kEquipmentMandate, false), "They dropped the pollution filter rule? We neighbours have filed a lawsuit against the city." },
+            { Chirp(PolicyCatalog.kEmissionStandard, true), "Raising the emission standard all at once leaves us no way to run the plant. See you in court." },
+            { Chirp(PolicyCatalog.kEmissionStandard, false), "Lower the emission standard and who answers for our air? We are suing the city." },
+            { Chirp(PolicyCatalog.kPollutionTax, true), "This pollution tax is crushing us. We have asked the court to revoke it." },
+            { Chirp(PolicyCatalog.kPollutionTax, false), "Scrapping the pollution tax leaves the pollution right where it is. Residents are taking it to court." },
+            { Chirp(PolicyCatalog.kGreenSubsidy, true), "The green transition subsidy we were promised, cut overnight? We have filed suit." },
+            { Chirp(PolicyCatalog.kGreenSubsidy, false), "Our taxes poured into company subsidies? We have filed a lawsuit against the city." },
             { BudgetItem(Engine.LitigationSystem.kDebtRow), "Court damages instalments" },
             { BudgetItem(Engine.PolicyDefinitions.kDisclosureRow), "Emission disclosure office" },
             { PolicyTitle(PolicyCatalog.kPollutionTax), "Pollution Tax" },
@@ -94,6 +122,16 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "배출 기준 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kMonitoringRow), "환경 감시단 인건비" },
             { BudgetItem(Engine.LitigationSystem.kLawyerFeeRow), "소송 비용" },
+            { NotificationTitle(Engine.CourtPrefabs.kIconName), "대응하지 않은 행정소송" },
+            { NotificationDescription(Engine.CourtPrefabs.kIconName), "주민이나 기업이 정책을 두고 시를 상대로 소송을 냈습니다. 판결 전에 변호사나 소송수행 공무원을 정하지 않으면 무변론 판결로 패소합니다." },
+            { Chirp(PolicyCatalog.kEquipmentMandate, true), "필터 설치 의무 때문에 공장 설비비가 감당이 안 됩니다. 시를 상대로 행정소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kEquipmentMandate, false), "오염 방지 설비 의무를 없앤다고요? 이웃들과 함께 시를 상대로 소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kEmissionStandard, true), "배출 기준을 한꺼번에 이렇게 올리면 공장을 돌릴 수가 없습니다. 법원에서 뵙겠습니다." },
+            { Chirp(PolicyCatalog.kEmissionStandard, false), "배출 기준을 낮추면 우리 동네 공기는 누가 책임집니까. 시를 상대로 소송합니다." },
+            { Chirp(PolicyCatalog.kPollutionTax, true), "오염세 부담이 너무 큽니다. 처분 취소 소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kPollutionTax, false), "오염세를 없애면 오염은 그대로 남습니다. 주민들이 소송에 나섰습니다." },
+            { Chirp(PolicyCatalog.kGreenSubsidy, true), "약속했던 녹색 전환 보조금을 하루아침에 줄이다니요. 소송을 냈습니다." },
+            { Chirp(PolicyCatalog.kGreenSubsidy, false), "기업 보조금에 우리 세금을 쏟아붓는 걸 두고 볼 수 없어 소송을 냈습니다." },
             { BudgetItem(Engine.LitigationSystem.kDebtRow), "배상금 분할 납부" },
             { BudgetItem(Engine.PolicyDefinitions.kDisclosureRow), "배출 정보 공개 운영비" },
             { PolicyTitle(PolicyCatalog.kPollutionTax), "오염세" },

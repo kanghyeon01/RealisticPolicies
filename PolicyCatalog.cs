@@ -55,12 +55,14 @@ namespace RealisticPolicies
     public sealed class PolicyRegistrationSystem : GameSystemBase
     {
         private PrefabSystem m_PrefabSystem;
+        private EntityQuery m_NotificationIconQuery;
 
         [Preserve]
         protected override void OnCreate()
         {
             base.OnCreate();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+            m_NotificationIconQuery = GetEntityQuery(ComponentType.ReadOnly<NotificationIconData>(), ComponentType.ReadOnly<PrefabData>());
         }
 
         [Preserve]
@@ -85,9 +87,63 @@ namespace RealisticPolicies
                 }
             }
             PolicyCatalog.IsRegistered = allAdded;
+            RegisterCourtPrefabs();
 
             Mod.Log.Info($"Registered {PolicyDefinitions.All.Length} policies (mode {GameManager.instance.gameMode}, all added: {allAdded}).");
             Enabled = false;
+        }
+
+        /// <summary>The lawsuit warning icon (drawn to match the game's icons) and one chirp per suable policy and plaintiff kind.</summary>
+        private void RegisterCourtPrefabs()
+        {
+            using (Unity.Collections.NativeArray<Entity> icons = m_NotificationIconQuery.ToEntityArray(Unity.Collections.Allocator.Temp))
+            {
+                NotificationIconPrefab reference = null;
+                for (int i = 0; i < icons.Length && reference == null; i++)
+                {
+                    if (m_PrefabSystem.TryGetPrefab(icons[i], out NotificationIconPrefab candidate) && candidate.m_Icon != null)
+                    {
+                        reference = candidate;
+                    }
+                }
+                if (reference == null)
+                {
+                    Mod.Log.Warn("No vanilla notification icon found; the lawsuit icon is off.");
+                }
+                else
+                {
+                    UnityEngine.Texture2D texture = LawsuitIcon.Create(reference.m_Icon, out string problem);
+                    Mod.Log.Info($"Notification icons: {reference.m_Icon.width}x{reference.m_Icon.height}, {reference.m_Icon.graphicsFormat}, {reference.m_Icon.mipmapCount} mips (reference '{reference.name}').");
+                    if (texture == null)
+                    {
+                        Mod.Log.Warn($"Lawsuit icon not made: {problem}.");
+                    }
+                    else
+                    {
+                        NotificationIconPrefab icon = PrefabBase.Create<NotificationIconPrefab>(CourtPrefabs.kIconName);
+                        icon.m_Icon = texture;
+                        icon.m_DisplaySize = reference.m_DisplaySize;
+                        icon.m_PulsateAmplitude = reference.m_PulsateAmplitude;
+                        CourtPrefabs.Icon = m_PrefabSystem.AddPrefab(icon) ? m_PrefabSystem.GetEntity(icon) : Entity.Null;
+                    }
+                }
+            }
+
+            foreach (PolicyDefinition definition in PolicyDefinitions.All)
+            {
+                if (definition.Instrument != Instrument.Authority && definition.Instrument != Instrument.Treasure)
+                {
+                    continue;
+                }
+                foreach (bool companies in new[] { true, false })
+                {
+                    string id = CourtPrefabs.ChirpId(definition.Id, companies);
+                    ChirpPrefab chirp = PrefabBase.Create<ChirpPrefab>(id);
+                    chirp.AddComponent<RandomLocalization>().m_LocalizationID = id;
+                    CourtPrefabs.Chirps[id] = m_PrefabSystem.AddPrefab(chirp) ? m_PrefabSystem.GetEntity(chirp) : Entity.Null;
+                }
+            }
+            Mod.Log.Info($"Court prefabs: icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps.");
         }
 
         private bool HideReplaced(PolicyDefinition definition)

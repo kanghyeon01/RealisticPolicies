@@ -43,7 +43,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct Lawsuit : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 1;
+        private const byte kVersion = 2;
 
         public Entity m_Policy;
         public int m_Year;
@@ -57,6 +57,9 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Member chosen as the representative plaintiff (writes the chirp; the warning icon goes near it).</summary>
         public Entity m_Representative;
+
+        /// <summary>City hall (or welfare office) nearest the representative, which shows the warning icon until the city answers.</summary>
+        public Entity m_IconBuilding;
 
         /// <summary>The suit is about cutting a benefit (P policy lowered) rather than imposing a burden.</summary>
         public bool m_AgainstCut;
@@ -118,6 +121,7 @@ namespace RealisticPolicies.Engine
             writer.Write(m_InjunctionProbability);
             writer.Write(m_HintNoise);
             writer.Write(m_Seed);
+            writer.Write(m_IconBuilding);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -147,6 +151,10 @@ namespace RealisticPolicies.Engine
             reader.Read(out m_InjunctionProbability);
             reader.Read(out m_HintNoise);
             reader.Read(out m_Seed);
+            if (version >= 2)
+            {
+                reader.Read(out m_IconBuilding);
+            }
         }
     }
 
