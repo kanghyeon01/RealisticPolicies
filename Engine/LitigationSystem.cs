@@ -500,7 +500,8 @@ namespace RealisticPolicies.Engine
                     grievance = 1f;
                     againstCut = false;
                 }
-                float daily = 1f / (1f + math.exp(-(kFilingIntercept + kFilingSlope * grievance)));
+                // An ombudsman takes part of the grievance as complaints instead of suits (§14.11).
+                float daily = m_Engine.Reforms.SuitFilingScale / (1f + math.exp(-(kFilingIntercept + kFilingSlope * grievance)));
                 float chance = 1f - math.pow(1f - daily, days);
                 var random = new Random(math.max(1u, frame * 747796405u + (uint)i * 2891336453u));
                 if (!forced && random.NextFloat() >= chance)
@@ -806,7 +807,9 @@ namespace RealisticPolicies.Engine
             float sum = ((claimed & SuitGrounds.Proportionality) != 0 ? proportionality : 0f)
                 + ((claimed & SuitGrounds.LegitimateExpectation) != 0 ? expectation : 0f)
                 + ((claimed & SuitGrounds.Procedure) != 0 ? procedure : 0f);
-            float z = kVerdictIntercept + kVerdictSlope * sum - (response == SuitResponse.Lawyer ? kLawyerBonus : 0f);
+            // Wider information disclosure arms the plaintiffs (§14.11).
+            float z = kVerdictIntercept + kVerdictSlope * sum - (response == SuitResponse.Lawyer ? kLawyerBonus : 0f)
+                + m_Engine.Reforms.PlaintiffShift;
             return 1f / (1f + math.exp(-z));
         }
 
@@ -829,7 +832,9 @@ namespace RealisticPolicies.Engine
             float change = math.abs(suit.m_ContestedIntensity - suit.m_PriorIntensity);
             expectation = definition.IsSlider ? math.max(0f, change - definition.ChangeBand) : 0f;
             float legitimacy = EntityManager.GetComponentData<PolicyEngineState>(city).m_Legitimacy;
-            procedure = math.max(0f, (EngineParameters.kLegitimacyBase - legitimacy) / EngineParameters.kLegitimacyBase);
+            // Simplified procedures weaken the record behind a regulation; mandatory hearings strengthen it (§14.10).
+            procedure = math.max(0f, (EngineParameters.kLegitimacyBase - legitimacy) / EngineParameters.kLegitimacyBase
+                + m_Engine.Reforms.ProceduralShift(definition));
         }
 
         /// <summary>Highest intensity whose effect still reaches the threshold share of the harm: effect s·E, harm stake·s².</summary>

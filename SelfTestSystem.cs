@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff, MoneyWatch, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -480,6 +480,38 @@ namespace RealisticPolicies
                         Check("Allowance auctioning does nothing while emission trading is off",
                             m_Engine.LastIntensity(auctionDefinition) == 0f && m_Injection.GetRow(PolicyDefinitions.kAuctionIncomeRow) == 0,
                             $"auction intensity {m_Engine.LastIntensity(auctionDefinition):0.00}, revenue {m_Injection.GetRow(PolicyDefinitions.kAuctionIncomeRow)}");
+                        StartBundle2();
+                    }
+                    break;
+                case Stage.Bundle2:
+                    if (SimFrames() >= 8192)
+                    {
+                        CheckBundle2();
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kMinimumWage), false, 0f);
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kTalentAttraction), false, 0f);
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRedevelopment), false, 0f);
+                        SetStage(Stage.Bundle2Off);
+                    }
+                    break;
+                case Stage.Bundle2Off:
+                    if (SimFrames() >= 4096)
+                    {
+                        CheckBundle2Off();
+                        StartLaterBundles();
+                    }
+                    break;
+                case Stage.LaterBundles:
+                    if (SimFrames() >= 16384)
+                    {
+                        CheckLaterBundles();
+                        StopLaterBundles();
+                        SetStage(Stage.LaterBundlesOff);
+                    }
+                    break;
+                case Stage.LaterBundlesOff:
+                    if (SimFrames() >= 8192)
+                    {
+                        CheckLaterBundlesOff();
                         SetStage(Stage.Finish);
                     }
                     break;
@@ -613,7 +645,12 @@ namespace RealisticPolicies
             }
             Check("Slider policy prefab has PolicySliderData", sliderOk, sliderInfo);
             Check("Mod policies start unlocked", !IsLocked(mandate) && !IsLocked(standard), null);
-            Check("Lawsuit icon and court chirps are registered", CourtPrefabs.Icon != Entity.Null && CourtPrefabs.Chirps.Count == 12,
+            int suable = 0;
+            foreach (PolicyDefinition d in PolicyDefinitions.All)
+            {
+                suable += d.Instrument == Instrument.Authority || d.Instrument == Instrument.Treasure ? 1 : 0;
+            }
+            Check($"Lawsuit icon and court chirps are registered (two per A/T policy, {2 * suable})", CourtPrefabs.Icon != Entity.Null && CourtPrefabs.Chirps.Count == 2 * suable,
                 $"icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps");
             Check("Vanilla toggle is hidden from the policy list",
                 m_PrefabSystem.TryGetPrefab(PolicyCatalog.VanillaPollutionManagement, out PolicyPrefab vanilla) && vanilla.m_Visibility == PolicyVisibility.HideFromPolicyList, null);
@@ -682,8 +719,8 @@ namespace RealisticPolicies
             bool allOn = true;
             foreach (PolicyDefinition definition in PolicyDefinitions.All)
             {
-                // Emission trading is switched on later, in its own stage.
-                if (definition.Mechanism != Mechanism.EmissionTrading && definition.Mechanism != Mechanism.AllowanceAuction)
+                // Only the first bundle is switched on here; later policies get their own stages.
+                if (System.Array.IndexOf(kFirstBundle, definition.Id) >= 0)
                 {
                     allOn &= IsActive(definition.Prefab);
                 }
@@ -1189,6 +1226,375 @@ namespace RealisticPolicies
         // ------------------------------------------------------------------ stage 8: offer limits, save round trip, timing
 
         private const string kRoundTripSave = "RP SelfTest Stage8";
+
+        private static readonly string[] kFirstBundle =
+        {
+            PolicyCatalog.kEquipmentMandate, PolicyCatalog.kEmissionStandard, PolicyCatalog.kPollutionTax,
+            PolicyCatalog.kGreenSubsidy, PolicyCatalog.kEnvironmentalMonitoring, PolicyCatalog.kEmissionDisclosure,
+        };
+
+        private EconomyParameterData m_EconomyBefore;
+        private int m_Bundle2Peak;
+        private Unity.Mathematics.float4 m_EducationBefore;
+
+        /// <summary>§14.6: minimum wage 20%, talent attraction 100%, redevelopment 50%.</summary>
+        private void StartBundle2()
+        {
+            m_EconomyBefore = Singleton<EconomyParameterData>();
+            m_EducationBefore = Singleton<DemandParameterData>().m_NewCitizenEducationParameters;
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kMinimumWage), true, 20f);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kTalentAttraction), true, 100f);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRedevelopment), true, 50f);
+            Line($"Bundle 2 on: minimum wage +20%, talent attraction 100%, redevelopment 50%. Wages {m_EconomyBefore.m_Wage0}/{m_EconomyBefore.m_Wage1}, new citizen education {m_EducationBefore}.");
+            SetStage(Stage.Bundle2);
+        }
+
+        private T Singleton<T>() where T : unmanaged, IComponentData
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<T>()))
+            {
+                return query.GetSingleton<T>();
+            }
+        }
+
+        private static float HighShare(Unity.Mathematics.float4 p) => p.w + Unity.Mathematics.math.max(0f, 1f - (p.x + p.y + p.z + p.w));
+
+        private void CheckBundle2()
+        {
+            EconomyParameterData economy = Singleton<EconomyParameterData>();
+            float raise0 = economy.m_Wage0 / (float)m_EconomyBefore.m_Wage0 - 1f;
+            float raise1 = economy.m_Wage1 / (float)m_EconomyBefore.m_Wage1 - 1f;
+            Line($"Bundle 2: wages {economy.m_Wage0}/{economy.m_Wage1} (+{raise0:P1}/+{raise1:P1}).");
+            Check("Minimum wage raises the simple-job wage, up to the slider's 20%", raise0 > 0f && raise0 <= 0.2001f, $"+{raise0:P1}");
+            // Wages are whole numbers, so allow one unit of rounding on each.
+            float expected1 = 0.3f * raise0 * m_EconomyBefore.m_Wage1;
+            float actual1 = economy.m_Wage1 - m_EconomyBefore.m_Wage1;
+            Check("Basic-job wages follow at about 0.3 of the raise (spillover)", raise0 > 0f && Unity.Mathematics.math.abs(actual1 - expected1) <= 1.5f,
+                $"basic +{actual1:0}, expected +{expected1:0.0}");
+            m_Bundle2Peak = economy.m_Wage0;
+            Unity.Mathematics.float4 education = Singleton<DemandParameterData>().m_NewCitizenEducationParameters;
+            float before = HighShare(m_EducationBefore);
+            float after = HighShare(education);
+            Check("Talent attraction raises the share of highly educated newcomers (at most double)", after > before && after <= 2f * before + 1e-4f,
+                $"levels 3-4: {before:P1} -> {after:P1}; probabilities {education}");
+            Check("Newcomer education probabilities still add up within 1", education.x + education.y + education.z + education.w <= 1f + 1e-4f, $"{education}");
+            PolicyDefinition talent = PolicyCatalog.Definition(PolicyCatalog.kTalentAttraction);
+            Check("Talent attraction fades: 71% after 5 days, never below 50%",
+                Unity.Mathematics.math.abs(PolicyEngineSystem.Fading(talent, 5f) - 0.7071f) < 1e-3f && PolicyEngineSystem.Fading(talent, 100f) == 0.5f && PolicyEngineSystem.Fading(talent, 0f) == 1f, null);
+            float leveling = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kRedevelopment), Game.City.CityModifierType.BuildingLevelingCost);
+            Check("Redevelopment lowers the building upgrade cost", leveling < 0f && leveling >= -0.5f, $"modifier {leveling:0.000}");
+            Check("Bundle 2 money rows appear", m_Injection.GetRow(PolicyDefinitions.kMinimumWageRow) > 0 && m_Injection.GetRow(PolicyDefinitions.kTalentRow) > 0
+                && m_Injection.GetRow(PolicyDefinitions.kRedevelopmentRow) > 0,
+                $"inspection {m_Injection.GetRow(PolicyDefinitions.kMinimumWageRow)}, grants {m_Injection.GetRow(PolicyDefinitions.kTalentRow)}, redevelopment {m_Injection.GetRow(PolicyDefinitions.kRedevelopmentRow)}");
+        }
+
+        /// <summary>
+        /// Switched off, the effects wind down with the policies' lag; restoring a lever (as on loading another city)
+        /// writes the game's own value back exactly.
+        /// </summary>
+        private void CheckBundle2Off()
+        {
+            EconomyParameterData economy = Singleton<EconomyParameterData>();
+            Check("Switched off, the minimum wage winds back toward the game's wage", economy.m_Wage0 <= m_Bundle2Peak && economy.m_Wage0 >= m_EconomyBefore.m_Wage0,
+                $"{m_EconomyBefore.m_Wage0} <= {economy.m_Wage0} <= {m_Bundle2Peak}");
+            ParameterLevers.All[ParameterLevers.kWage0].Restore(EntityManager);
+            ParameterLevers.All[ParameterLevers.kWage1].Restore(EntityManager);
+            ParameterLevers.All[ParameterLevers.kNewCitizenHighEducation].Restore(EntityManager);
+            economy = Singleton<EconomyParameterData>();
+            Unity.Mathematics.float4 education = Singleton<DemandParameterData>().m_NewCitizenEducationParameters;
+            Check("Restoring the levers gives back the game's wages and newcomer education exactly",
+                economy.m_Wage0 == m_EconomyBefore.m_Wage0 && economy.m_Wage1 == m_EconomyBefore.m_Wage1 && education.Equals(m_EducationBefore),
+                $"wages {economy.m_Wage0}/{economy.m_Wage1}, education {education}");
+        }
+
+        // ------------------------------------------------------------------ batches 3–10 (§14.7, §14.10–14.16)
+
+        private static readonly string[] kLaterBundles =
+        {
+            PolicyCatalog.kWelfareOutreach, PolicyCatalog.kHousingFirst, PolicyCatalog.kReentrySupport, PolicyCatalog.kVictimSupport,
+            PolicyCatalog.kProcedureSimplification, PolicyCatalog.kEGovernment, PolicyCatalog.kCivilServicePay,
+            PolicyCatalog.kSpecialistPosts, PolicyCatalog.kParticipatoryBudgeting, PolicyCatalog.kPublicHearings,
+            PolicyCatalog.kPerformanceManagement, PolicyCatalog.kOmbudsman, PolicyCatalog.kInformationDisclosure,
+            PolicyCatalog.kArrearsCollection, PolicyCatalog.kCompetitiveBidding, PolicyCatalog.kInterMunicipalAgreement,
+            PolicyCatalog.kFiscalRule, PolicyCatalog.kContractingOut,
+            PolicyCatalog.kIndustryCluster, PolicyCatalog.kCorporateRescue, PolicyCatalog.kRegionalJobPact,
+            PolicyCatalog.kUnemploymentDuration, PolicyCatalog.kResourceQuota,
+            PolicyCatalog.kRentCap, PolicyCatalog.kNoiseControl, PolicyCatalog.kVehicleEmissions, PolicyCatalog.kDrinkingWater,
+            PolicyCatalog.kGroundwaterProtection, PolicyCatalog.kParkCare,
+            PolicyCatalog.kSpeedCameras, PolicyCatalog.kDisasterCode, PolicyCatalog.kFireCode,
+            PolicyCatalog.kCommunityPolicing, PolicyCatalog.kZeroTolerance, PolicyCatalog.kHarsherSentencing,
+            PolicyCatalog.kEmergencyResponse, PolicyCatalog.kCpted,
+            PolicyCatalog.kHealthCampaign, PolicyCatalog.kEmergencyCare, PolicyCatalog.kAirQualityAlert,
+            PolicyCatalog.kPublicHealthcare, PolicyCatalog.kScholarships, PolicyCatalog.kFreeHighSchool, PolicyCatalog.kLifelongLearning,
+        };
+
+        private FireConfigurationData m_FireBefore;
+        private ExtractorParameterData m_ExtractorBefore;
+        private EducationParameterData m_EducationParamsBefore;
+        private WaterPipeParameterData m_WaterBefore;
+        private PoliceConfigurationData m_PoliceBefore;
+        private CitizenHappinessParameterData m_HappinessBefore;
+        private GarbageParameterData m_GarbageBefore;
+        private PollutionParameterData m_PollutionBefore;
+        private EconomyParameterData m_LaterEconomyBefore;
+        private DemandParameterData m_LaterDemandBefore;
+
+        /// <summary>Every policy of batches 3–10 at its default strength at once; random suits off so the court stays out.</summary>
+        private void StartLaterBundles()
+        {
+            LitigationSystem.TestDisableRandomFiling = true;
+            // Batch 3 runs on social welfare staff and arrears collection on tax staff; the earlier stages handed both
+            // offices back to general administration, and the reload since then made new entities, so find them again.
+            m_WelfareOffice = FindGeneralWelfareOffice(Entity.Null);
+            m_TaxOffice = FindGeneralWelfareOffice(m_WelfareOffice);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.SocialWelfare);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.Tax);
+            Line($"Welfare office {m_WelfareOffice.Index} set to social welfare, {m_TaxOffice.Index} to tax staff.");
+            m_FireBefore = Singleton<FireConfigurationData>();
+            m_ExtractorBefore = Singleton<ExtractorParameterData>();
+            m_EducationParamsBefore = Singleton<EducationParameterData>();
+            m_WaterBefore = Singleton<WaterPipeParameterData>();
+            m_PoliceBefore = Singleton<PoliceConfigurationData>();
+            m_HappinessBefore = Singleton<CitizenHappinessParameterData>();
+            m_GarbageBefore = Singleton<GarbageParameterData>();
+            m_PollutionBefore = Singleton<PollutionParameterData>();
+            m_LaterEconomyBefore = Singleton<EconomyParameterData>();
+            m_LaterDemandBefore = Singleton<DemandParameterData>();
+            foreach (string id in kLaterBundles)
+            {
+                PolicyDefinition definition = PolicyCatalog.Definition(id);
+                float value = definition.IsSlider ? (definition.SliderDefault > 0f ? definition.SliderDefault : 0.5f * definition.SliderRange.max) : 0f;
+                SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), true, value);
+            }
+            Line($"Batches 3-10 on: {kLaterBundles.Length} policies at their default strength (random suits off).");
+            LogDisasterWarning("before");
+            SetStage(Stage.LaterBundles);
+        }
+
+        /// <summary>
+        /// §14.14 early warning (held): vanilla's warning time starts at 0, so log which prefabs give it and the city's
+        /// current value, to size an absolute effect later.
+        /// </summary>
+        private void LogDisasterWarning(string when)
+        {
+            var sources = new StringBuilder();
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>(), ComponentType.ReadOnly<CityModifierData>()))
+            using (NativeArray<Entity> prefabs = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity prefab in prefabs)
+                {
+                    DynamicBuffer<CityModifierData> modifiers = EntityManager.GetBuffer<CityModifierData>(prefab, true);
+                    for (int m = 0; m < modifiers.Length; m++)
+                    {
+                        if (modifiers[m].m_Type == CityModifierType.DisasterWarningTime)
+                        {
+                            string name = m_PrefabSystem.GetPrefabName(prefab);
+                            sources.Append($"{name} {modifiers[m].m_Mode} [{modifiers[m].m_Range.min}, {modifiers[m].m_Range.max}]; ");
+                        }
+                    }
+                }
+            }
+            DynamicBuffer<CityModifier> city = EntityManager.GetBuffer<CityModifier>(m_CitySystem.City, true);
+            int index = (int)CityModifierType.DisasterWarningTime;
+            string current = city.Length > index ? $"{city[index].m_Delta}" : "none";
+            Line($"Disaster warning ({when}): city delta {current}; sources: {(sources.Length > 0 ? sources.ToString() : "none")}");
+        }
+
+        private static string Short(string id) => id.Substring(id.LastIndexOf('.') + 1);
+
+        /// <summary>A welfare office still counted as general administration, other than <paramref name="except"/>.</summary>
+        private Entity FindGeneralWelfareOffice(Entity except)
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Game.Tools.Temp>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> buildings = query.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < buildings.Length; i++)
+                {
+                    if (buildings[i] != except
+                        && EntityManager.HasComponent<WelfareOfficeData>(EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab)
+                        && WelfareSeriesSection.Get(EntityManager, buildings[i]) == WelfareSeriesSection.Choice.GeneralAdministration)
+                    {
+                        return buildings[i];
+                    }
+                }
+            }
+            return Entity.Null;
+        }
+
+        private void CheckLaterBundles()
+        {
+            var wrong = new StringBuilder();
+            int outputs = 0;
+            foreach (string id in kLaterBundles)
+            {
+                PolicyDefinition definition = PolicyCatalog.Definition(id);
+                Entity prefab = PolicyCatalog.Find(id);
+                if (!IsActive(prefab))
+                {
+                    wrong.Append($"{Short(id)} not active; ");
+                    continue;
+                }
+                foreach (PolicyOutput output in definition.Outputs)
+                {
+                    switch (output.Kind)
+                    {
+                        case OutputKind.CityModifier:
+                            float value = AirModifierOf(prefab, output.Modifier);
+                            outputs++;
+                            if (!(value * output.FullEffect > 0f))
+                            {
+                                wrong.Append($"{Short(id)} {output.Modifier} {value:0.0000}; ");
+                            }
+                            break;
+                        case OutputKind.Parameter:
+                            if (output.Key == ParameterLevers.kIndustrialBaseDemand)
+                            {
+                                break;
+                            }
+                            float change = m_Engine.LeverFactor(output.Key) - 1f;
+                            outputs++;
+                            if (!(change * output.FullEffect > 0f))
+                            {
+                                wrong.Append($"{Short(id)} {output.Key} x{change + 1f:0.0000}; ");
+                            }
+                            break;
+                        case OutputKind.Income:
+                        case OutputKind.Expense:
+                            if (output.Basis == MoneyBasis.Intensity || output.Basis == MoneyBasis.TaxShare)
+                            {
+                                outputs++;
+                                int row = m_Injection.GetRow(output.Key);
+                                if (row <= 0)
+                                {
+                                    wrong.Append($"{Short(id)} row {Short(output.Key)} {row}; ");
+                                }
+                            }
+                            break;
+                    }
+                }
+                if (definition.Reform != ReformKind.None)
+                {
+                    System.Collections.Generic.List<ReformRow> rows = m_Engine.Reforms.Rows(definition);
+                    if (rows.Count > 0)
+                    {
+                        outputs++;
+                        bool any = false;
+                        foreach (ReformRow row in rows)
+                        {
+                            any |= Mathf.Abs(row.Value) > 1e-5f;
+                        }
+                        if (!any)
+                        {
+                            wrong.Append($"{Short(id)} reform rows all zero; ");
+                        }
+                    }
+                }
+            }
+            Line($"Staff for the stage: social welfare {m_Engine.Census.Workers(ServiceSeries.SocialWelfare)}, tax {m_Engine.Census.Workers(ServiceSeries.Tax)}.");
+            Check($"Every output of batches 3-10 moves the right way ({outputs} outputs)", wrong.Length == 0, wrong.Length == 0 ? null : wrong.ToString());
+
+            FireConfigurationData fire = Singleton<FireConfigurationData>();
+            float ratioBefore = m_FireBefore.m_StructuralIntegrityLevel3 / m_FireBefore.m_BuildingStructuralIntegrity;
+            float ratioNow = fire.m_StructuralIntegrityLevel3 / fire.m_BuildingStructuralIntegrity;
+            Check("Fire safety code raises every building's structural integrity by one factor, not the non-building default",
+                fire.m_BuildingStructuralIntegrity > m_FireBefore.m_BuildingStructuralIntegrity && Mathf.Abs(ratioNow - ratioBefore) < 1e-4f
+                && fire.m_DefaultStructuralIntegrity == m_FireBefore.m_DefaultStructuralIntegrity,
+                $"building {m_FireBefore.m_BuildingStructuralIntegrity} -> {fire.m_BuildingStructuralIntegrity}, level 3 {m_FireBefore.m_StructuralIntegrityLevel3} -> {fire.m_StructuralIntegrityLevel3}");
+            ExtractorParameterData extractor = Singleton<ExtractorParameterData>();
+            Check("Natural resource quota slows the depletion of every resource (ore and oil store the reciprocal)",
+                extractor.m_FishConsumption < m_ExtractorBefore.m_FishConsumption && extractor.m_ForestConsumption < m_ExtractorBefore.m_ForestConsumption
+                && extractor.m_FertilityConsumption < m_ExtractorBefore.m_FertilityConsumption
+                && extractor.m_OreConsumption > m_ExtractorBefore.m_OreConsumption && extractor.m_OilConsumption > m_ExtractorBefore.m_OilConsumption,
+                $"fish {m_ExtractorBefore.m_FishConsumption} -> {extractor.m_FishConsumption}, ore {m_ExtractorBefore.m_OreConsumption} -> {extractor.m_OreConsumption}, oil {m_ExtractorBefore.m_OilConsumption} -> {extractor.m_OilConsumption}");
+            EducationParameterData education = Singleton<EducationParameterData>();
+            Check("Free high school and lifelong learning raise the schooling chances (high school at most +20%)",
+                education.m_EnterHighSchoolProbability > m_EducationParamsBefore.m_EnterHighSchoolProbability
+                && education.m_EnterHighSchoolProbability <= 1.2f * m_EducationParamsBefore.m_EnterHighSchoolProbability + 1e-4f
+                && education.m_AdultEnterHighSchoolProbability > m_EducationParamsBefore.m_AdultEnterHighSchoolProbability
+                && education.m_WorkerContinueEducationProbability > m_EducationParamsBefore.m_WorkerContinueEducationProbability,
+                $"teen {m_EducationParamsBefore.m_EnterHighSchoolProbability} -> {education.m_EnterHighSchoolProbability}, adult {m_EducationParamsBefore.m_AdultEnterHighSchoolProbability} -> {education.m_AdultEnterHighSchoolProbability}, worker {m_EducationParamsBefore.m_WorkerContinueEducationProbability} -> {education.m_WorkerContinueEducationProbability}");
+            int housingFirst = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kHousingFirst));
+            float amplification = m_Engine.Amplification(housingFirst);
+            Check("Welfare outreach amplifies Housing First (§14.8, at most x1.2)", amplification > 1f && amplification <= 1.2f + 1e-4f, $"x{amplification:0.0000}");
+            float inflation = m_Engine.Reforms.ReportInflation;
+            Check("Performance management inflates the other policies' reported delivery (at most 10 points)", inflation > 0f && inflation <= 0.1f + 1e-4f, $"+{inflation:0.0000}");
+            Line($"Legitimacy {m_Engine.LastState.m_Legitimacy:0.000} with community policing (+0.03) and zero tolerance (-0.04) on.");
+            LogDisasterWarning("with batches on");
+        }
+
+        private void StopLaterBundles()
+        {
+            foreach (string id in kLaterBundles)
+            {
+                SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), false, 0f);
+            }
+        }
+
+        /// <summary>Switched off and the levers restored, every parameter the later batches touch is the game's own again.</summary>
+        private void CheckLaterBundlesOff()
+        {
+            var keys = new System.Collections.Generic.HashSet<string>();
+            foreach (string id in kLaterBundles)
+            {
+                foreach (PolicyOutput output in PolicyCatalog.Definition(id).Outputs)
+                {
+                    // Industrial base demand is shared with the first bundle, which may still be on.
+                    if (output.Kind == OutputKind.Parameter && output.Key != ParameterLevers.kIndustrialBaseDemand)
+                    {
+                        keys.Add(output.Key);
+                    }
+                }
+            }
+            foreach (string key in keys)
+            {
+                ParameterLevers.All[key].Restore(EntityManager);
+            }
+            ExtractorParameterData extractor = Singleton<ExtractorParameterData>();
+            bool extractorBack = Same(extractor.m_FishConsumption, m_ExtractorBefore.m_FishConsumption) && Same(extractor.m_ForestConsumption, m_ExtractorBefore.m_ForestConsumption)
+                && Same(extractor.m_FertilityConsumption, m_ExtractorBefore.m_FertilityConsumption)
+                && Same(extractor.m_OreConsumption, m_ExtractorBefore.m_OreConsumption) && Same(extractor.m_OilConsumption, m_ExtractorBefore.m_OilConsumption);
+            EconomyParameterData economy = Singleton<EconomyParameterData>();
+            bool economyBack = economy.m_UnemploymentAllowanceMaxDays == m_LaterEconomyBefore.m_UnemploymentAllowanceMaxDays
+                && economy.m_CompanyBankruptcyLimit == m_LaterEconomyBefore.m_CompanyBankruptcyLimit
+                && economy.m_ExtractorProductionEfficiency == m_LaterEconomyBefore.m_ExtractorProductionEfficiency
+                && economy.m_LandValueModifier.Equals(m_LaterEconomyBefore.m_LandValueModifier)
+                && economy.m_CityServiceWageAdjustment == m_LaterEconomyBefore.m_CityServiceWageAdjustment
+                && economy.m_MaxCitySpecializationBonus == m_LaterEconomyBefore.m_MaxCitySpecializationBonus;
+            bool demandBack = Singleton<DemandParameterData>().m_CommuterWorkerRatioLimit == m_LaterDemandBefore.m_CommuterWorkerRatioLimit;
+            var differ = new StringBuilder();
+            if (!Singleton<FireConfigurationData>().Equals(m_FireBefore)) differ.Append("fire; ");
+            if (!Singleton<EducationParameterData>().Equals(m_EducationParamsBefore)) differ.Append("education; ");
+            if (!Singleton<WaterPipeParameterData>().Equals(m_WaterBefore)) differ.Append("water; ");
+            if (!Singleton<PoliceConfigurationData>().Equals(m_PoliceBefore)) differ.Append("police; ");
+            if (!Singleton<CitizenHappinessParameterData>().Equals(m_HappinessBefore)) differ.Append("happiness; ");
+            if (!Singleton<GarbageParameterData>().Equals(m_GarbageBefore)) differ.Append("garbage; ");
+            if (!Singleton<PollutionParameterData>().Equals(m_PollutionBefore)) differ.Append("pollution; ");
+            if (!extractorBack) differ.Append("extractor; ");
+            if (!economyBack) differ.Append("economy; ");
+            if (!demandBack) differ.Append("demand; ");
+            Check($"Restoring the {keys.Count} levers of batches 3-10 gives back the game's values", differ.Length == 0, differ.Length == 0 ? null : differ.ToString());
+            LitigationSystem.TestDisableRandomFiling = false;
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.GeneralAdministration);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.GeneralAdministration);
+        }
+
+        private static bool Same(float a, float b) => Mathf.Abs(a - b) <= 1e-6f * Mathf.Max(1f, Mathf.Abs(b));
+
+        private float AirModifierOf(Entity prefab, Game.City.CityModifierType type)
+        {
+            if (!EntityManager.TryGetBuffer(prefab, true, out DynamicBuffer<CityModifierData> modifiers))
+            {
+                return 0f;
+            }
+            for (int m = 0; m < modifiers.Length; m++)
+            {
+                if (modifiers[m].m_Type == type)
+                {
+                    return modifiers[m].m_Range.min;
+                }
+            }
+            return 0f;
+        }
         private float m_TradingDemandBefore;
 
         /// <summary>Emission trading at its largest cap with half the allowances auctioned (§10.6).</summary>
@@ -1393,6 +1799,7 @@ namespace RealisticPolicies
         private void Finish()
         {
             LitigationSystem.TestTimeScale = 1f;
+            LitigationSystem.TestDisableRandomFiling = false;
             LitigationSystem.TestForceInjunctionRequest = false;
             LitigationSystem.TestForcedVerdict = -1;
             LitigationSystem.TestFilingPolicy = Entity.Null;

@@ -250,8 +250,14 @@ namespace RealisticPolicies
                 writer.Write(result.Detection);
                 writer.PropertyName("compliance");
                 writer.Write(result.Compliance);
+                // §14.11 performance management: other policies' reports read higher than they deliver (gaming).
+                float inflation = result.Intensity > 0f && definition.Reform != Engine.ReformKind.PerformanceManagement
+                    ? m_Engine.Reforms.ReportInflation
+                    : 0f;
                 writer.PropertyName("progress");
-                writer.Write(result.Intensity > 0f ? math.saturate(result.Progress / math.max(1e-4f, result.Intensity)) : 0f);
+                writer.Write(result.Intensity > 0f ? math.saturate(result.Progress / math.max(1e-4f, result.Intensity) + inflation) : 0f);
+                writer.PropertyName("inflated");
+                writer.Write(inflation > 0.005f);
                 float price = result.Progress * FirmModel.kBasePrice;
                 writer.PropertyName("abatement");
                 writer.Write(definition.Mechanism == Mechanism.EmissionTax || definition.Mechanism == Mechanism.AbatementSubsidy ? FirmModel.Abatement(price) : 0f);
@@ -325,8 +331,41 @@ namespace RealisticPolicies
                     writer.PropertyName("key");
                     writer.Write(output.Key);
                     writer.PropertyName("value");
-                    writer.Write(output.FullEffect * result.Progress);
+                    writer.Write(output.FullEffect * result.Progress * PolicyEngineSystem.Fading(definition, runtime.m_AgeDays) * m_Engine.Amplification(i));
                     writer.TypeEnd();
+                }
+                writer.ArrayEnd();
+                // Reforms (§14.10 option A): what this reform does to the administrative layer, as outcome rows.
+                System.Collections.Generic.List<Engine.ReformRow> reformRows = definition.Reform != Engine.ReformKind.None
+                    ? m_Engine.Reforms.Rows(definition)
+                    : null;
+                if (definition.LegitimacyShift != 0f)
+                {
+                    // §14.15: policing that builds or spends trust shows it like a reform.
+                    if (reformRows == null)
+                    {
+                        reformRows = new System.Collections.Generic.List<Engine.ReformRow>();
+                    }
+                    reformRows.Add(new Engine.ReformRow("Legitimacy", definition.LegitimacyShift * math.saturate(result.Progress),
+                        Engine.ReformUnit.Points, definition.LegitimacyShift > 0f));
+                }
+                writer.PropertyName("reforms");
+                writer.ArrayBegin(reformRows?.Count ?? 0);
+                if (reformRows != null)
+                {
+                    foreach (Engine.ReformRow row in reformRows)
+                    {
+                        writer.TypeBegin("RealisticPolicies.ReformRow");
+                        writer.PropertyName("key");
+                        writer.Write(row.Key);
+                        writer.PropertyName("value");
+                        writer.Write(row.Value);
+                        writer.PropertyName("unit");
+                        writer.Write((int)row.Unit);
+                        writer.PropertyName("good");
+                        writer.Write(row.Good);
+                        writer.TypeEnd();
+                    }
                 }
                 writer.ArrayEnd();
                 bool air = result.Intensity > 0f && runtime.m_HasBaseline && runtime.m_BaselineAir > 0f;
@@ -334,10 +373,14 @@ namespace RealisticPolicies
                 writer.Write(air ? m_Engine.AirPollution / runtime.m_BaselineAir - 1f : 0f);
                 writer.PropertyName("hasAir");
                 writer.Write(air);
+                writer.PropertyName("fading");
+                writer.Write(definition.EffectHalfLifeDays > 0f ? PolicyEngineSystem.Fading(definition, runtime.m_AgeDays) : -1f);
 
                 uint warning = m_Engine.WarningFrame(i);
                 writer.PropertyName("warning");
                 writer.Write(warning != 0 && frame - warning < kWarningFrames);
+                writer.PropertyName("noWelfare");
+                writer.Write(definition.NeedsWelfareCoverage && m_Engine.Census.WelfareOffices == 0);
                 writer.TypeEnd();
             }
             writer.ArrayEnd();

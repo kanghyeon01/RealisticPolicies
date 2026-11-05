@@ -56,6 +56,7 @@ namespace RealisticPolicies.Engine
     {
         private readonly EntityManager m_EntityManager;
         private readonly CityServiceBudgetSystem m_BudgetSystem;
+        private readonly CityStatisticsSystem m_StatisticsSystem;
         private readonly EntityQuery m_BuildingQuery;
         private readonly EntityQuery[] m_GroupQueries;
         private readonly float[] m_GroupCounts = new float[(int)TargetGroup.Count];
@@ -82,13 +83,17 @@ namespace RealisticPolicies.Engine
         public int MaxWorkers(ServiceSeries series) => m_MaxWorkers[(int)series];
 
         /// <param name="groupQueries">One query per <see cref="TargetGroup"/> (index 0, None, is unused); see <see cref="GroupQueryDesc"/>.</param>
-        public ServiceSeriesCensus(EntityManager entityManager, CityServiceBudgetSystem budgetSystem, EntityQuery buildingQuery, EntityQuery[] groupQueries)
+        public ServiceSeriesCensus(EntityManager entityManager, CityServiceBudgetSystem budgetSystem, CityStatisticsSystem statisticsSystem, EntityQuery buildingQuery, EntityQuery[] groupQueries)
         {
             m_EntityManager = entityManager;
             m_BudgetSystem = budgetSystem;
+            m_StatisticsSystem = statisticsSystem;
             m_BuildingQuery = buildingQuery;
             m_GroupQueries = groupQueries;
         }
+
+        /// <summary>Welfare offices in the city, whatever staff they are assigned to; they give the welfare coverage.</summary>
+        public int WelfareOffices { get; private set; }
 
         public static EntityQueryDesc BuildingQueryDesc => new EntityQueryDesc
         {
@@ -131,7 +136,27 @@ namespace RealisticPolicies.Engine
                     member = ComponentType.ReadOnly<OfficeCompany>();
                     exclude = new ComponentType[0];
                     break;
+                case TargetGroup.HomelessCitizens:
+                    // Homeless households rent nothing, so they get their own query; citizens are summed in Count().
+                    return new EntityQueryDesc
+                    {
+                        All = new[] { ComponentType.ReadOnly<HomelessHousehold>(), ComponentType.ReadOnly<HouseholdCitizen>() },
+                        None = new[]
+                        {
+                            ComponentType.ReadOnly<TouristHousehold>(),
+                            ComponentType.ReadOnly<CommuterHousehold>(),
+                            ComponentType.ReadOnly<Temp>(),
+                            ComponentType.ReadOnly<Deleted>(),
+                        },
+                    };
+                case TargetGroup.Criminals:
+                    return new EntityQueryDesc
+                    {
+                        All = new[] { ComponentType.ReadOnly<Criminal>() },
+                        None = new[] { ComponentType.ReadOnly<Temp>(), ComponentType.ReadOnly<Deleted>() },
+                    };
                 default:
+                    // MonthlyCrimes comes from the city statistics, not from a query.
                     return null;
             }
             var none = new System.Collections.Generic.List<ComponentType>(exclude)
@@ -171,6 +196,7 @@ namespace RealisticPolicies.Engine
             System.Array.Clear(m_MaxWorkers, 0, m_MaxWorkers.Length);
             System.Array.Clear(m_BudgetWeighted, 0, m_BudgetWeighted.Length);
             m_ServiceBudget.Clear();
+            int welfareOffices = 0;
 
             using (NativeArray<Entity> buildings = m_BuildingQuery.ToEntityArray(Allocator.Temp))
             {
@@ -184,6 +210,7 @@ namespace RealisticPolicies.Engine
                     }
                     if (m_WelfarePrefabs.Contains(prefab))
                     {
+                        welfareOffices++;
                         // The player can assign a welfare office to social welfare or tax staff.
                         if (m_EntityManager.HasComponent<RealisticPolicies.SocialWelfareDesignation>(buildings[i]))
                         {
@@ -201,6 +228,7 @@ namespace RealisticPolicies.Engine
                     m_BudgetWeighted[s] += max * BudgetOf(prefab);
                 }
             }
+            WelfareOffices = welfareOffices;
 
             for (int s = 0; s < Capacity.Length; s++)
             {
@@ -218,8 +246,32 @@ namespace RealisticPolicies.Engine
 
             for (int g = 1; g < m_GroupCounts.Length; g++)
             {
-                m_GroupCounts[g] = m_GroupQueries[g].CalculateEntityCount();
+                switch ((TargetGroup)g)
+                {
+                    case TargetGroup.HomelessCitizens:
+                        m_GroupCounts[g] = HomelessCitizens(m_GroupQueries[g]);
+                        break;
+                    case TargetGroup.MonthlyCrimes:
+                        m_GroupCounts[g] = m_StatisticsSystem != null ? m_StatisticsSystem.GetStatisticValue(Game.City.StatisticType.CrimeCount) : 0f;
+                        break;
+                    default:
+                        m_GroupCounts[g] = m_GroupQueries[g].CalculateEntityCount();
+                        break;
+                }
             }
+        }
+
+        private int HomelessCitizens(EntityQuery households)
+        {
+            int citizens = 0;
+            using (NativeArray<Entity> entities = households.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    citizens += m_EntityManager.GetBuffer<HouseholdCitizen>(entities[i], true).Length;
+                }
+            }
+            return citizens;
         }
 
         private float BudgetOf(Entity prefab)

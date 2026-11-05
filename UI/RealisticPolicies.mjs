@@ -449,6 +449,7 @@ function PolicyReport({ id }) {
         Row({ key: "eff", left: text("Report.Effectiveness"), right: percent(report.effectiveness), subRow: true, tooltip: text("Report.Effectiveness.Tooltip") }),
         report.busiest ? Row({ key: "rho", left: text("Report.Utilization", { SERIES: seriesName(report.busiest) }), right: percent(report.utilization), subRow: true, tooltip: text("Report.Utilization.Tooltip") }) : null,
         Row({ key: "lag", left: text("Report.Lag"), right: text("Report.LagValue", { DAYS: report.lagDays.toFixed(1) }), subRow: true }),
+        report.fading >= 0 ? Row({ key: "fade", left: text("Report.Fading"), right: percent(report.fading), subRow: true, tooltip: text("Report.Fading.Tooltip") }) : null,
         report.capture >= 0.005 ? Row({ key: "cap", left: text("Report.Capture"), right: percent(report.capture), subRow: true, tooltip: text("Report.Capture.Tooltip") }) : null,
     ];
 
@@ -486,7 +487,11 @@ function PolicyReport({ id }) {
             output.push(Row({ key: "price", left: text("Report.AllowancePrice"), right: text("Report.AllowancePrice.Value", { PERCENT: percent(report.tradingPrice) }), subRow: true, tooltip: text("Report.AllowancePrice.Tooltip") }));
             break;
     }
-    output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true }));
+    output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true, tooltip: report.inflated ? text("Report.Inflated.Tooltip") : undefined }));
+    // Performance management inflates the figure above (§14.11 option B): say so right under it.
+    if (report.inflated) {
+        output.push(React.createElement("div", { key: "inflated", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Inflated")));
+    }
 
     // Outcome: air and ground pollution of the same size read as one row.
     const outcome = [];
@@ -498,8 +503,9 @@ function PolicyReport({ id }) {
         air.type = "IndustrialPollution";
     }
     for (const m of mods) {
-        // Less pollution and garbage is good; less efficiency is bad.
-        const good = m.type === "IndustrialEfficiency" ? m.value > 0 : m.value < 0;
+        // Less pollution, garbage and cost is good; more efficiency, attraction and safety is good.
+        const higherIsGood = /(Efficiency|Entertainment|Safety|Interest|Graduation)$/.test(m.type);
+        const good = higherIsGood ? m.value > 0 : m.value < 0;
         outcome.push(Row({ key: `mod-${m.type}`, left: text(`Report.Modifier.${m.type}`), right: React.createElement("span", { style: { color: m.value === 0 ? undefined : good ? "var(--positiveColor)" : "var(--negativeColor)" } }, signedPercent(m.value)), subRow: true }));
     }
     for (const m of report.money.filter((r) => r.income)) {
@@ -507,6 +513,16 @@ function PolicyReport({ id }) {
     }
     for (const l of report.levers) {
         outcome.push(Row({ key: `lever-${l.key}`, left: text(`Report.Lever.${l.key.split(".").pop()}`), right: signedPercent(l.value), subRow: true }));
+    }
+    // Administrative reforms: what they do to the administrative layer (§14.10, option A).
+    for (const r of report.reforms || []) {
+        const shown = r.unit === 0 ? signedPercent(r.value)
+            : r.unit === 2 ? text("Report.Reform.Hours", { HOURS: (r.value >= 0 ? "+" : "") + r.value.toFixed(0) })
+            : r.unit === 3 ? text("Report.Reform.Count", { COUNT: (r.value >= 0 ? "+" : "") + r.value.toFixed(1) })
+            : (r.value >= 0 ? "+" : "") + r.value.toFixed(2);
+        const tone = Math.abs(r.value) < 1e-4 ? undefined : r.good ? "var(--positiveColor)" : "var(--negativeColor)";
+        outcome.push(Row({ key: `reform-${r.key}`, left: text(`Report.Reform.${r.key}`), right: React.createElement("span", { style: { color: tone } }, shown),
+            tooltip: text(`Report.Reform.${r.key}.Tooltip`), subRow: true }));
     }
     if (report.hasAir) {
         outcome.push(Row({ key: "air", left: text("Report.Air"), right: React.createElement("span", { style: { color: report.airChange < 0 ? "var(--positiveColor)" : report.airChange > 0 ? "var(--negativeColor)" : undefined } }, signedPercent(report.airChange)), subRow: true }));
@@ -525,6 +541,9 @@ function PolicyReport({ id }) {
     }
     if (report.warning) {
         notes.push(React.createElement("div", { key: "warn", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Warning")));
+    }
+    if (report.noWelfare) {
+        notes.push(React.createElement("div", { key: "nowelfare", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.NoWelfare")));
     }
     const suit = suits && suits.suits ? suits.suits.find((s) => s.policyId === id) : null;
     if (suit) {

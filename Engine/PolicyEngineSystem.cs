@@ -36,6 +36,11 @@ namespace RealisticPolicies.Engine
         private CitySystem m_CitySystem;
         private SimulationSystem m_SimulationSystem;
         private BudgetInjectionSystem m_Budget;
+        private CityServiceBudgetSystem m_ServiceBudget;
+
+        // City size factor for the inter-municipal agreement and the tax base for arrears collection (§14.11), per step.
+        private float m_CitySizeFactor = 1f;
+        private float m_TaxBase;
         private EndFrameBarrier m_EndFrameBarrier;
         private EntityArchetype m_ModifyArchetype;
         private bool m_MigrationDue = true;
@@ -49,6 +54,9 @@ namespace RealisticPolicies.Engine
         private TaxControl m_TaxControl;
         private LitigationSystem m_Litigation;
         private float[] m_Intensity;
+
+        /// <summary>Factor on each policy's modifiers and levers from the policy that amplifies it (§14.8), last written.</summary>
+        private float[] m_Amplification;
         private readonly float[] m_Demand = new float[(int)ServiceSeries.Count];
         private readonly float[] m_Utilization = new float[(int)ServiceSeries.Count];
 
@@ -116,6 +124,9 @@ namespace RealisticPolicies.Engine
         /// <summary>City-wide mean of the air pollution map at the last step.</summary>
         public float AirPollution { get; private set; }
 
+        /// <summary>What the administrative reforms (§14.10) did to the administrative layer at the last step.</summary>
+        public ReformEffects Reforms { get; private set; } = ReformEffects.None;
+
         // Emission trading market (§10.6), set at each step before the outputs.
 
         /// <summary>Allowance price (same units as the firm model; the pollution tax at 100% is 0.6).</summary>
@@ -176,6 +187,7 @@ namespace RealisticPolicies.Engine
             m_CitySystem = World.GetOrCreateSystemManaged<CitySystem>();
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_Budget = World.GetOrCreateSystemManaged<BudgetInjectionSystem>();
+            m_ServiceBudget = World.GetOrCreateSystemManaged<CityServiceBudgetSystem>();
             m_EndFrameBarrier = World.GetOrCreateSystemManaged<EndFrameBarrier>();
             m_ModifyArchetype = EntityManager.CreateArchetype(ComponentType.ReadWrite<Game.Common.Event>(), ComponentType.ReadWrite<Modify>());
             m_AdminBuildingQuery = GetEntityQuery(
@@ -187,11 +199,16 @@ namespace RealisticPolicies.Engine
             var groupQueries = new EntityQuery[(int)TargetGroup.Count];
             for (int g = 1; g < groupQueries.Length; g++)
             {
-                groupQueries[g] = GetEntityQuery(ServiceSeriesCensus.GroupQueryDesc((TargetGroup)g));
+                EntityQueryDesc desc = ServiceSeriesCensus.GroupQueryDesc((TargetGroup)g);
+                if (desc != null)
+                {
+                    groupQueries[g] = GetEntityQuery(desc);
+                }
             }
             m_Census = new ServiceSeriesCensus(
                 EntityManager,
                 World.GetOrCreateSystemManaged<CityServiceBudgetSystem>(),
+                World.GetOrCreateSystemManaged<CityStatisticsSystem>(),
                 GetEntityQuery(ServiceSeriesCensus.BuildingQueryDesc),
                 groupQueries);
 
@@ -200,6 +217,7 @@ namespace RealisticPolicies.Engine
 
             int count = PolicyDefinitions.All.Length;
             m_Intensity = new float[count];
+            m_Amplification = new float[count];
             m_GroupGrievance = new float[count, (int)TargetGroup.Count];
             LastResults = new PolicyStepResult[count];
             m_PolicyStaff = new float[count, (int)ServiceSeries.Count];
@@ -283,11 +301,17 @@ namespace RealisticPolicies.Engine
             PolicyEngineState state = EntityManager.GetComponentData<PolicyEngineState>(city);
             // Residential floor from social welfare staff, rates held without tax staff (§5.1).
             int population = EntityManager.TryGetComponent(city, out Population cityPopulation) ? cityPopulation.m_Population : 0;
+            // Sharing services pays most for small towns (Bel & Sebő 2021): full at 50,000 people, half from 200,000.
+            m_CitySizeFactor = 1f - 0.5f * math.saturate((population - 50000f) / 150000f);
+            m_TaxBase = TaxBase(all);
             m_TaxControl.Apply(ref state, m_Census.Workers(ServiceSeries.Tax), m_Census.Workers(ServiceSeries.SocialWelfare), population);
             AirPollution = MeanAirPollution();
             DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
             state.m_Credibility += (1f - math.exp(-dt / EngineParameters.kCredibilityDays)) * (1f - state.m_Credibility);
             float surgeDecay = math.exp(-dt / EngineParameters.kSurgeDecayDays);
+            // §14.10 administrative reforms, from what they delivered by the last step.
+            ReformEffects reforms = ReformEffects.Compute(all, runtimes, capacity[(int)ServiceSeries.PostAndTelecom]);
+            Reforms = reforms;
 
             // ⑥ Changes since the last step, then ④ staff demand per series.
             System.Array.Clear(m_Demand, 0, m_Demand.Length);
@@ -303,11 +327,14 @@ namespace RealisticPolicies.Engine
                 if (definition.IsSlider ? size > definition.ChangeBand : size > 0f)
                 {
                     float excess = size - definition.ChangeBand;
-                    runtime.m_Surge += definition.IsSlider ? definition.ChangeCost * excess * excess : definition.ToggleCost;
+                    runtime.m_Surge += (definition.IsSlider ? definition.ChangeCost * excess * excess : definition.ToggleCost)
+                        * (change < 0f ? definition.CutCostScale : 1f);
                     runtime.m_AgeDays *= 1f - EngineParameters.kCaptureResetOnRetune;
                 }
-                // Relaxing a rule costs credibility, unless a court or a settlement made the change.
-                if (definition.Direction == Direction.Burden && change < 0f && !m_Litigation.ConsumeCourtChange(definition.Prefab))
+                // Relaxing a rule costs credibility, unless a court or a settlement made the change. Dropping a
+                // procedural reform (public hearings) does not signal weaker enforcement, so it costs none.
+                if (definition.Direction == Direction.Burden && definition.Reform == ReformKind.None && change < 0f
+                    && !m_Litigation.ConsumeCourtChange(definition.Prefab))
                 {
                     state.m_Credibility = math.max(0f, state.m_Credibility + EngineParameters.kCredibilityLoss * change);
                 }
@@ -332,7 +359,7 @@ namespace RealisticPolicies.Engine
                     float targets = m_Census.TargetCount(definition.Target);
                     foreach (StaffRequirement staff in definition.Staff)
                     {
-                        float need = workload * (staff.Fixed + staff.PerUnit * targets);
+                        float need = workload * (staff.Fixed + staff.PerUnit * targets) * reforms.StaffNeedScale;
                         m_Demand[(int)staff.Series] += need;
                         m_PolicyStaff[i, (int)staff.Series] += need;
                     }
@@ -341,10 +368,11 @@ namespace RealisticPolicies.Engine
             // Officials defending suits work on top of policy duties (§7 "소송 대응").
             m_Demand[(int)ServiceSeries.GeneralAdministration] += m_Litigation.OfficialStaff;
             float[] available = m_Census.AvailableStaff;
+            float availableScale = reforms.AvailableStaffScale;
             for (int j = 0; j < m_Utilization.Length; j++)
             {
                 m_Utilization[j] = m_Demand[j] <= 0f ? 0f
-                    : available[j] > 0f ? m_Demand[j] / available[j]
+                    : available[j] > 0f ? m_Demand[j] / (available[j] * availableScale)
                     : EngineParameters.kUnstaffedUtilization;
             }
 
@@ -375,7 +403,8 @@ namespace RealisticPolicies.Engine
                 float s = m_Intensity[i];
 
                 // ③ Joint action: hub × clearance points × series capacities.
-                float effectiveness = adminHub * math.pow(EngineParameters.kClearanceProbability, definition.ClearancePoints);
+                float clearancePoints = math.max(0f, definition.ClearancePoints + reforms.ClearanceShift(definition));
+                float effectiveness = adminHub * math.pow(EngineParameters.kClearanceProbability, clearancePoints) * reforms.EffectivenessScale;
                 foreach (SeriesWeight series in definition.Series)
                 {
                     effectiveness *= math.pow(math.min(1f, capacity[(int)series.Series]), series.Weight);
@@ -411,20 +440,21 @@ namespace RealisticPolicies.Engine
                         float cut = s * definition.SliderRange.max / 100f;
                         float deterred = FirmModel.DeterredShare(cut, detection, EngineParameters.kStandardFine);
                         compliance = (voluntary + (1f - voluntary) * deterred) * state.m_Credibility;
-                        capture = Capture(runtime);
+                        capture = Capture(runtime, reforms);
                         break;
                     case Mechanism.EmissionTax:
                     case Mechanism.EmissionTrading:
                         // Reporting rate: evaders pay on what they report, so they also face a lower effective price.
                         // Under a cap, the same share holds allowances for what it emits.
                         compliance = (voluntary + (1f - voluntary) * Deterrence(detection)) * state.m_Credibility;
-                        capture = Capture(runtime);
+                        capture = Capture(runtime, reforms);
                         break;
                     case Mechanism.Generic:
-                        if (definition.Instrument == Instrument.Authority)
+                        // Reforms bind the city's own staff, not regulated parties: no compliance or capture of their own.
+                        if (definition.Instrument == Instrument.Authority && definition.Reform == ReformKind.None)
                         {
                             compliance = (voluntary + (1f - voluntary) * Deterrence(detection)) * state.m_Credibility;
-                            capture = Capture(runtime);
+                            capture = Capture(runtime, reforms);
                         }
                         break;
                 }
@@ -433,7 +463,7 @@ namespace RealisticPolicies.Engine
                 // An injunction in effect suspends the policy until the verdict.
                 bool suspended = m_Litigation.IsSuspended(definition.Prefab);
                 float target = suspended ? 0f : s * effectiveness * rationing * compliance * (1f - capture);
-                float tau = definition.BaseLagDays * delayFactor;
+                float tau = reforms.BaseLag(definition) * delayFactor;
                 runtime.m_Progress += (1f - math.exp(-dt / tau)) * (target - runtime.m_Progress);
 
                 // ⑧ Grievance against the reference point, with loss aversion, per group (option (나)).
@@ -442,6 +472,8 @@ namespace RealisticPolicies.Engine
                 float felt = actual ? ActualBurden(definition) : s;
                 float reference = actual ? runtime.m_BurdenReference : runtime.m_Reference;
                 float up = math.max(0f, felt - reference);
+                // Public hearings soften the anger of those who carry a newly raised burden (§14.10).
+                float burdenRaise = reforms.BurdenRaiseGrievanceScale(definition);
                 float down = math.max(0f, reference - felt);
                 for (int g = 0; g < (int)TargetGroup.Count; g++)
                 {
@@ -449,7 +481,7 @@ namespace RealisticPolicies.Engine
                 }
                 foreach (GroupStake stake in definition.Groups)
                 {
-                    float losses = stake.Burden * up + stake.Benefit * down;
+                    float losses = stake.Burden * up * burdenRaise + stake.Benefit * down;
                     float gains = stake.Burden * down + stake.Benefit * up;
                     float groupGrievance = EngineParameters.kLossAversion * losses - gains;
                     m_GroupGrievance[i, (int)stake.Group] += groupGrievance;
@@ -488,7 +520,7 @@ namespace RealisticPolicies.Engine
             state.m_Legitimacy = math.saturate(state.m_Legitimacy
                 - drop
                 + dt * EngineParameters.kOutputRate * delivery
-                - dt * EngineParameters.kLegitimacyReturnRate * (state.m_Legitimacy - EngineParameters.kLegitimacyBase));
+                - dt * EngineParameters.kLegitimacyReturnRate * (state.m_Legitimacy - (EngineParameters.kLegitimacyBase + reforms.LegitimacyBaseShift + PolicyLegitimacyShift(all))));
             if (drop > EngineParameters.kWarningDrop)
             {
                 // The report's "recent warning" goes to the policy whose grievance weighs most.
@@ -611,6 +643,23 @@ namespace RealisticPolicies.Engine
             m_LeverFactors.Clear();
             for (int i = 0; i < all.Length; i++)
             {
+                float amplification = 1f;
+                string by = all[i].AmplifiedBy;
+                if (by != null)
+                {
+                    for (int j = 0; j < all.Length; j++)
+                    {
+                        if (all[j].Id == by)
+                        {
+                            amplification += all[i].AmplifyScale * math.saturate(runtimes[FindRuntime(runtimes, all[j].Prefab)].m_Progress);
+                            break;
+                        }
+                    }
+                }
+                m_Amplification[i] = amplification;
+            }
+            for (int i = 0; i < all.Length; i++)
+            {
                 PolicyDefinition definition = all[i];
                 float progress = runtimes[FindRuntime(runtimes, definition.Prefab)].m_Progress;
                 float intensity = m_Intensity[i];
@@ -620,7 +669,7 @@ namespace RealisticPolicies.Engine
                     for (int m = 0; m < modifiers.Length; m++)
                     {
                         CityModifierData data = modifiers[m];
-                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance);
+                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance) * m_Amplification[i];
                         if (math.abs(data.m_Range.min - value) > 1e-5f || math.abs(data.m_Range.max - value) > 1e-5f)
                         {
                             data.m_Range = new Bounds1(value, value);
@@ -637,14 +686,17 @@ namespace RealisticPolicies.Engine
                             {
                                 factor = 1f;
                             }
-                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity));
+                            float age = runtimes[FindRuntime(runtimes, definition.Prefab)].m_AgeDays;
+                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity) * Fading(definition, age) * m_Amplification[i]);
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
                             float basis = output.Basis == MoneyBasis.Intensity ? intensity
-                                : output.Basis == MoneyBasis.Delivery ? progress
+                                : output.Basis == MoneyBasis.Delivery || output.Basis == MoneyBasis.TaxShare ? progress
                                 : MoneyShape(definition, progress, intensity, LastResults[i].Compliance);
-                            float monthly = (output.FixedMonthly + output.PerUnitMonthly * m_Census.TargetCount(output.Unit)) * basis;
+                            float monthly = output.Basis == MoneyBasis.TaxShare
+                                ? output.PerUnitMonthly * m_TaxBase * basis
+                                : (output.FixedMonthly + output.PerUnitMonthly * m_Census.TargetCount(output.Unit)) * basis;
                             m_Budget.SetRow(output.Key, output.Kind == OutputKind.Income, output.Host, (int)math.round(monthly));
                             break;
                     }
@@ -681,8 +733,9 @@ namespace RealisticPolicies.Engine
             return map.Length > 0 ? sum / (float)map.Length : 0f;
         }
 
-        private static float Capture(PolicyRuntime runtime) =>
-            EngineParameters.kCaptureMax * (1f - math.exp(-runtime.m_AgeDays / EngineParameters.kCaptureDays));
+        private static float Capture(PolicyRuntime runtime, ReformEffects reforms) =>
+            EngineParameters.kCaptureMax * reforms.CaptureCeilingScale
+            * (1f - math.exp(-runtime.m_AgeDays / (EngineParameters.kCaptureDays * reforms.CaptureTimeScale)));
 
         /// <summary>Becker deterrence for the generic compliance rule and tax reporting.</summary>
         private static float Deterrence(float detection) =>
@@ -732,6 +785,34 @@ namespace RealisticPolicies.Engine
             m_AuctionBurden = math.saturate(TradingAuctionShare * TradingPrice / s_TradingMaxPrice);
         }
 
+        /// <summary>
+        /// The city's own tax income per month, without the mod's income rows booked under tax sources (so arrears
+        /// collection does not compound on itself or on the pollution tax).
+        /// </summary>
+        private float TaxBase(PolicyDefinition[] all)
+        {
+            float tax = m_ServiceBudget.GetIncome(IncomeSource.TaxResidential) + m_ServiceBudget.GetIncome(IncomeSource.TaxCommercial)
+                + m_ServiceBudget.GetIncome(IncomeSource.TaxIndustrial) + m_ServiceBudget.GetIncome(IncomeSource.TaxOffice);
+            foreach (PolicyDefinition definition in all)
+            {
+                foreach (PolicyOutput output in definition.Outputs)
+                {
+                    if (output.Kind == OutputKind.Income && (output.Host == (int)IncomeSource.TaxResidential || output.Host == (int)IncomeSource.TaxCommercial
+                        || output.Host == (int)IncomeSource.TaxIndustrial || output.Host == (int)IncomeSource.TaxOffice))
+                    {
+                        tax -= m_Budget.GetRow(output.Key);
+                    }
+                }
+            }
+            return math.max(0f, tax);
+        }
+
+        /// <summary>Share of the effect left after <paramref name="ageDays"/> in force, for policies whose novelty wears off.</summary>
+        public static float Fading(PolicyDefinition definition, float ageDays) =>
+            definition.EffectHalfLifeDays > 0f
+                ? math.max(definition.EffectFloor, math.pow(0.5f, ageDays / definition.EffectHalfLifeDays))
+                : 1f;
+
         /// <summary>Share of a parameter lever's full effect: allowance auctioning by what companies pay; others by delivery.</summary>
         private float LeverShape(PolicyDefinition definition, float progress, float intensity) =>
             definition.Mechanism == Mechanism.AllowanceAuction ? intensity * math.min(1f, TradingPrice / FirmModel.kBasePrice) : progress;
@@ -743,6 +824,10 @@ namespace RealisticPolicies.Engine
         /// </summary>
         private float Shape(PolicyDefinition definition, CityModifierType type, float progress, float intensity, float reporting)
         {
+            if (definition.Reform == ReformKind.InterMunicipalAgreement)
+            {
+                return progress * m_CitySizeFactor;
+            }
             if (definition.Mechanism == Mechanism.EmissionTrading)
             {
                 if (type == CityModifierType.IndustrialAirPollution)
@@ -753,9 +838,9 @@ namespace RealisticPolicies.Engine
                 {
                     // Cutting costs plus the allowances bought at auction, against the same at the largest cap, all auctioned.
                     float full = FirmModel.AbatementCost(s_TradingMaxPrice)
-                        + EngineParameters.kTaxEfficiencyBurden * s_TradingMaxPrice * (1f - PolicyDefinitions.kTradingMaxCut);
+                        + EngineParameters.kTaxBillEfficiencyBurden * s_TradingMaxPrice * (1f - PolicyDefinitions.kTradingMaxCut);
                     float now = FirmModel.AbatementCost(FirmModel.PriceForAbatement(TradingCut))
-                        + EngineParameters.kTaxEfficiencyBurden * TradingAuctionShare * TradingPrice * (1f - TradingCut) * TradingCompliance;
+                        + EngineParameters.kTaxBillEfficiencyBurden * TradingAuctionShare * TradingPrice * (1f - TradingCut) * TradingCompliance;
                     return now / full;
                 }
                 return progress;
@@ -768,9 +853,9 @@ namespace RealisticPolicies.Engine
             if (type == CityModifierType.IndustrialEfficiency)
             {
                 float full = FirmModel.AbatementCost(FirmModel.kBasePrice)
-                    + EngineParameters.kTaxEfficiencyBurden * FirmModel.kBasePrice * (1f - FirmModel.Abatement(FirmModel.kBasePrice));
+                    + EngineParameters.kTaxBillEfficiencyBurden * FirmModel.kBasePrice * (1f - FirmModel.Abatement(FirmModel.kBasePrice));
                 float now = FirmModel.AbatementCost(price)
-                    + EngineParameters.kTaxEfficiencyBurden * intensity * FirmModel.kBasePrice * (1f - FirmModel.Abatement(price)) * reporting;
+                    + EngineParameters.kTaxBillEfficiencyBurden * intensity * FirmModel.kBasePrice * (1f - FirmModel.Abatement(price)) * reporting;
                 return now / full;
             }
             if (type == CityModifierType.IndustrialAirPollution || type == CityModifierType.IndustrialGroundPollution)
@@ -796,6 +881,26 @@ namespace RealisticPolicies.Engine
                 default:
                     return progress;
             }
+        }
+
+        /// <summary>Factor the engine last wrote on a parameter lever (1 when no policy uses it).</summary>
+        public float LeverFactor(string key) => m_LeverFactors.TryGetValue(key, out float factor) ? factor : 1f;
+
+        /// <summary>Factor on a policy's modifiers and levers from the policy that amplifies it (§14.8); 1 for most.</summary>
+        public float Amplification(int index) => m_Amplification != null && index >= 0 && index < m_Amplification.Length && m_Amplification[index] > 0f ? m_Amplification[index] : 1f;
+
+        /// <summary>Legitimacy base shift of the policies that carry one, at what they delivered this step.</summary>
+        private float PolicyLegitimacyShift(PolicyDefinition[] all)
+        {
+            float shift = 0f;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].LegitimacyShift != 0f)
+                {
+                    shift += all[i].LegitimacyShift * math.saturate(LastResults[i].Progress);
+                }
+            }
+            return shift;
         }
 
         private static float ModifierFor(PolicyDefinition definition, CityModifierType type)
