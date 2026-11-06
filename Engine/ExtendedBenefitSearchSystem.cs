@@ -76,6 +76,7 @@ namespace RealisticPolicies.Engine
             {
                 return;
             }
+            long start = Perf.Start();
             uint now = m_SimulationSystem.frameIndex;
             var random = Random.CreateFromIndex(now);
             using (NativeArray<Entity> entities = m_UnemployedQuery.ToEntityArray(Allocator.Temp))
@@ -109,6 +110,7 @@ namespace RealisticPolicies.Engine
                     Delayed++;
                 }
             }
+            Perf.Stop("ExtendedBenefitSearch", start);
         }
     }
 }

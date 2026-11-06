@@ -28,7 +28,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff, MoneyWatch, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff, MoneyWatch, Measure, Finish, Quit }
 
         private const float kTimeoutSeconds = 1500f;
         private const string kPreferredMap = "Plains";
@@ -85,6 +85,9 @@ namespace RealisticPolicies
         /// <summary>True when the next launch should run the self-test; checked before systems are registered.</summary>
         public static bool IsRequested => File.Exists(FlagPath);
 
+        /// <summary>A measurement run (";measure:..." in the flag): the engine keeps the game's own cadence and quiet log.</summary>
+        public static bool IsMeasureRequested => IsRequested && File.ReadAllText(FlagPath).Contains(";measure:");
+
         [Preserve]
         protected override void OnCreate()
         {
@@ -99,6 +102,12 @@ namespace RealisticPolicies
             // "save:<file name>" loads that save (a copy made for the test); anything else starts a new city.
             string request = File.ReadAllText(flag).Trim();
             // "save:<file name>;money" only watches city money against a large injected expense.
+            int measureAt = request.IndexOf(";measure:", StringComparison.Ordinal);
+            if (measureAt >= 0)
+            {
+                m_MeasureVariant = request.Substring(measureAt + ";measure:".Length).Trim();
+                request = request.Substring(0, measureAt);
+            }
             m_MoneyMode = request.EndsWith(";money", StringComparison.Ordinal);
             if (m_MoneyMode)
             {
@@ -150,13 +159,13 @@ namespace RealisticPolicies
         [Preserve]
         protected override void OnUpdate()
         {
-            if (m_Stage != Stage.Quit && m_Stage != Stage.Off && UnityEngine.Time.realtimeSinceStartup - m_TestStart > kTimeoutSeconds)
+            if (m_Stage != Stage.Quit && m_Stage != Stage.Off && UnityEngine.Time.realtimeSinceStartup - m_TestStart > (m_MeasureVariant != null ? 4f * 3600f : kTimeoutSeconds))
             {
                 Check("Self-test finished before the time limit", false, $"stuck in stage {m_Stage}");
                 SetStage(Stage.Finish);
             }
 
-            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || m_Stage == Stage.MoneyWatch) && m_SimulationSystem.selectedSpeed != kTestSpeed)
+            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || m_Stage == Stage.MoneyWatch || m_Stage == Stage.Measure) && m_SimulationSystem.selectedSpeed != kTestSpeed)
             {
                 // The test needs simulation frames: run at top speed whatever speed the city was loaded with.
                 m_SimulationSystem.selectedSpeed = kTestSpeed;
@@ -169,7 +178,11 @@ namespace RealisticPolicies
                     break;
                 case Stage.Settle:
                     // Wait until the simulation has finished loading; it re-applies "pause after loading" at that point.
-                    if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_MoneyMode)
+                    if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_MeasureVariant != null)
+                    {
+                        StartMeasure();
+                    }
+                    else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_MoneyMode)
                     {
                         StartMoneyWatch();
                     }
@@ -517,6 +530,9 @@ namespace RealisticPolicies
                     break;
                 case Stage.MoneyWatch:
                     UpdateMoneyWatch();
+                    break;
+                case Stage.Measure:
+                    UpdateMeasure();
                     break;
                 case Stage.Finish:
                     Finish();
@@ -1300,6 +1316,8 @@ namespace RealisticPolicies
             ParameterLevers.All[ParameterLevers.kWage0].Restore(EntityManager);
             ParameterLevers.All[ParameterLevers.kWage1].Restore(EntityManager);
             ParameterLevers.All[ParameterLevers.kNewCitizenHighEducation].Restore(EntityManager);
+            // The minimum wage also moves the reoffending lever (§14.8); the later stage compares against the original.
+            ParameterLevers.All[ParameterLevers.kWelfareRecurrence].Restore(EntityManager);
             economy = Singleton<EconomyParameterData>();
             Unity.Mathematics.float4 education = Singleton<DemandParameterData>().m_NewCitizenEducationParameters;
             Check("Restoring the levers gives back the game's wages and newcomer education exactly",
@@ -1561,7 +1579,28 @@ namespace RealisticPolicies
             int housingFirst = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kHousingFirst));
             float amplification = m_Engine.Amplification(housingFirst);
             Check("Welfare outreach amplifies Housing First (§14.8, at most x1.2)", amplification > 1f && amplification <= 1.2f + 1e-4f, $"x{amplification:0.0000}");
+            int contracting = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kContractingOut));
+            int bidding = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kCompetitiveBidding));
+            float expectedBoost = 1f + 0.5f * Mathf.Clamp01(m_Engine.LastResults[bidding].Progress);
+            float hospital = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kContractingOut), CityModifierType.HospitalEfficiency);
+            float upkeep = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kContractingOut), CityModifierType.CityServiceBuildingBaseUpkeepCost);
+            Check("Competitive bidding enlarges only the contracting-out savings (§14.8)",
+                Mathf.Abs(m_Engine.Amplification(contracting) - expectedBoost) < 0.02f && m_Engine.LeverAmplification(contracting) == 1f
+                && hospital != 0f && Mathf.Abs(upkeep / hospital - (0.05f / 0.03f) * m_Engine.Amplification(contracting)) < 0.05f,
+                $"x{m_Engine.Amplification(contracting):0.000} (expected {expectedBoost:0.000}), upkeep {upkeep:0.0000}, hospital {hospital:0.0000}");
+            int reentry = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kReentrySupport));
+            Check("Harsher sentencing weakens reentry support (§14.8, at most -20%)",
+                m_Engine.Amplification(reentry) < 1f && m_Engine.Amplification(reentry) >= 0.8f - 1e-4f, $"x{m_Engine.Amplification(reentry):0.000}");
+            int response = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kEmergencyResponse));
+            float responseValue = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kEmergencyResponse), CityModifierType.CrimeResponseTime);
+            float expectedResponse = -0.3f * m_Engine.LastResults[response].Progress * m_Engine.LegitimacyFactor;
+            Check("Emergency response follows legitimacy (§14.8, 0.5-1.2 times)",
+                Mathf.Abs(responseValue - expectedResponse) < 0.05f * Mathf.Abs(expectedResponse) + 1e-4f,
+                $"{responseValue:0.0000}, expected {expectedResponse:0.0000} (legitimacy x{m_Engine.LegitimacyFactor:0.00})");
             float inflation = m_Engine.Reforms.ReportInflation;
+            Check("Disclosure cuts the gaming of performance targets (§14.8)",
+                Mathf.Abs(inflation - ReformEffects.kPerformanceReportInflation * m_Engine.Reforms.Performance * (1f - 0.5f * m_Engine.Reforms.Disclosure)) < 1e-5f && m_Engine.Reforms.Disclosure > 0f,
+                $"+{inflation:0.0000}, performance {m_Engine.Reforms.Performance:0.000}, disclosure {m_Engine.Reforms.Disclosure:0.000}");
             Check("Performance management inflates the other policies' reported delivery (at most 10 points)", inflation > 0f && inflation <= 0.1f + 1e-4f, $"+{inflation:0.0000}");
             Line($"Legitimacy {m_Engine.LastState.m_Legitimacy:0.000} with community policing (+0.03) and zero tolerance (-0.04) on.");
             LogDisasterWarning("with batches on");
@@ -1626,6 +1665,253 @@ namespace RealisticPolicies
         }
 
         private static bool Same(float a, float b) => Mathf.Abs(a - b) <= 1e-6f * Mathf.Max(1f, Mathf.Abs(b));
+
+        // ------------------------------------------------------------------ measurement runs (PLAN §14.19)
+
+        private const uint kMeasureSampleFrames = 32768;
+        private const int kMeasureSamples = 16;
+        private string m_MeasureVariant;
+        private int m_MeasureCount;
+        private string m_MeasurePath;
+
+        /// <summary>
+        /// "save:...;measure:base" or ";measure:policies": two days at the game's own engine cadence, sampled every
+        /// eighth of a day. The policies run turns batches 3-10 on at full strength and delivers them at once.
+        /// </summary>
+        private void StartMeasure()
+        {
+            m_WelfareOffice = FindGeneralWelfareOffice(Entity.Null);
+            m_TaxOffice = FindGeneralWelfareOffice(m_WelfareOffice);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.SocialWelfare);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.Tax);
+            if (m_MeasureVariant == "policies")
+            {
+                PolicyEngineSystem.TestInstantDelivery = true;
+                foreach (string id in kLaterBundles)
+                {
+                    PolicyDefinition definition = PolicyCatalog.Definition(id);
+                    SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), true, definition.IsSlider ? definition.SliderRange.max : 0f);
+                }
+            }
+            Line($"Measurement '{m_MeasureVariant}': {kMeasureSamples} samples every {kMeasureSampleFrames} frames; welfare office {m_WelfareOffice.Index} social welfare, {m_TaxOffice.Index} tax.");
+            LogOpenItems();
+            m_MeasurePath = Path.Combine(m_Directory, "selftest", $"measure-{m_MeasureVariant}.csv");
+            File.WriteAllText(m_MeasurePath, MeasureHeader + "\n");
+            m_MeasureCount = 0;
+            m_SimulationSystem.selectedSpeed = kTestSpeed;
+            SetStage(Stage.Measure);
+        }
+
+        private void UpdateMeasure()
+        {
+            if (m_MeasureCount > 0 && SimFrames() < kMeasureSampleFrames)
+            {
+                return;
+            }
+            File.AppendAllText(m_MeasurePath, MeasureRow() + "\n");
+            m_MeasureCount++;
+            if (m_MeasureCount > kMeasureSamples)
+            {
+                PolicyEngineSystem.TestInstantDelivery = false;
+                if (m_MeasureVariant == "policies")
+                {
+                    var off = new StringBuilder();
+                    foreach (string id in kLaterBundles)
+                    {
+                        PolicyStepResult r = m_Engine.LastResults[System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(id))];
+                        off.Append($"{Short(id)} {r.Progress:0.000}/{r.Intensity:0.00} c{r.Compliance:0.00}; ");
+                    }
+                    Line("Delivered at the end (progress/intensity, compliance): " + off);
+                }
+                Line($"Search delay: {ExtendedBenefitSearchSystem.Delayed} of {ExtendedBenefitSearchSystem.EligibleSeen} checks.");
+                SetStage(Stage.Finish);
+                return;
+            }
+            SetStage(Stage.Measure);
+        }
+
+        private const string MeasureHeader = "sample,frame,population,households,homeless,unemployed,workers,wellbeing,health,deathRate,birthRate,movedIn,movedAway,crimeCount,crimeRate,escaped,money," +
+            "criminals,prisoners,meanBuildingCrime,sick,students1,students2,students3,students4,elecWanted,elecFulfilled,waterWanted,waterFresh,waterShortBuildings," +
+            "garbageStock,onFire,destroyed,trafficAccidents,meanRent,level1,level2,level3,level4,level5,air,legitimacy,credibility,warningDelta";
+
+        private string MeasureRow()
+        {
+            var cs = System.Globalization.CultureInfo.InvariantCulture;
+            int Stat(StatisticType type, int parameter = 0) => m_StatisticsSystem.GetStatisticValue(type, parameter);
+            var row = new System.Collections.Generic.List<string>
+            {
+                m_MeasureCount.ToString(cs), m_SimulationSystem.frameIndex.ToString(cs),
+                Stat(StatisticType.Population).ToString(cs), Stat(StatisticType.HouseholdCount).ToString(cs), Stat(StatisticType.HomelessCount).ToString(cs),
+                Stat(StatisticType.Unemployed).ToString(cs), Stat(StatisticType.WorkerCount).ToString(cs), Stat(StatisticType.Wellbeing).ToString(cs),
+                Stat(StatisticType.Health).ToString(cs), Stat(StatisticType.DeathRate).ToString(cs), Stat(StatisticType.BirthRate).ToString(cs),
+                Stat(StatisticType.CitizensMovedIn).ToString(cs), Stat(StatisticType.CitizensMovedAway).ToString(cs), Stat(StatisticType.CrimeCount).ToString(cs),
+                Stat(StatisticType.CrimeRate).ToString(cs), Stat(StatisticType.EscapedArrestCount).ToString(cs), Stat(StatisticType.Money).ToString(cs),
+            };
+
+            int criminals = 0, prisoners = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Citizens.Criminal>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Citizens.Criminal> a = q.ToComponentDataArray<Game.Citizens.Criminal>(Allocator.Temp))
+            {
+                criminals = a.Length;
+                for (int i = 0; i < a.Length; i++)
+                {
+                    prisoners += (a[i].m_Flags & Game.Citizens.CriminalFlags.Prisoner) != 0 ? 1 : 0;
+                }
+            }
+            double crime = 0;
+            int producers = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.CrimeProducer>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Buildings.CrimeProducer> a = q.ToComponentDataArray<Game.Buildings.CrimeProducer>(Allocator.Temp))
+            {
+                producers = a.Length;
+                for (int i = 0; i < a.Length; i++)
+                {
+                    crime += a[i].m_Crime;
+                }
+            }
+            int sick = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Citizens.HealthProblem>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Citizens.HealthProblem> a = q.ToComponentDataArray<Game.Citizens.HealthProblem>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    sick += (a[i].m_Flags & Game.Citizens.HealthProblemFlags.Sick) != 0 ? 1 : 0;
+                }
+            }
+            var students = new int[5];
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Citizens.Student>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Citizens.Student> a = q.ToComponentDataArray<Game.Citizens.Student>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    students[Unity.Mathematics.math.clamp(a[i].m_Level, 0, 4)]++;
+                }
+            }
+            long elecWanted = 0, elecFulfilled = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.ElectricityConsumer>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Buildings.ElectricityConsumer> a = q.ToComponentDataArray<Game.Buildings.ElectricityConsumer>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    elecWanted += a[i].m_WantedConsumption;
+                    elecFulfilled += a[i].m_FulfilledConsumption;
+                }
+            }
+            long waterWanted = 0, waterFresh = 0;
+            int waterShort = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.WaterConsumer>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Buildings.WaterConsumer> a = q.ToComponentDataArray<Game.Buildings.WaterConsumer>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    waterWanted += a[i].m_WantedConsumption;
+                    waterFresh += a[i].m_FulfilledFresh;
+                    waterShort += a[i].m_FulfilledFresh < a[i].m_WantedConsumption ? 1 : 0;
+                }
+            }
+            long garbage = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.GarbageProducer>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Buildings.GarbageProducer> a = q.ToComponentDataArray<Game.Buildings.GarbageProducer>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    garbage += a[i].m_Garbage;
+                }
+            }
+            int onFire, destroyed, accidents = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.OnFire>(), ComponentType.Exclude<Deleted>()))
+            {
+                onFire = q.CalculateEntityCount();
+            }
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Common.Destroyed>(), ComponentType.Exclude<Deleted>()))
+            {
+                destroyed = q.CalculateEntityCount();
+            }
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Events.AccidentSite> a = q.ToComponentDataArray<Game.Events.AccidentSite>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    accidents += (a[i].m_Flags & Game.Events.AccidentSiteFlags.TrafficAccident) != 0 ? 1 : 0;
+                }
+            }
+            double rent = 0;
+            int renters = 0;
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Citizens.Household>(), ComponentType.ReadOnly<Game.Buildings.PropertyRenter>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Game.Buildings.PropertyRenter> a = q.ToComponentDataArray<Game.Buildings.PropertyRenter>(Allocator.Temp))
+            {
+                renters = a.Length;
+                for (int i = 0; i < a.Length; i++)
+                {
+                    rent += a[i].m_Rent;
+                }
+            }
+            var levels = new int[6];
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Game.Tools.Temp>()))
+            using (NativeArray<PrefabRef> a = q.ToComponentDataArray<PrefabRef>(Allocator.Temp))
+            {
+                for (int i = 0; i < a.Length; i++)
+                {
+                    if (EntityManager.TryGetComponent(a[i].m_Prefab, out SpawnableBuildingData spawnable))
+                    {
+                        levels[Unity.Mathematics.math.clamp((int)spawnable.m_Level, 0, 5)]++;
+                    }
+                }
+            }
+            DynamicBuffer<CityModifier> city = EntityManager.GetBuffer<CityModifier>(m_CitySystem.City, true);
+            float warning = city.Length > (int)CityModifierType.DisasterWarningTime ? city[(int)CityModifierType.DisasterWarningTime].m_Delta.x : 0f;
+            row.Add(criminals.ToString(cs));
+            row.Add(prisoners.ToString(cs));
+            row.Add((producers > 0 ? crime / producers : 0).ToString("0.00", cs));
+            row.Add(sick.ToString(cs));
+            for (int l = 1; l <= 4; l++)
+            {
+                row.Add(students[l].ToString(cs));
+            }
+            row.Add(elecWanted.ToString(cs));
+            row.Add(elecFulfilled.ToString(cs));
+            row.Add(waterWanted.ToString(cs));
+            row.Add(waterFresh.ToString(cs));
+            row.Add(waterShort.ToString(cs));
+            row.Add(garbage.ToString(cs));
+            row.Add(onFire.ToString(cs));
+            row.Add(destroyed.ToString(cs));
+            row.Add(accidents.ToString(cs));
+            row.Add((renters > 0 ? rent / renters : 0).ToString("0.0", cs));
+            for (int l = 1; l <= 5; l++)
+            {
+                row.Add(levels[l].ToString(cs));
+            }
+            row.Add(m_Engine.AirPollution.ToString("0.0000", cs));
+            row.Add(m_Engine.LastState.m_Legitimacy.ToString("0.000", cs));
+            row.Add(m_Engine.LastState.m_Credibility.ToString("0.000", cs));
+            row.Add(warning.ToString("0.0", cs));
+            return string.Join(",", row);
+        }
+
+        /// <summary>PLAN §13: which prefabs are administration buildings, and whether the unlock system can reach our prefabs.</summary>
+        private void LogOpenItems()
+        {
+            var admin = new StringBuilder();
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>(), ComponentType.ReadOnly<AdminBuildingData>()))
+            using (NativeArray<Entity> prefabs = q.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity prefab in prefabs)
+                {
+                    admin.Append(m_PrefabSystem.GetPrefabName(prefab)).Append("; ");
+                }
+            }
+            using (EntityQuery q = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.AdminBuilding>(), ComponentType.Exclude<Deleted>()))
+            {
+                Line($"Admin building prefabs: {(admin.Length > 0 ? admin.ToString() : "none")}; placed in this city: {q.CalculateEntityCount()}");
+            }
+            int withRequirement = 0;
+            foreach (PolicyDefinition definition in PolicyDefinitions.All)
+            {
+                withRequirement += EntityManager.HasBuffer<UnlockRequirement>(definition.Prefab) ? 1 : 0;
+            }
+            Line($"Mod policy prefabs with an UnlockRequirement buffer (UnlockSystem only touches those): {withRequirement} of {PolicyDefinitions.All.Length}");
+        }
 
         private float AirModifierOf(Entity prefab, Game.City.CityModifierType type)
         {

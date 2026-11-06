@@ -38,12 +38,15 @@ namespace RealisticPolicies
             updateSystem.UpdateBefore<PolicyRegistrationSystem, PrefabSystem>(SystemUpdatePhase.MainLoop);
             // Right after the vanilla job that rebuilds the per-source budget arrays, before BudgetApplySystem reads them.
             updateSystem.UpdateAfter<BudgetInjectionSystem, CityServiceBudgetSystem>(SystemUpdatePhase.ModificationEnd);
-            if (SelfTestSystem.IsRequested)
+            if (SelfTestSystem.IsRequested && !SelfTestSystem.IsMeasureRequested)
             {
                 // Must be set before the engine is registered: the update interval is read once.
                 // Short steps make lags visible within minutes; the formulas use the real elapsed time.
                 Engine.PolicyEngineSystem.UpdateIntervalFrames = 512;
                 Engine.PolicyEngineSystem.VerboseLog = true;
+            }
+            if (SelfTestSystem.IsRequested)
+            {
                 // Suits only where the self-test files them, so earlier checks are not disturbed.
                 Engine.LitigationSystem.TestDisableRandomFiling = true;
             }

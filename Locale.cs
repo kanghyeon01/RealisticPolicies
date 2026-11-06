@@ -125,7 +125,7 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kMinimumWage),
                 "Raises the wage of simple jobs above its usual level, and jobs just above it follow partly. Low-wage households earn more; " +
-                "companies, above all shops, pay more, and the city pays its own staff more. A large jump at once stirs strong opposition."
+                "companies, above all shops, pay more, and the city pays its own staff more. Released offenders return to crime a little less. A large jump at once stirs strong opposition."
             },
             { PolicyTitle(PolicyCatalog.kTalentAttraction), "Talent Attraction" },
             {
@@ -152,7 +152,7 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kHousingFirst),
                 "Gives homeless people a home first, with case workers who help them keep it. Homelessness harms health and " +
-                "wellbeing less, and homeless people leave less garbage and noise. Some neighbours object to supported housing nearby."
+                "wellbeing less, homeless people leave less garbage and noise, and hospitals see fewer emergency visits. Some neighbours object to supported housing nearby."
             },
             { PolicyTitle(PolicyCatalog.kReentrySupport), "Reentry Support" },
             {
@@ -228,7 +228,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kOmbudsman), "Ombudsman" },
             { PolicyDescription(PolicyCatalog.kOmbudsman), "An independent office hears complaints about the city. People take fewer grievances to court, and trust in city hall grows a little." },
             { PolicyTitle(PolicyCatalog.kInformationDisclosure), "Open Information" },
-            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "Publishes more of the city's records. Officials are watched more closely and trust grows, but those who sue the city can see more as well." },
+            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "Publishes more of the city's records. Officials are watched more closely and trust grows, and performance figures are gamed less, but those who sue the city can see more as well." },
             { PolicyTitle(PolicyCatalog.kArrearsCollection), "Tax Arrears Collection" },
             { PolicyDescription(PolicyCatalog.kArrearsCollection), "Tax staff chase unpaid local taxes. Tax income rises; those made to pay are not pleased. Needs a welfare office assigned to tax staff." },
             { PolicyTitle(PolicyCatalog.kCompetitiveBidding), "Competitive Bidding" },
@@ -256,7 +256,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Modifier.LoanInterest", "Loan interest" },
             { "RealisticPolicies.UI.Report.Modifier.HospitalEfficiency", "Hospital efficiency" },
             { PolicyTitle(PolicyCatalog.kContractingOut), "Contracting Out" },
-            { PolicyDescription(PolicyCatalog.kContractingOut), "Hands part of the city's services to private contractors. Upkeep falls a little, but quality that is hard to put in a contract slips, ties form between officials and contractors, and taking services back in later is costly." },
+            { PolicyDescription(PolicyCatalog.kContractingOut), "Hands part of the city's services to private contractors. Upkeep falls a little, but quality that is hard to put in a contract slips, ties form between officials and contractors, and taking services back in later is costly. Open competitive bidding makes the savings larger." },
             { BudgetItem(Engine.PolicyDefinitions.kContractingRow), "Contract oversight" },
             { PolicyTitle(PolicyCatalog.kIndustryCluster), "Industry Cluster Support" },
             { PolicyDescription(PolicyCatalog.kIndustryCluster), "Grants for industries the city already concentrates in. Specialized industries become more productive; the grants come out of everyone's taxes." },
@@ -284,7 +284,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kGroundwaterProtection), "Groundwater Protection" },
             { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "Meters and charges groundwater pumping. Aquifers last longer; water-hungry industry pays more." },
             { PolicyTitle(PolicyCatalog.kParkCare), "Park Care" },
-            { PolicyDescription(PolicyCatalog.kParkCare), "Funds better upkeep and programmes in parks. Parks draw more visitors." },
+            { PolicyDescription(PolicyCatalog.kParkCare), "Funds better upkeep and programmes in parks. Parks draw more visitors, and well-kept green space lowers crime a little." },
             { BudgetItem(Engine.PolicyDefinitions.kRentCapRow), "Rent dispute office" },
             { BudgetItem(Engine.PolicyDefinitions.kNoiseRow), "Noise inspection" },
             { BudgetItem(Engine.PolicyDefinitions.kVehicleRow), "Vehicle emission testing" },
@@ -305,9 +305,9 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kZeroTolerance), "Zero Tolerance Policing" },
             { PolicyDescription(PolicyCatalog.kZeroTolerance), "Stops and fines every minor offence. Crime levels in buildings drop quickly, but crimes by citizens do not fall, and the stops cost the city trust, which weakens compliance with every rule." },
             { PolicyTitle(PolicyCatalog.kHarsherSentencing), "Harsher Sentencing" },
-            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "Lengthens prison terms. Offenders stay off the street longer and a few are deterred, but prisons fill up and cost more." },
+            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "Lengthens prison terms. Offenders stay off the street longer and a few are deterred, but prisons fill up and cost more, and released offenders find work harder to get." },
             { PolicyTitle(PolicyCatalog.kEmergencyResponse), "Emergency Call Response" },
-            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "Upgrades the emergency call centre and dispatch. Crimes are reported and answered sooner, so more offenders are caught." },
+            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "Upgrades the emergency call centre and dispatch. Crimes are reported and answered sooner, so more offenders are caught; the more citizens trust the city, the more they call." },
             { PolicyTitle(PolicyCatalog.kCpted), "Crime Prevention Through Design" },
             { PolicyDescription(PolicyCatalog.kCpted), "Requires lighting, open sight lines and fewer hiding places in buildings and streets. Crime levels fall over time; building upgrades cost a little more." },
             { BudgetItem(Engine.PolicyDefinitions.kCommunityPolicingRow), "Community patrols" },
@@ -326,7 +326,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kScholarships), "Scholarships" },
             { PolicyDescription(PolicyCatalog.kScholarships), "Pays university grants to students. More young people go to university and finish it; if universities are full, the money goes out and little changes." },
             { PolicyTitle(PolicyCatalog.kFreeHighSchool), "Free High School" },
-            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "Covers high school fees for every family. More teenagers go on to high school." },
+            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "Covers high school fees for every family. More teenagers go on to high school, and crime falls a little." },
             { PolicyTitle(PolicyCatalog.kLifelongLearning), "Lifelong Learning" },
             { PolicyDescription(PolicyCatalog.kLifelongLearning), "Offers evening and weekend courses for adults. More adults go back to high school and more workers continue to college or university." },
             { BudgetItem(Engine.PolicyDefinitions.kHealthCampaignRow), "Health campaign" },
@@ -696,7 +696,7 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kMinimumWage),
                 "단순직 임금을 평소 수준보다 올리고, 바로 위 직급 임금도 일부 따라 오릅니다. 저임금 가구의 소득이 늘지만 기업, 특히 " +
-                "상점의 인건비와 시 공무원 인건비도 늘어납니다. 한 번에 크게 올리면 반발이 큽니다."
+                "상점의 인건비와 시 공무원 인건비도 늘어납니다. 출소자의 재범이 조금 줄어듭니다. 한 번에 크게 올리면 반발이 큽니다."
             },
             { PolicyTitle(PolicyCatalog.kTalentAttraction), "인재 유치" },
             {
@@ -723,7 +723,7 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kHousingFirst),
                 "노숙인에게 먼저 집을 주고, 사례관리자가 그 집에서 계속 살 수 있게 돕습니다 (주거우선). 노숙으로 잃는 건강과 " +
-                "행복도가 줄고, 노숙인이 남기는 쓰레기와 소음도 줄어듭니다. 지원주택이 들어서는 것을 반대하는 이웃도 있습니다."
+                "행복도가 줄고, 노숙인이 남기는 쓰레기와 소음과 응급실 방문도 줄어듭니다. 지원주택이 들어서는 것을 반대하는 이웃도 있습니다."
             },
             { PolicyTitle(PolicyCatalog.kReentrySupport), "출소자 사회복귀 지원" },
             {
@@ -799,7 +799,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kOmbudsman), "옴부즈만" },
             { PolicyDescription(PolicyCatalog.kOmbudsman), "독립 기구가 시정에 대한 고충을 듣습니다. 불만을 법원으로 가져가는 사람이 줄고 시정에 대한 신뢰가 조금 오릅니다." },
             { PolicyTitle(PolicyCatalog.kInformationDisclosure), "정보공개 확대" },
-            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "시의 기록을 더 많이 공개합니다. 공무원에 대한 감시가 강해지고 신뢰가 오르지만, 시를 상대로 소송하는 쪽도 더 많은 자료를 볼 수 있습니다." },
+            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "시의 기록을 더 많이 공개합니다. 공무원에 대한 감시가 강해지고 신뢰가 오르고 성과 지표 조작도 줄지만, 시를 상대로 소송하는 쪽도 더 많은 자료를 볼 수 있습니다." },
             { PolicyTitle(PolicyCatalog.kArrearsCollection), "지방세 체납 징수 강화" },
             { PolicyDescription(PolicyCatalog.kArrearsCollection), "세무 공무원이 밀린 지방세를 거둬들입니다. 세수가 늘지만 징수 대상은 반발합니다. 세무직으로 지정한 복지 사무소가 있어야 합니다." },
             { PolicyTitle(PolicyCatalog.kCompetitiveBidding), "공공조달 경쟁입찰" },
@@ -827,7 +827,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Modifier.LoanInterest", "대출 이자" },
             { "RealisticPolicies.UI.Report.Modifier.HospitalEfficiency", "병원 효율" },
             { PolicyTitle(PolicyCatalog.kContractingOut), "민간위탁" },
-            { PolicyDescription(PolicyCatalog.kContractingOut), "시 서비스의 일부를 민간 업체에 맡깁니다. 운영비가 조금 줄지만 계약서에 적기 어려운 품질은 떨어지고, 공무원과 업체 사이에 유착이 생기며, 나중에 다시 직영으로 돌리려면 비용이 큽니다." },
+            { PolicyDescription(PolicyCatalog.kContractingOut), "시 서비스의 일부를 민간 업체에 맡깁니다. 운영비가 조금 줄지만 계약서에 적기 어려운 품질은 떨어지고, 공무원과 업체 사이에 유착이 생기며, 나중에 다시 직영으로 돌리려면 비용이 큽니다. 공공조달 경쟁입찰과 함께 쓰면 절감이 커집니다." },
             { BudgetItem(Engine.PolicyDefinitions.kContractingRow), "위탁 감독비" },
             { PolicyTitle(PolicyCatalog.kIndustryCluster), "산업 특화 지원" },
             { PolicyDescription(PolicyCatalog.kIndustryCluster), "도시가 이미 모여 있는 산업에 보조금을 줍니다. 특화 산업의 생산성이 오르고, 보조금은 모두의 세금에서 나갑니다." },
@@ -855,7 +855,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kGroundwaterProtection), "지하수 보전" },
             { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "지하수 양수에 계량과 요금을 매깁니다. 대수층이 오래가고, 물을 많이 쓰는 산업은 비용이 늘어납니다." },
             { PolicyTitle(PolicyCatalog.kParkCare), "공원 관리 강화" },
-            { PolicyDescription(PolicyCatalog.kParkCare), "공원 관리와 프로그램에 예산을 더 씁니다. 공원을 찾는 사람이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kParkCare), "공원 관리와 프로그램에 예산을 더 씁니다. 공원을 찾는 사람이 늘고, 잘 가꾼 녹지가 범죄를 조금 줄입니다." },
             { BudgetItem(Engine.PolicyDefinitions.kRentCapRow), "임대차 분쟁조정비" },
             { BudgetItem(Engine.PolicyDefinitions.kNoiseRow), "소음 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kVehicleRow), "배출가스 검사비" },
@@ -876,15 +876,15 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kZeroTolerance), "무관용 단속" },
             { PolicyDescription(PolicyCatalog.kZeroTolerance), "경미한 위반까지 모두 단속하고 과태료를 매깁니다. 건물의 범죄 수준은 빨리 내려가지만 시민의 범죄는 줄지 않고, 단속이 시정 신뢰를 깎아 모든 규제의 순응이 약해집니다." },
             { PolicyTitle(PolicyCatalog.kHarsherSentencing), "양형 강화" },
-            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "징역 기간을 늘립니다. 범죄자가 더 오래 거리에서 떨어지고 일부는 겁을 먹지만, 교도소가 차고 비용이 늘어납니다." },
-            { PolicyTitle(PolicyCatalog.kEmergencyResponse), "112 대응 체계" },
-            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "112 상황실과 출동 체계를 개선합니다. 범죄가 더 빨리 신고되고 대응되어 더 많이 검거됩니다." },
+            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "징역 기간을 늘립니다. 범죄자가 더 오래 거리에서 떨어지고 일부는 겁을 먹지만, 교도소가 차고 비용이 늘어나며 출소 뒤 일자리를 구하기 어려워집니다." },
+            { PolicyTitle(PolicyCatalog.kEmergencyResponse), "긴급신고 대응 체계" },
+            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "긴급신고 상황실과 경찰 출동 체계를 개선합니다. 범죄가 더 빨리 신고되고 대응되어 더 많이 검거되며, 시민이 시를 믿을수록 신고가 늘어납니다." },
             { PolicyTitle(PolicyCatalog.kCpted), "범죄예방 환경설계(CPTED)" },
             { PolicyDescription(PolicyCatalog.kCpted), "건물과 거리에 조명, 트인 시야, 숨을 곳이 적은 설계를 의무화합니다. 범죄 수준이 서서히 내려가고, 건물 개선 비용이 조금 늘어납니다." },
             { BudgetItem(Engine.PolicyDefinitions.kCommunityPolicingRow), "지역 순찰비" },
             { BudgetItem(Engine.PolicyDefinitions.kZeroToleranceRow), "질서 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kSentencingRow), "수감 기간 연장 비용" },
-            { BudgetItem(Engine.PolicyDefinitions.kEmergencyResponseRow), "112 출동 운영비" },
+            { BudgetItem(Engine.PolicyDefinitions.kEmergencyResponseRow), "긴급신고 출동 운영비" },
             { BudgetItem(Engine.PolicyDefinitions.kCptedRow), "안전 설계 심사비" },
             { PolicyTitle(PolicyCatalog.kHealthCampaign), "공중보건 캠페인" },
             { PolicyDescription(PolicyCatalog.kHealthCampaign), "위생, 예방접종, 건강 습관 캠페인을 합니다. 병에 걸리는 시민이 줄고, 효과는 도시의 보건 인력에 달려 있습니다." },
@@ -897,7 +897,7 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kScholarships), "장학금" },
             { PolicyDescription(PolicyCatalog.kScholarships), "대학생에게 장학금을 줍니다. 대학에 가고 졸업하는 젊은이가 늘어납니다. 대학이 꽉 차 있으면 돈만 나가고 달라지는 것이 적습니다." },
             { PolicyTitle(PolicyCatalog.kFreeHighSchool), "고교 무상교육" },
-            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "모든 가정의 고등학교 학비를 지원합니다. 고등학교에 진학하는 청소년이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "모든 가정의 고등학교 학비를 지원합니다. 고등학교에 진학하는 청소년이 늘고, 범죄가 조금 줄어듭니다." },
             { PolicyTitle(PolicyCatalog.kLifelongLearning), "평생교육" },
             { PolicyDescription(PolicyCatalog.kLifelongLearning), "성인을 위한 야간·주말 강좌를 엽니다. 고등학교로 돌아가는 성인과 대학에 진학하는 근로자가 늘어납니다." },
             { BudgetItem(Engine.PolicyDefinitions.kHealthCampaignRow), "보건 캠페인비" },

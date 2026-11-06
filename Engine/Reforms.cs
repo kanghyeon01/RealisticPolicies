@@ -113,6 +113,9 @@ namespace RealisticPolicies.Engine
         /// </summary>
         public const float kPerformanceReportInflation = 0.1f;
 
+        /// <summary>Open records and audits cut that gaming by up to half (§14.8; Bevan & Hood 2006).</summary>
+        public const float kDisclosureGamingCut = 0.5f;
+
         /// <summary>Ombudsman: grievances go to complaints instead of courts, suits filed -25% (Hirschman 1970; estimate).</summary>
         public const float kOmbudsmanFiling = 0.25f;
         public const float kOmbudsmanLegitimacy = 0.02f;
@@ -282,7 +285,7 @@ namespace RealisticPolicies.Engine
         public float CaptureTimeScale => (1f - kSpecialistCaptureTime * Specialist) * (1f - kPerformanceCaptureTime * Performance);
 
         /// <summary>Points added to the delivery that other policies' reports show (§14.11, option B 2026-11-06).</summary>
-        public float ReportInflation => kPerformanceReportInflation * Performance;
+        public float ReportInflation => kPerformanceReportInflation * Performance * (1f - kDisclosureGamingCut * Disclosure);
 
         /// <summary>Shift of the legitimacy the city returns to.</summary>
         public float LegitimacyBaseShift =>

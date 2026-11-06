@@ -103,6 +103,9 @@
 - (저자 확인 필요) 미세먼지가 도시민의 활동에 미치는 영향: 서울시 종로구를 대상으로. (DBpia 초록)
 - (저자 확인 필요) 농장맞춤형 기상재해 조기경보서비스의 재해피해 경감효과 측정. (DBpia 초록, 2017~2020 보험 자료)
 - (저자 확인 필요) 사용자중심 단위냉방부하 산정 프로그램 개발에 관한 연구. (DBpia 초록: 에너지절약설계기준 단열 기준 2003년 이후 64% 강화)
+- (저자 확인 필요) 집합효율성이 범죄피해신고에 미치는 영향에서 경찰신뢰의 조절효과: 절도와 사기를 중심으로. (DBpia 초록, §14.8 정당성 × 긴급신고)
+- (저자 확인 필요) 도시 내 공원녹지공간이 범죄에 미치는 영향: 3대 강력범죄 중심으로. (DBpia 초록: 녹지가 늘면 범죄율 ↓, §14.8 공원 관리 → 범죄)
+- (저자 확인 필요) Association between park area per capita and crime rate. (DBpia 초록: 관리가 부족한 공원은 오히려 범죄를 부를 수 있음)
 
 ## 2. 공공 자료와 규정
 - 법원행정처 (2026). 『사법연감』 2026 (2025년 통계), 제6장 제1절 제4항 행정. (행정소송 원고 승소율, 소 취하율, 집행정지)
@@ -216,3 +219,23 @@
 - Fullerton, D., & Kinnaman, T. C. (1996). Household Responses to Pricing Garbage by the Bag. American Economic Review, 86(4), 971–984.
 - Jacobsen, G. D., & Kotchen, M. J. (2013). Are Building Codes Effective at Saving Energy? Evidence from Residential Billing Data in Florida. Review of Economics and Statistics, 95(1), 34–49.
 - Levinson, A. (2016). How Much Energy Do Building Energy Codes Save? Evidence from California Houses. American Economic Review, 106(10), 2867–2894.
+
+### 정책 간 외부효과와 조합 (§14.8, 2026-11-06)
+웹 검색 요약과 초록으로 확인한 것이다. 권호·쪽수는 올리기 전에 원문으로 대조한다.
+- Agan, A. Y., & Makowsky, M. D. (2023). The Minimum Wage, EITC, and Criminal Recidivism. Journal of Human Resources, 58(5), 1712–1751.
+- Berman, J. D., Burkhardt, J., Bayham, J., Carter, E., & Wilson, A. (2019). Acute Air Pollution Exposure and the Risk of Violent Behavior in the United States. Epidemiology, 30(6), 799–806.
+- Bindler, A. (2016). Still Unemployed, What Next? Crime and Unemployment Duration. Working Papers in Economics 660, University of Gothenburg.
+- Branas, C. C., South, E., Kondo, M. C., et al. (2018). Citywide Cluster Randomized Trial to Restore Blighted Vacant Land and Its Effects on Violence, Crime, and Fear. PNAS, 115(12), 2946–2951.
+- Chalfin, A., Hansen, B., Lerner, J., & Parker, L. (2022). Reducing Crime Through Environmental Design: Evidence from a Randomized Experiment of Street Lighting in New York City. Journal of Quantitative Criminology, 38(1), 127–157.
+- Chang, T. Y., Graff Zivin, J., Gross, T., & Neidell, M. (2019). The Effect of Pollution on Worker Productivity: Evidence from Call Center Workers in China. American Economic Journal: Applied Economics, 11(1), 151–172.
+- Desmond, M., Papachristos, A. V., & Kirk, D. S. (2016). Police Violence and Citizen Crime Reporting in the Black Community. American Sociological Review, 81(5), 857–876.
+- Fischer, C., & Preonas, L. (2010). Combining Policies for Renewable Energy: Is the Whole Less than the Sum of Its Parts? International Review of Environmental and Resource Economics, 4(1), 51–92.
+- Gillingham, K., Rapson, D., & Wagner, G. (2016). The Rebound Effect and Energy Efficiency Policy. Review of Environmental Economics and Policy, 10(1), 68–88.
+- Gunningham, N., & Grabosky, P. (1998). Smart Regulation: Designing Environmental Policy. Oxford University Press.
+- Lochner, L., & Moretti, E. (2004). The Effect of Education on Crime: Evidence from Prison Inmates, Arrests, and Self-Reports. American Economic Review, 94(1), 155–189.
+- Moretti, E. (2004). Estimating the Social Return to Higher Education. Journal of Econometrics, 121(1–2), 175–212.
+- Mueller-Smith, M. (2015). The Criminal and Labor Market Impacts of Incarceration. Working paper, University of Michigan.
+- Petrich, D. M., Pratt, T. C., Jonson, C. L., & Cullen, F. T. (2021). Custodial Sanctions and Reoffending: A Meta-Analytic Review. Crime and Justice, 50.
+- Tweed, E. J., Leyland, A. H., Morrison, D. S., & Katikireddi, S. V. (2019). Housing First and Health Service Use: A Systematic Review and Meta-Analysis. Journal of Epidemiology and Community Health. (권호·쪽수 확인 필요)
+- Tyler, T. R., & Fagan, J. (2008). Legitimacy and Cooperation: Why Do People Help the Police Fight Crime in Their Communities? Ohio State Journal of Criminal Law, 6, 231–275.
+- Zoorob, M. (2020). Do Police Brutality Stories Reduce 911 Calls? Reassessing an Important Criminological Finding. American Sociological Review, 85(1), 176–183.

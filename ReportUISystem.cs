@@ -333,7 +333,7 @@ namespace RealisticPolicies
                     writer.PropertyName("key");
                     writer.Write(output.Key);
                     writer.PropertyName("value");
-                    writer.Write(output.FullEffect * result.Progress * PolicyEngineSystem.Fading(definition, runtime.m_AgeDays) * m_Engine.Amplification(i));
+                    writer.Write(output.FullEffect * result.Progress * PolicyEngineSystem.Fading(definition, runtime.m_AgeDays) * m_Engine.LeverAmplification(i));
                     writer.TypeEnd();
                 }
                 writer.ArrayEnd();

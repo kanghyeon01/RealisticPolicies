@@ -30,6 +30,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Frames between engine steps (the vanilla statistics period). Set before registration; the self-test shortens it.</summary>
         public static int UpdateIntervalFrames = 8192;
 
+        /// <summary>Measurement runs: every policy delivers its target at once, so long runs show full effects.</summary>
+        public static bool TestInstantDelivery;
+
         /// <summary>Log every step instead of once per day.</summary>
         public static bool VerboseLog;
 
@@ -465,6 +468,10 @@ namespace RealisticPolicies.Engine
                 float target = suspended ? 0f : s * effectiveness * rationing * compliance * (1f - capture);
                 float tau = reforms.BaseLag(definition) * delayFactor;
                 runtime.m_Progress += (1f - math.exp(-dt / tau)) * (target - runtime.m_Progress);
+                if (TestInstantDelivery)
+                {
+                    runtime.m_Progress = target;
+                }
 
                 // ⑧ Grievance against the reference point, with loss aversion, per group (option (나)).
                 // Price-driven policies are judged by their actual burden against the burden people are used to.
@@ -669,7 +676,8 @@ namespace RealisticPolicies.Engine
                     for (int m = 0; m < modifiers.Length; m++)
                     {
                         CityModifierData data = modifiers[m];
-                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance) * m_Amplification[i];
+                        float amplified = definition.AmplifyOnly == null || definition.AmplifyOnly == data.m_Type ? m_Amplification[i] : 1f;
+                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance) * amplified;
                         if (math.abs(data.m_Range.min - value) > 1e-5f || math.abs(data.m_Range.max - value) > 1e-5f)
                         {
                             data.m_Range = new Bounds1(value, value);
@@ -687,7 +695,7 @@ namespace RealisticPolicies.Engine
                                 factor = 1f;
                             }
                             float age = runtimes[FindRuntime(runtimes, definition.Prefab)].m_AgeDays;
-                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity) * Fading(definition, age) * m_Amplification[i]);
+                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity) * Fading(definition, age) * LeverAmplification(i));
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
@@ -832,6 +840,10 @@ namespace RealisticPolicies.Engine
             {
                 return progress * Reforms.PostCapacity;
             }
+            if (definition.ScalesWithLegitimacy)
+            {
+                return progress * LegitimacyFactor;
+            }
             if (definition.Mechanism == Mechanism.EmissionTrading)
             {
                 if (type == CityModifierType.IndustrialAirPollution)
@@ -889,6 +901,12 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Factor the engine last wrote on a parameter lever (1 when no policy uses it).</summary>
         public float LeverFactor(string key) => m_LeverFactors.TryGetValue(key, out float factor) ? factor : 1f;
+
+        /// <summary>Amplification of a policy's levers (1 when it amplifies only one modifier).</summary>
+        public float LeverAmplification(int index) => PolicyDefinitions.All[index].AmplifyOnly == null ? Amplification(index) : 1f;
+
+        /// <summary>Legitimacy against its base, 0.5-1.2 times (§14.8 emergency response).</summary>
+        public float LegitimacyFactor => math.clamp(LastState.m_Legitimacy / EngineParameters.kLegitimacyBase, 0.5f, 1.2f);
 
         /// <summary>Factor on a policy's modifiers and levers from the policy that amplifies it (§14.8); 1 for most.</summary>
         public float Amplification(int index) => m_Amplification != null && index >= 0 && index < m_Amplification.Length && m_Amplification[index] > 0f ? m_Amplification[index] : 1f;

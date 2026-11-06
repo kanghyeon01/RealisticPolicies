@@ -267,6 +267,15 @@ namespace RealisticPolicies.Engine
         public string AmplifiedBy;
         public float AmplifyScale;
 
+        /// <summary>When set, the amplification touches only this modifier (not the levers or other modifiers).</summary>
+        public CityModifierType? AmplifyOnly;
+
+        /// <summary>
+        /// Effects scale with the city's legitimacy against its base, 0.5-1.2 times (§14.8: people report crime and
+        /// help the police more when they trust them, Tyler & Fagan 2008).
+        /// </summary>
+        public bool ScalesWithLegitimacy;
+
         /// <summary>
         /// Effects also scale with the post and telecom capacity (§14.18 early warning: an alert reaches people only
         /// through the networks), on top of the policy's own series.
@@ -713,6 +722,9 @@ namespace RealisticPolicies.Engine
                 {
                     PolicyOutput.Parameter(ParameterLevers.kWage0, 0.4f),
                     PolicyOutput.Parameter(ParameterLevers.kWage1, 0.12f),
+                    // §14.8: an 8% rise cut returns to prison within a year by 3.8% (Agan & Makowsky 2023). Vanilla's only
+                    // reoffending lever works inside welfare coverage, so this is an approximation (+0.2 at +40%).
+                    PolicyOutput.Parameter(ParameterLevers.kWelfareRecurrence, 0.2f),
                     PolicyOutput.Expense(kMinimumWageRow, ExpenseSource.ServiceUpkeep, 300f, 5f, TargetGroup.CommercialCompanies, MoneyBasis.Intensity),
                 },
                 Groups = new[]
@@ -885,6 +897,8 @@ namespace RealisticPolicies.Engine
                     // the homeless have been in prison (김연수·신소라 2016). Only homeless offenders gain, so a quarter of
                     // reentry support's lever (starting value).
                     PolicyOutput.Parameter(ParameterLevers.kWelfareRecurrence, 0.3f),
+                    // §14.8: emergency visits 0.63 and admissions 0.76 times (Tweed et al. 2019); small across the city.
+                    PolicyOutput.CityModifier(CityModifierType.HospitalEfficiency, 0.02f),
                     PolicyOutput.Expense(kHousingFirstRow, ExpenseSource.SubsidyResidential, 200f, 2f, TargetGroup.HomelessCitizens, MoneyBasis.Intensity),
                 },
                 Groups = new[]
@@ -897,6 +911,10 @@ namespace RealisticPolicies.Engine
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kReentrySupport,
+                // §14.8: each year in prison costs 3-6 points of later employment (Mueller-Smith 2015), so longer
+                // sentences weaken job-based reentry support.
+                AmplifiedBy = PolicyCatalog.kHarsherSentencing,
+                AmplifyScale = -0.2f,
                 Icon = "Media/Game/Policies/HarshPrisonSentences.svg",
                 Instrument = Instrument.Organization,
                 Direction = Direction.Benefit,
@@ -1393,6 +1411,10 @@ namespace RealisticPolicies.Engine
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kContractingOut,
+                // §14.8: savings come from competition, not ownership; open bidding keeps it (Bel, Fageda & Warner 2010).
+                AmplifiedBy = PolicyCatalog.kCompetitiveBidding,
+                AmplifyScale = 0.5f,
+                AmplifyOnly = CityModifierType.CityServiceBuildingBaseUpkeepCost,
                 Icon = "Media/Game/Policies/OutOfService.svg",
                 Instrument = Instrument.Organization,
                 Direction = Direction.Benefit,
@@ -1813,6 +1835,8 @@ namespace RealisticPolicies.Engine
                 Outputs = new[]
                 {
                     PolicyOutput.CityModifier(CityModifierType.ParkEntertainment, 0.2f),
+                    // §14.8: greening vacant lots cut shootings by 7-29% in poor areas (Branas et al. 2018); small citywide.
+                    PolicyOutput.CityModifier(CityModifierType.CrimeAccumulation, -0.05f),
                     PolicyOutput.Expense(kParkRow, ExpenseSource.ServiceUpkeep, 300f, 0.02f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.3f) },
@@ -2034,6 +2058,7 @@ namespace RealisticPolicies.Engine
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kEmergencyResponse,
+                ScalesWithLegitimacy = true,
                 Icon = "Media/Game/Policies/OutOfService.svg",
                 Instrument = Instrument.Organization,
                 Direction = Direction.Benefit,
@@ -2060,6 +2085,7 @@ namespace RealisticPolicies.Engine
                 BaseLagDays = 1f,
                 Outputs = new[]
                 {
+                    // §14.8: trust brings more calls and cooperation; zero tolerance spends it, community policing builds it.
                     PolicyOutput.CityModifier(CityModifierType.CrimeResponseTime, -0.3f),
                     PolicyOutput.Expense(kEmergencyResponseRow, ExpenseSource.ServiceUpkeep, 300f, 0.01f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
@@ -2292,6 +2318,8 @@ namespace RealisticPolicies.Engine
                 Outputs = new[]
                 {
                     PolicyOutput.Parameter(ParameterLevers.kEnterHighSchool, 0.2f),
+                    // §14.8: 10 points more high school graduates, 7-9% fewer arrests (Lochner & Moretti 2004).
+                    PolicyOutput.CityModifier(CityModifierType.CrimeProbability, -0.03f),
                     PolicyOutput.Expense(kFreeHighSchoolRow, ExpenseSource.SubsidyResidential, 300f, 0.03f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0.05f, 0.3f) },
