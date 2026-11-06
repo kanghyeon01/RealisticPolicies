@@ -51,6 +51,8 @@ namespace RealisticPolicies
             // Saved policy references in the mod's buffers go through the game's prefab reference mapping (save and load).
             updateSystem.UpdateAfter<Engine.ModPrefabReferencesSystem, Game.Serialization.PrimaryPrefabReferencesSystem>(SystemUpdatePhase.PrefabReferences);
             updateSystem.UpdateAfter<Engine.LitigationSystem, Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
+            // Longer unemployment benefits slow the search of those paid in the extension (§14.12).
+            updateSystem.UpdateAt<Engine.ExtendedBenefitSearchSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<ReportUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<SelfTestSystem>(SystemUpdatePhase.MainLoop);

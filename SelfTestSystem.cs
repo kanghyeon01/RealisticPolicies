@@ -1330,6 +1330,8 @@ namespace RealisticPolicies
         };
 
         private Unity.Mathematics.float2 m_ConsumptionBefore;
+        private long m_EligibleBefore;
+        private long m_DelayedBefore;
 
         /// <summary>Electricity and garbage summed over the zoned building prefabs (the §14.18 levers scale these).</summary>
         private Unity.Mathematics.float2 ZonedConsumption()
@@ -1379,6 +1381,8 @@ namespace RealisticPolicies
             m_LaterEconomyBefore = Singleton<EconomyParameterData>();
             m_LaterDemandBefore = Singleton<DemandParameterData>();
             m_ConsumptionBefore = ZonedConsumption();
+            m_EligibleBefore = ExtendedBenefitSearchSystem.EligibleSeen;
+            m_DelayedBefore = ExtendedBenefitSearchSystem.Delayed;
             foreach (string id in kLaterBundles)
             {
                 PolicyDefinition definition = PolicyCatalog.Definition(id);
@@ -1536,6 +1540,18 @@ namespace RealisticPolicies
             Check("Energy code and waste fee lower the electricity and garbage of zoned building prefabs",
                 consumption.x < m_ConsumptionBefore.x && consumption.y < m_ConsumptionBefore.y,
                 $"electricity {m_ConsumptionBefore.x:0} -> {consumption.x:0}, garbage {m_ConsumptionBefore.y:0} -> {consumption.y:0}");
+            long eligible = ExtendedBenefitSearchSystem.EligibleSeen - m_EligibleBefore;
+            long delayed = ExtendedBenefitSearchSystem.Delayed - m_DelayedBefore;
+            if (eligible >= 50)
+            {
+                float share = delayed / (float)eligible;
+                Check("Longer benefits delay the job search of about 10% of those paid in the extension per run",
+                    share > 0.05f && share < 0.15f, $"{delayed} of {eligible} checks ({share:P1})");
+            }
+            else
+            {
+                Line($"Extended-benefit search: only {eligible} checks of citizens paid in the extension ({delayed} delayed); too few to judge.");
+            }
             int warning = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kDisasterWarning));
             float seconds = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kDisasterWarning), CityModifierType.DisasterWarningTime);
             float expectedSeconds = 180f * m_Engine.LastResults[warning].Progress * m_Engine.Reforms.PostCapacity;
