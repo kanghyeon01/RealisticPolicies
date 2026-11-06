@@ -153,8 +153,12 @@ namespace RealisticPolicies.Engine
         public readonly int Host;
         public readonly MoneyBasis Basis;
 
-        private PolicyOutput(OutputKind kind, CityModifierType modifier, string key, float fullEffect, float fixedMonthly, float perUnitMonthly, TargetGroup unit, int host, MoneyBasis basis)
+        /// <summary>The modifier adds an amount (vanilla Absolute mode, e.g. seconds) instead of a relative change.</summary>
+        public readonly bool Absolute;
+
+        private PolicyOutput(OutputKind kind, CityModifierType modifier, string key, float fullEffect, float fixedMonthly, float perUnitMonthly, TargetGroup unit, int host, MoneyBasis basis, bool absolute = false)
         {
+            Absolute = absolute;
             Kind = kind;
             Modifier = modifier;
             Key = key;
@@ -168,6 +172,10 @@ namespace RealisticPolicies.Engine
 
         public static PolicyOutput CityModifier(CityModifierType type, float fullEffect) =>
             new PolicyOutput(OutputKind.CityModifier, type, null, fullEffect, 0f, 0f, TargetGroup.None, 0, MoneyBasis.Delivery);
+
+        /// <summary>A city modifier that adds <paramref name="fullAmount"/> at full delivery (vanilla Absolute mode).</summary>
+        public static PolicyOutput CityModifierAbsolute(CityModifierType type, float fullAmount) =>
+            new PolicyOutput(OutputKind.CityModifier, type, null, fullAmount, 0f, 0f, TargetGroup.None, 0, MoneyBasis.Delivery, absolute: true);
 
         public static PolicyOutput Parameter(string lever, float fullEffect) =>
             new PolicyOutput(OutputKind.Parameter, default, lever, fullEffect, 0f, 0f, TargetGroup.None, 0, MoneyBasis.Delivery);
@@ -259,6 +267,12 @@ namespace RealisticPolicies.Engine
         public string AmplifiedBy;
         public float AmplifyScale;
 
+        /// <summary>
+        /// Effects also scale with the post and telecom capacity (§14.18 early warning: an alert reaches people only
+        /// through the networks), on top of the policy's own series.
+        /// </summary>
+        public bool ScalesWithTelecom;
+
         /// <summary>Base adjustment time τ0 in game days (formula ⑤).</summary>
         public float BaseLagDays;
 
@@ -340,6 +354,9 @@ namespace RealisticPolicies.Engine
         public const string kScholarshipRow = "RealisticPolicies.Scholarships.Grants";
         public const string kFreeHighSchoolRow = "RealisticPolicies.FreeHighSchool.Fees";
         public const string kLifelongRow = "RealisticPolicies.LifelongLearning.Courses";
+        public const string kWarningRow = "RealisticPolicies.DisasterWarning.Network";
+        public const string kEnergyCodeRow = "RealisticPolicies.EnergyCode.Inspection";
+        public const string kWasteFeeRow = "RealisticPolicies.WasteFee.BagSales";
 
         /// <summary>Largest cap cut the emission trading slider allows (60%, as the emission standard).</summary>
         public const float kTradingMaxCut = 0.6f;
@@ -2311,6 +2328,120 @@ namespace RealisticPolicies.Engine
                     PolicyOutput.Expense(kLifelongRow, ExpenseSource.ServiceUpkeep, 300f, 0.02f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.2f) },
+            },
+            // §14.18 disaster early warning (user's formula, 2026-11-06): extra warning seconds = 180 × delivery × post and
+            // telecom capacity, added to what vanilla's warning sirens give (EarlyDisasterWarningSystem01: up to 360 s).
+            // Tornado warnings cut injuries by about 32%, and deaths for lead times up to 15 minutes (Simmons & Sutter
+            // 2008); farm weather warnings cut insured damage (농장맞춤형 기상재해 조기경보서비스, DBpia).
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kDisasterWarning,
+                Icon = "Media/Game/Policies/AdvancedLightningRods.svg",
+                Instrument = Instrument.Organization,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.FireAndDisaster, 0.7f),
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.3f),
+                },
+                ClearancePoints = 1,
+                Staff = new[] { new StaffRequirement(ServiceSeries.FireAndDisaster, 2f, 1f / 50000f) },
+                Target = TargetGroup.Households,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 1f,
+                ScalesWithTelecom = true,
+                Outputs = new[]
+                {
+                    PolicyOutput.CityModifierAbsolute(CityModifierType.DisasterWarningTime, 180f),
+                    PolicyOutput.Expense(kWarningRow, ExpenseSource.ServiceUpkeep, 300f, 0.01f, TargetGroup.Households, MoneyBasis.Intensity),
+                },
+                Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.2f) },
+            },
+            // Building energy efficiency standard: buildings built and renovated to the code use less electricity.
+            // Florida's code cut electricity use by 4% (Jacobsen & Kotchen 2013), state codes 3-5% per person
+            // (Aroonruengsawat, Auffhammer & Sanstad 2012), and California's savings fell short of engineering
+            // estimates (Levinson 2016). -10% at most over the whole stock; building upgrades cost 5% more.
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kEnergyCode,
+                Icon = "Media/Game/Policies/EnergyConsumptionAwareness.svg",
+                Instrument = Instrument.Authority,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.EngineeringUtilities, 0.6f),
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.4f),
+                },
+                ClearancePoints = 2,
+                Staff = new[] { new StaffRequirement(ServiceSeries.EngineeringUtilities, 2f, 1f / 20000f) },
+                Target = TargetGroup.Households,
+                ChangeBand = 0.15f,
+                ChangeCost = 1.5f,
+                BaseLagDays = 2f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Parameter(ParameterLevers.kBuildingElectricity, -0.1f),
+                    PolicyOutput.CityModifier(CityModifierType.BuildingLevelingCost, 0.05f),
+                    PolicyOutput.Expense(kEnergyCodeRow, ExpenseSource.ServiceUpkeep, 200f, 0.01f, TargetGroup.Households, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    // Owners pay for the insulation, tenants save on the bills.
+                    new GroupStake(TargetGroup.Households, 0.15f, 0.1f),
+                    new GroupStake(TargetGroup.CommercialCompanies, 0.1f, 0f),
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0.1f, 0f),
+                },
+            },
+            // Volume-based waste fee (§10.7, the user's idea of 2026-11-03): homes and shops pay per bag. Bag price
+            // elasticity -0.05 to -0.23 (구남규 2022, 정광호·서재호 2007); introductions cut waste weight by 14% and
+            // caused illegal dumping (Fullerton & Kinnaman 1996), which vanilla cannot show. The slider is the bag
+            // price: -15% garbage from homes and shops at the highest price. Bag sales are booked as garbage fees.
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kWasteFee,
+                Icon = "Media/Game/Policies/Recycling.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Burden,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.Environment, 0.6f),
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.4f),
+                },
+                ClearancePoints = 2,
+                Staff = new[] { new StaffRequirement(ServiceSeries.Environment, 2f, 1f / 20000f) },
+                Target = TargetGroup.Households,
+                ChangeBand = 0.2f,
+                ChangeCost = 1.5f,
+                BaseLagDays = 1f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Parameter(ParameterLevers.kHouseholdGarbage, -0.15f),
+                    PolicyOutput.Income(kWasteFeeRow, IncomeSource.FeeGarbage, 0f, 0.03f, TargetGroup.Households, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.Households, 0.2f, 0.05f),
+                    new GroupStake(TargetGroup.CommercialCompanies, 0.1f, 0f),
+                },
             },
         };
     }

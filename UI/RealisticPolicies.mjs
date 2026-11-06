@@ -487,7 +487,7 @@ function PolicyReport({ id }) {
             output.push(Row({ key: "price", left: text("Report.AllowancePrice"), right: text("Report.AllowancePrice.Value", { PERCENT: percent(report.tradingPrice) }), subRow: true, tooltip: text("Report.AllowancePrice.Tooltip") }));
             break;
     }
-    output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true, tooltip: report.inflated ? text("Report.Inflated.Tooltip") : undefined }));
+    output.push(Row({ key: "prog", left: text("Report.Progress"), right: percent(report.progress), subRow: true, tooltip: text(report.inflated ? "Report.Inflated.Tooltip" : "Report.Progress.Tooltip") }));
     // Performance management inflates the figure above (§14.11 option B): say so right under it.
     if (report.inflated) {
         output.push(React.createElement("div", { key: "inflated", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Inflated")));
@@ -504,9 +504,11 @@ function PolicyReport({ id }) {
     }
     for (const m of mods) {
         // Less pollution, garbage and cost is good; more efficiency, attraction and safety is good.
-        const higherIsGood = /(Efficiency|Entertainment|Safety|Interest|Graduation)$/.test(m.type);
+        const higherIsGood = /(Efficiency|Entertainment|Safety|Interest|Graduation|WarningTime)$/.test(m.type);
         const good = higherIsGood ? m.value > 0 : m.value < 0;
-        outcome.push(Row({ key: `mod-${m.type}`, left: text(`Report.Modifier.${m.type}`), right: React.createElement("span", { style: { color: m.value === 0 ? undefined : good ? "var(--positiveColor)" : "var(--negativeColor)" } }, signedPercent(m.value)), subRow: true }));
+        // Absolute modifiers are amounts (the early warning adds seconds), not percentages.
+        const shown = m.absolute ? (m.value >= 0 ? "+" : "") + text("Report.Seconds", { SECONDS: Math.round(m.value) }) : signedPercent(m.value);
+        outcome.push(Row({ key: `mod-${m.type}`, left: text(`Report.Modifier.${m.type}`), right: React.createElement("span", { style: { color: m.value === 0 ? undefined : good ? "var(--positiveColor)" : "var(--negativeColor)" } }, shown), subRow: true }));
     }
     for (const m of report.money.filter((r) => r.income)) {
         outcome.push(Row({ key: `income-${m.row}`, left: translate(`EconomyPanel.BUDGET_ITEM[${m.row}]`, m.row), right: money(m.monthly, true), subRow: true }));

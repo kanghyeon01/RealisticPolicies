@@ -1326,7 +1326,25 @@ namespace RealisticPolicies
             PolicyCatalog.kEmergencyResponse, PolicyCatalog.kCpted,
             PolicyCatalog.kHealthCampaign, PolicyCatalog.kEmergencyCare, PolicyCatalog.kAirQualityAlert,
             PolicyCatalog.kPublicHealthcare, PolicyCatalog.kScholarships, PolicyCatalog.kFreeHighSchool, PolicyCatalog.kLifelongLearning,
+            PolicyCatalog.kDisasterWarning, PolicyCatalog.kEnergyCode, PolicyCatalog.kWasteFee,
         };
+
+        private Unity.Mathematics.float2 m_ConsumptionBefore;
+
+        /// <summary>Electricity and garbage summed over the zoned building prefabs (the §14.18 levers scale these).</summary>
+        private Unity.Mathematics.float2 ZonedConsumption()
+        {
+            Unity.Mathematics.float2 sum = 0f;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>(), ComponentType.ReadOnly<ConsumptionData>(), ComponentType.ReadOnly<SpawnableBuildingData>()))
+            using (NativeArray<ConsumptionData> data = query.ToComponentDataArray<ConsumptionData>(Allocator.Temp))
+            {
+                for (int i = 0; i < data.Length; i++)
+                {
+                    sum += new Unity.Mathematics.float2(data[i].m_ElectricityConsumption, data[i].m_GarbageAccumulation);
+                }
+            }
+            return sum;
+        }
 
         private FireConfigurationData m_FireBefore;
         private ExtractorParameterData m_ExtractorBefore;
@@ -1360,6 +1378,7 @@ namespace RealisticPolicies
             m_PollutionBefore = Singleton<PollutionParameterData>();
             m_LaterEconomyBefore = Singleton<EconomyParameterData>();
             m_LaterDemandBefore = Singleton<DemandParameterData>();
+            m_ConsumptionBefore = ZonedConsumption();
             foreach (string id in kLaterBundles)
             {
                 PolicyDefinition definition = PolicyCatalog.Definition(id);
@@ -1513,6 +1532,16 @@ namespace RealisticPolicies
                 && education.m_AdultEnterHighSchoolProbability > m_EducationParamsBefore.m_AdultEnterHighSchoolProbability
                 && education.m_WorkerContinueEducationProbability > m_EducationParamsBefore.m_WorkerContinueEducationProbability,
                 $"teen {m_EducationParamsBefore.m_EnterHighSchoolProbability} -> {education.m_EnterHighSchoolProbability}, adult {m_EducationParamsBefore.m_AdultEnterHighSchoolProbability} -> {education.m_AdultEnterHighSchoolProbability}, worker {m_EducationParamsBefore.m_WorkerContinueEducationProbability} -> {education.m_WorkerContinueEducationProbability}");
+            Unity.Mathematics.float2 consumption = ZonedConsumption();
+            Check("Energy code and waste fee lower the electricity and garbage of zoned building prefabs",
+                consumption.x < m_ConsumptionBefore.x && consumption.y < m_ConsumptionBefore.y,
+                $"electricity {m_ConsumptionBefore.x:0} -> {consumption.x:0}, garbage {m_ConsumptionBefore.y:0} -> {consumption.y:0}");
+            int warning = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kDisasterWarning));
+            float seconds = AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kDisasterWarning), CityModifierType.DisasterWarningTime);
+            float expectedSeconds = 180f * m_Engine.LastResults[warning].Progress * m_Engine.Reforms.PostCapacity;
+            Check("Early warning adds seconds = 180 x delivery x post and telecom capacity",
+                seconds > 0f && Mathf.Abs(seconds - expectedSeconds) < 0.05f * expectedSeconds + 0.01f,
+                $"+{seconds:0.00} s, expected {expectedSeconds:0.00} (telecom {m_Engine.Reforms.PostCapacity:0.00})");
             int housingFirst = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kHousingFirst));
             float amplification = m_Engine.Amplification(housingFirst);
             Check("Welfare outreach amplifies Housing First (§14.8, at most x1.2)", amplification > 1f && amplification <= 1.2f + 1e-4f, $"x{amplification:0.0000}");
@@ -1572,6 +1601,8 @@ namespace RealisticPolicies
             if (!extractorBack) differ.Append("extractor; ");
             if (!economyBack) differ.Append("economy; ");
             if (!demandBack) differ.Append("demand; ");
+            Unity.Mathematics.float2 consumption = ZonedConsumption();
+            if (!Same(consumption.x, m_ConsumptionBefore.x) || !Same(consumption.y, m_ConsumptionBefore.y)) differ.Append($"building consumption {consumption} vs {m_ConsumptionBefore}; ");
             Check($"Restoring the {keys.Count} levers of batches 3-10 gives back the game's values", differ.Length == 0, differ.Length == 0 ? null : differ.ToString());
             LitigationSystem.TestDisableRandomFiling = false;
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.GeneralAdministration);

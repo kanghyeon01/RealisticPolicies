@@ -66,6 +66,9 @@ namespace RealisticPolicies
         public const string kScholarships = "RealisticPolicies.Scholarships";
         public const string kFreeHighSchool = "RealisticPolicies.FreeHighSchool";
         public const string kLifelongLearning = "RealisticPolicies.LifelongLearning";
+        public const string kDisasterWarning = "RealisticPolicies.DisasterWarning";
+        public const string kEnergyCode = "RealisticPolicies.EnergyCode";
+        public const string kWasteFee = "RealisticPolicies.WasteFee";
 
         // Vanilla toggle that the equipment mandate replaces; hidden from the policy list.
         public const string kVanillaPollutionManagement = "Advanced Pollution Management";
@@ -232,7 +235,7 @@ namespace RealisticPolicies
             {
                 if (output.Kind == OutputKind.CityModifier)
                 {
-                    modifiers.Add(new CityModifierInfo { m_Type = output.Modifier, m_Mode = ModifierValueMode.Relative, m_Range = new Bounds1(0f, 0f) });
+                    modifiers.Add(new CityModifierInfo { m_Type = output.Modifier, m_Mode = output.Absolute ? ModifierValueMode.Absolute : ModifierValueMode.Relative, m_Range = new Bounds1(0f, 0f) });
                 }
             }
             if (modifiers.Count > 0)

@@ -160,6 +160,133 @@ namespace RealisticPolicies.Engine
     }
 
     /// <summary>
+    /// A consumption field of zoned building prefabs (§14.18). Vanilla reads the prefab's ConsumptionData for every
+    /// building on each update (`AdjustElectricityConsumptionSystem`, `GarbageAccumulationSystem`), so scaling the
+    /// prefab value scales every building of those zones. Originals are captured per prefab once per session, like
+    /// the singleton levers; the prefabs are only rewritten when the factor moves.
+    /// </summary>
+    public sealed class BuildingConsumptionLever : IParameterLever
+    {
+        public enum Field : byte
+        {
+            Electricity,
+            Garbage,
+        }
+
+        private readonly Field m_Field;
+        private readonly bool m_Residential;
+        private readonly bool m_Commercial;
+        private readonly bool m_Industrial;
+        private readonly bool m_Office;
+        private readonly Dictionary<Entity, float> m_Original = new Dictionary<Entity, float>();
+        private readonly List<Entity> m_Covered = new List<Entity>();
+        private EntityQuery m_Query;
+        private bool m_HasQuery;
+        private int m_PrefabCount = -1;
+        private float m_Written = 1f;
+
+        public string Id { get; }
+
+        public BuildingConsumptionLever(string id, Field field, bool residential, bool commercial, bool industrial, bool office)
+        {
+            Id = id;
+            m_Field = field;
+            m_Residential = residential;
+            m_Commercial = commercial;
+            m_Industrial = industrial;
+            m_Office = office;
+        }
+
+        public bool Apply(EntityManager entityManager, float factor)
+        {
+            if (!m_HasQuery)
+            {
+                m_Query = entityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Prefabs.PrefabData>(),
+                    ComponentType.ReadWrite<Game.Prefabs.ConsumptionData>(), ComponentType.ReadOnly<Game.Prefabs.SpawnableBuildingData>());
+                m_HasQuery = true;
+            }
+            int count = m_Query.CalculateEntityCount();
+            if (count == 0)
+            {
+                return false;
+            }
+            bool refreshed = count != m_PrefabCount;
+            if (refreshed)
+            {
+                Refresh(entityManager);
+                m_PrefabCount = count;
+            }
+            if (!refreshed && System.Math.Abs(factor - m_Written) < 1e-4f)
+            {
+                return true;
+            }
+            foreach (Entity prefab in m_Covered)
+            {
+                Game.Prefabs.ConsumptionData data = entityManager.GetComponentData<Game.Prefabs.ConsumptionData>(prefab);
+                if (!m_Original.TryGetValue(prefab, out float original))
+                {
+                    original = Get(data);
+                    m_Original[prefab] = original;
+                }
+                Set(ref data, original * factor);
+                entityManager.SetComponentData(prefab, data);
+            }
+            m_Written = factor;
+            return true;
+        }
+
+        public void Restore(EntityManager entityManager)
+        {
+            if (m_Original.Count > 0)
+            {
+                Apply(entityManager, 1f);
+            }
+        }
+
+        /// <summary>Building prefabs of the covered zones (prefabs are fixed once the game has loaded its assets).</summary>
+        private void Refresh(EntityManager entityManager)
+        {
+            m_Covered.Clear();
+            using (Unity.Collections.NativeArray<Entity> prefabs = m_Query.ToEntityArray(Unity.Collections.Allocator.Temp))
+            {
+                foreach (Entity prefab in prefabs)
+                {
+                    Entity zone = entityManager.GetComponentData<Game.Prefabs.SpawnableBuildingData>(prefab).m_ZonePrefab;
+                    if (zone == Entity.Null || !entityManager.HasComponent<Game.Prefabs.ZoneData>(zone))
+                    {
+                        continue;
+                    }
+                    Game.Prefabs.ZoneData zoneData = entityManager.GetComponentData<Game.Prefabs.ZoneData>(zone);
+                    bool office = (zoneData.m_ZoneFlags & Game.Prefabs.ZoneFlags.Office) != 0;
+                    bool covered = zoneData.m_AreaType == Game.Zones.AreaType.Residential ? m_Residential
+                        : zoneData.m_AreaType == Game.Zones.AreaType.Commercial ? m_Commercial
+                        : zoneData.m_AreaType == Game.Zones.AreaType.Industrial ? (office ? m_Office : m_Industrial)
+                        : false;
+                    if (covered)
+                    {
+                        m_Covered.Add(prefab);
+                    }
+                }
+            }
+        }
+
+        private float Get(in Game.Prefabs.ConsumptionData data) =>
+            m_Field == Field.Electricity ? data.m_ElectricityConsumption : data.m_GarbageAccumulation;
+
+        private void Set(ref Game.Prefabs.ConsumptionData data, float value)
+        {
+            if (m_Field == Field.Electricity)
+            {
+                data.m_ElectricityConsumption = value;
+            }
+            else
+            {
+                data.m_GarbageAccumulation = value;
+            }
+        }
+    }
+
+    /// <summary>
     /// Education of newly arriving citizens (§14.6 talent attraction): the factor scales the share of the two highest
     /// levels (3 and 4, the latter being what the four stored probabilities leave), and the lower levels give way in
     /// proportion. The four probabilities are captured once per session like the other levers.
@@ -296,6 +423,12 @@ namespace RealisticPolicies.Engine
         /// <summary>Factor on a working citizen's chance of college and university (vanilla 0.1).</summary>
         public const string kWorkerContinueEducation = "Education.WorkerContinueEducation";
 
+        // §14.18 held policies made possible by prefab consumption values.
+        /// <summary>Electricity use of every zoned building (energy efficiency standard).</summary>
+        public const string kBuildingElectricity = "Buildings.Electricity";
+        /// <summary>Garbage of homes and shops (volume-based waste fee); industry has its own waste rules.</summary>
+        public const string kHouseholdGarbage = "Buildings.HouseholdGarbage";
+
         private static readonly Dictionary<string, IParameterLever> s_Levers = new Dictionary<string, IParameterLever>();
 
         /// <summary>Levers the mod's own policies use.</summary>
@@ -414,6 +547,8 @@ namespace RealisticPolicies.Engine
             Register(new ScaledFloatLever<Game.Prefabs.EducationParameterData>(kWorkerContinueEducation,
                 (in Game.Prefabs.EducationParameterData d) => d.m_WorkerContinueEducationProbability,
                 (ref Game.Prefabs.EducationParameterData d, float v) => d.m_WorkerContinueEducationProbability = v));
+            Register(new BuildingConsumptionLever(kBuildingElectricity, BuildingConsumptionLever.Field.Electricity, true, true, true, true));
+            Register(new BuildingConsumptionLever(kHouseholdGarbage, BuildingConsumptionLever.Field.Garbage, true, true, false, false));
         }
 
         public static IReadOnlyDictionary<string, IParameterLever> All => s_Levers;

@@ -58,8 +58,8 @@ body { margin: 0; background: #2f3a2c; color: var(--text);
 <body>
 <div class="page">
   <p class="intro">
-    <b>성과관리제</b>(5번 묶음)를 켜면 다른 정책 보고 칸의 <b>"목표 효과 도달"</b>(슬라이더로 정한 효과 중 실제로 나타난 비율)이 실제보다 높게 보이는 효과(목표전치·게이밍, Bevan &amp; Hood 2006)를 보여 주는 방법입니다.
-    크기는 최대 +10%p × 성과관리제의 목표 효과 도달이고, 100%를 넘지 않습니다. 결과 칸의 값(실제 효과)은 부풀리지 않습니다.
+    <b>성과관리제</b>(5번 묶음)를 켜면 다른 정책 보고 칸의 <b>"효과 달성률"</b>(슬라이더로 정한 효과 중 실제로 나타난 비율)이 실제보다 높게 보이는 효과(목표전치·게이밍, Bevan &amp; Hood 2006)를 보여 주는 방법입니다.
+    크기는 최대 +10%p × 성과관리제의 효과 달성률이고, 100%를 넘지 않습니다. 결과 칸의 값(실제 효과)은 부풀리지 않습니다.
     아래 버튼으로 두 안을 바꿔 볼 수 있습니다. 줄에 마우스를 올리면 설명이 나옵니다. 왼쪽에 파란 줄이 있는 행이 바뀌거나 새로 생기는 행입니다.
   </p>
   <div class="pick">
@@ -88,9 +88,9 @@ function camera(variant) {
   const activity = [row("집행 역량", "95%", "", "", "sub"), row("업무 부담 (경찰직)", "3%", "", "", "sub"), row("효과가 나타나기까지", "약 0.5일", "", "", "sub")];
   let output;
   if (variant === "A") {
-    output = [row("목표 효과 도달", "99%", "", "", "sub new")];
+    output = [row("효과 달성률", "99%", "", "", "sub new")];
   } else {
-    output = [row("목표 효과 도달", "99%", "", TIP_INFLATED, "sub new"),
+    output = [row("효과 달성률", "99%", "", TIP_INFLATED, "sub new"),
       `<div class="note-row" title="${TIP_REAL}">성과관리제 때문에 보고 수치가 실제보다 높을 수 있습니다.</div>`];
   }
   const outcome = [row("고속도로 안전도", "+14%", "pos", "", "sub")];
@@ -101,7 +101,7 @@ function camera(variant) {
 function policing() {
   const input = [row("경찰직", "7명 (전체 310명)", "", "", "sub"), row("지역 순찰비", "¢350/월", "", "", "sub")];
   const activity = [row("집행 역량", "93%", "", "", "sub"), row("업무 부담 (경찰직)", "6%", "", "", "sub"), row("효과가 나타나기까지", "약 2.1일", "", "", "sub")];
-  const output = [row("목표 효과 도달", "80%", "", "", "sub")];
+  const output = [row("효과 달성률", "80%", "", "", "sub")];
   const outcome = [
     row("건물의 범죄 수준", "-4%", "pos", "", "sub"),
     row("범죄 발생 확률", "-2%", "pos", "", "sub"),

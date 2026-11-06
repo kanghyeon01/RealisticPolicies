@@ -828,6 +828,10 @@ namespace RealisticPolicies.Engine
             {
                 return progress * m_CitySizeFactor;
             }
+            if (definition.ScalesWithTelecom)
+            {
+                return progress * Reforms.PostCapacity;
+            }
             if (definition.Mechanism == Mechanism.EmissionTrading)
             {
                 if (type == CityModifierType.IndustrialAirPollution)

@@ -311,6 +311,8 @@ namespace RealisticPolicies
                     writer.Write(output.Modifier.ToString());
                     writer.PropertyName("value");
                     writer.Write(ModifierValue(definition.Prefab, output.Modifier));
+                    writer.PropertyName("absolute");
+                    writer.Write(output.Absolute);
                     writer.TypeEnd();
                 }
                 writer.ArrayEnd();

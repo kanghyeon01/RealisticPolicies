@@ -101,6 +101,8 @@
 - (저자 확인 필요) 일반 시민의 경찰신뢰에 대한 연구: 순찰, 출동, 검거신뢰에 영향을 미치는 요인을 중심으로. (DBpia 초록, 전국범죄피해조사 2012)
 - (저자 확인 필요) 국가장학금 정책이 소득계층별 대학과 전공 선택에 미치는 영향 분석: 대학교육 기회 균등의 관점에서. (DBpia 초록, 한국교육고용패널)
 - (저자 확인 필요) 미세먼지가 도시민의 활동에 미치는 영향: 서울시 종로구를 대상으로. (DBpia 초록)
+- (저자 확인 필요) 농장맞춤형 기상재해 조기경보서비스의 재해피해 경감효과 측정. (DBpia 초록, 2017~2020 보험 자료)
+- (저자 확인 필요) 사용자중심 단위냉방부하 산정 프로그램 개발에 관한 연구. (DBpia 초록: 에너지절약설계기준 단열 기준 2003년 이후 64% 강화)
 
 ## 2. 공공 자료와 규정
 - 법원행정처 (2026). 『사법연감』 2026 (2025년 통계), 제6장 제1절 제4항 행정. (행정소송 원고 승소율, 소 취하율, 집행정지)
@@ -210,3 +212,7 @@
 - MacKenzie, E. J., Rivara, F. P., Jurkovich, G. J., Nathens, A. B., Frey, K. P., Egleston, B. L., Salkever, D. S., & Scharfstein, D. O. (2006). A National Evaluation of the Effect of Trauma-Center Care on Mortality. New England Journal of Medicine, 354(4), 366–378.
 - Neidell, M. (2009). Information, Avoidance Behavior, and Health: The Effect of Ozone on Asthma Hospitalizations. Journal of Human Resources, 44(2), 450–478.
 - Snyder, L. B., Hamilton, M. A., Mitchell, E. W., Kiwanuka-Tondo, J., Fleming-Milici, F., & Proctor, D. (2004). A Meta-Analysis of the Effect of Mediated Health Communication Campaigns on Behavior Change in the United States. Journal of Health Communication, 9(sup1), 71–96.
+- Aroonruengsawat, A., Auffhammer, M., & Sanstad, A. H. (2012). The Impact of State Level Building Codes on Residential Electricity Consumption. The Energy Journal, 33(1), 31–52.
+- Fullerton, D., & Kinnaman, T. C. (1996). Household Responses to Pricing Garbage by the Bag. American Economic Review, 86(4), 971–984.
+- Jacobsen, G. D., & Kotchen, M. J. (2013). Are Building Codes Effective at Saving Energy? Evidence from Residential Billing Data in Florida. Review of Economics and Statistics, 95(1), 34–49.
+- Levinson, A. (2016). How Much Energy Do Building Energy Codes Save? Evidence from California Houses. American Economic Review, 106(10), 2867–2894.
