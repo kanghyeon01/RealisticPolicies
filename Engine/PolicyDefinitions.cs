@@ -68,6 +68,12 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Crimes in the last month (one in-game day), from the city statistics.</summary>
         MonthlyCrimes,
+
+        /// <summary>Citizens studying at college or university.</summary>
+        TertiaryStudents,
+
+        /// <summary>Households below "modest" wealth (the game's wretched and poor levels), homeless ones included.</summary>
+        PoorHouseholds,
         Count,
     }
 
@@ -130,6 +136,9 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Share of the city's own tax income, following the delivered effect; the per-unit value is the share.</summary>
         TaxShare,
+
+        /// <summary>Paid by a system of its own (livelihood support pays households one by one); the engine leaves the row alone.</summary>
+        External,
     }
 
     /// <summary>One effect of a policy. Effects are reached at full intensity and full delivery.</summary>
@@ -282,6 +291,18 @@ namespace RealisticPolicies.Engine
         /// </summary>
         public bool ScalesWithTelecom;
 
+        /// <summary>
+        /// Effects scale with the share of the population at college or university, full at 5% (§14.20-2: firms gain
+        /// from research only as far as there are people to absorb it, Cohen & Levinthal 1990).
+        /// </summary>
+        public bool ScalesWithStudents;
+
+        /// <summary>
+        /// Staff follow the cases, not the slider: the slider sets the amount each case gets (livelihood support, one
+        /// social worker per 60 households, 2026-11-09 user decision). Turning such a policy up does not take more staff.
+        /// </summary>
+        public bool StaffPerCase;
+
         /// <summary>Base adjustment time τ0 in game days (formula ⑤).</summary>
         public float BaseLagDays;
 
@@ -366,6 +387,10 @@ namespace RealisticPolicies.Engine
         public const string kWarningRow = "RealisticPolicies.DisasterWarning.Network";
         public const string kEnergyCodeRow = "RealisticPolicies.EnergyCode.Inspection";
         public const string kWasteFeeRow = "RealisticPolicies.WasteFee.BagSales";
+        public const string kUniversityIndustryRow = "RealisticPolicies.UniversityIndustry.Grants";
+        public const string kLivelihoodRow = "RealisticPolicies.LivelihoodSupport.Payments";
+        public const string kRentSupportRow = "RealisticPolicies.RentSupport.Payments";
+        public const string kFlexibleHoursRow = "RealisticPolicies.FlexibleHours.Coordination";
 
         /// <summary>Largest cap cut the emission trading slider allows (60%, as the emission standard).</summary>
         public const float kTradingMaxCut = 0.6f;
@@ -535,7 +560,6 @@ namespace RealisticPolicies.Engine
                 Groups = new[]
                 {
                     new GroupStake(TargetGroup.IndustrialCompanies, 0f, 1f),
-                    new GroupStake(TargetGroup.Households, 0.1f, 0f),
                 },
             },
             new PolicyDefinition
@@ -774,7 +798,6 @@ namespace RealisticPolicies.Engine
                 Groups = new[]
                 {
                     new GroupStake(TargetGroup.OfficeCompanies, 0f, 0.3f),
-                    new GroupStake(TargetGroup.Households, 0.15f, 0f),
                 },
             },
             // §14.6 redevelopment: cheaper building upgrades; higher levels raise rents and push poorer households out.
@@ -897,7 +920,7 @@ namespace RealisticPolicies.Engine
                     // the homeless have been in prison (김연수·신소라 2016). Only homeless offenders gain, so a quarter of
                     // reentry support's lever (starting value).
                     PolicyOutput.Parameter(ParameterLevers.kWelfareRecurrence, 0.3f),
-                    // §14.8: emergency visits 0.63 and admissions 0.76 times (Tweed et al. 2019); small across the city.
+                    // §14.8: emergency visits 0.63 and admissions 0.76 times (Baxter et al. 2019); small across the city.
                     PolicyOutput.CityModifier(CityModifierType.HospitalEfficiency, 0.02f),
                     PolicyOutput.Expense(kHousingFirstRow, ExpenseSource.SubsidyResidential, 200f, 2f, TargetGroup.HomelessCitizens, MoneyBasis.Intensity),
                 },
@@ -1207,6 +1230,8 @@ namespace RealisticPolicies.Engine
                 },
             },
             // §14.11 administration and finance. Performance management: a little more delivery, and targets invite gaming.
+            // City service buildings also run up to 3% better at full delivery (BuildingEffectSystem; small positive mean
+            // effect, Gerrish 2016).
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kPerformanceManagement,
@@ -1478,7 +1503,6 @@ namespace RealisticPolicies.Engine
                 Groups = new[]
                 {
                     new GroupStake(TargetGroup.IndustrialCompanies, 0f, 0.4f),
-                    new GroupStake(TargetGroup.Households, 0.1f, 0f),
                 },
             },
             // Corporate rescue: companies in debt survive longer, but zombies hold back healthy firms and new entry
@@ -1506,8 +1530,7 @@ namespace RealisticPolicies.Engine
                 {
                     // The debt a company may carry before it goes bankrupt doubles at full support.
                     PolicyOutput.Parameter(ParameterLevers.kBankruptcyLimit, 1f),
-                    PolicyOutput.CityModifier(CityModifierType.IndustrialEfficiency, -0.03f),
-                    PolicyOutput.CityModifier(CityModifierType.OfficeEfficiency, -0.02f),
+                    // The drag on healthy firms is per industry, from its share of firms kept alive (BuildingEffectSystem).
                     PolicyOutput.Parameter(ParameterLevers.kIndustrialBaseDemand, -0.05f),
                     PolicyOutput.Expense(kRescueRow, ExpenseSource.SubsidyIndustrial, 300f, 2f, TargetGroup.IndustrialCompanies, MoneyBasis.Intensity),
                 },
@@ -1515,7 +1538,6 @@ namespace RealisticPolicies.Engine
                 {
                     new GroupStake(TargetGroup.IndustrialCompanies, 0f, 0.3f),
                     new GroupStake(TargetGroup.CommercialCompanies, 0f, 0.3f),
-                    new GroupStake(TargetGroup.Households, 0.1f, 0f),
                 },
             },
             // Regional employment pact: more workers may commute in from the region (Monte, Redding & Rossi-Hansberg 2018).
@@ -1549,7 +1571,6 @@ namespace RealisticPolicies.Engine
                     new GroupStake(TargetGroup.IndustrialCompanies, 0f, 0.2f),
                     new GroupStake(TargetGroup.CommercialCompanies, 0f, 0.2f),
                     new GroupStake(TargetGroup.OfficeCompanies, 0f, 0.2f),
-                    new GroupStake(TargetGroup.Households, 0.1f, 0f),
                 },
             },
             // Longer unemployment benefits. Vanilla pays them from nowhere, so the city pays the extra days here.
@@ -1655,6 +1676,9 @@ namespace RealisticPolicies.Engine
                 Outputs = new[]
                 {
                     PolicyOutput.Parameter(ParameterLevers.kResidentialLandValue, -0.3f),
+                    // Fewer new rental homes (new construction falls in 11 of 16 studies, Kholodilin 2024) and fewer moves (tenants 20% more likely to stay, Diamond, McQuade & Qian 2019).
+                    PolicyOutput.Parameter(ParameterLevers.kFreeResidential, -0.3f),
+                    PolicyOutput.Parameter(ParameterLevers.kLookForHome, 0.25f),
                     PolicyOutput.CityModifier(CityModifierType.BuildingLevelingCost, 0.3f),
                     PolicyOutput.Expense(kRentCapRow, ExpenseSource.ServiceUpkeep, 200f, 0f, TargetGroup.None, MoneyBasis.Intensity),
                 },
@@ -1914,8 +1938,9 @@ namespace RealisticPolicies.Engine
                 },
             },
             // Fire safety code (fire-resistant materials, sprinklers, fire doors): buildings hold out longer, since
-            // fire damage per tick is divided by structural integrity. Sprinklered homes lose 55–71% less property per
-            // fire (NFPA); the stock turns over slowly, so +50% integrity (a third less damage per tick) at most.
+            // fire damage per tick is divided by structural integrity. No study measures structural codes alone; +50% integrity
+            // (a third less damage per tick) rests on indirect evidence of the same size: average burned area -29% over 25 years
+            // of fire-code revisions in Japan (Kobayashi 2013) and property damage per fire -30 to -35% with sprinklers (Ahrens 2017).
             new PolicyDefinition
             {
                 Id = PolicyCatalog.kFireCode,
@@ -2292,7 +2317,7 @@ namespace RealisticPolicies.Engine
                     PolicyOutput.CityModifier(CityModifierType.UniversityGraduation, 0.05f),
                     PolicyOutput.Expense(kScholarshipRow, ExpenseSource.SubsidyResidential, 200f, 0.05f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
-                Groups = new[] { new GroupStake(TargetGroup.Households, 0.05f, 0.3f) },
+                Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.3f) },
             },
             // Free high school: a lottery scholarship raised secondary completion by 26 points in Ghana (Duflo, Dupas &
             // Kremer 2021). Where nearly everyone already enrols the gain is small; vanilla 0.75 → 0.9 at most.
@@ -2322,7 +2347,7 @@ namespace RealisticPolicies.Engine
                     PolicyOutput.CityModifier(CityModifierType.CrimeProbability, -0.03f),
                     PolicyOutput.Expense(kFreeHighSchoolRow, ExpenseSource.SubsidyResidential, 300f, 0.03f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
-                Groups = new[] { new GroupStake(TargetGroup.Households, 0.05f, 0.3f) },
+                Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.3f) },
             },
             // Lifelong learning: adults and workers go back to school. Training pays off slowly, more after two to
             // three years than in the first (Card, Kluve & Weber 2018).
@@ -2351,8 +2376,7 @@ namespace RealisticPolicies.Engine
                 BaseLagDays = 2f,
                 Outputs = new[]
                 {
-                    PolicyOutput.Parameter(ParameterLevers.kAdultEnterHighSchool, 1f),
-                    PolicyOutput.Parameter(ParameterLevers.kWorkerContinueEducation, 0.5f),
+                    // Unemployed adults only: the game's own school search, started for them (LifelongLearningSystem).
                     PolicyOutput.Expense(kLifelongRow, ExpenseSource.ServiceUpkeep, 300f, 0.02f, TargetGroup.Households, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.2f) },
@@ -2434,7 +2458,7 @@ namespace RealisticPolicies.Engine
                 },
             },
             // Volume-based waste fee (§10.7, the user's idea of 2026-11-03): homes and shops pay per bag. Bag price
-            // elasticity -0.05 to -0.23 (구남규 2022, 정광호·서재호 2007); introductions cut waste weight by 14% and
+            // elasticity -0.05 to -0.23 (구남규 2022, 정광호 외 2007); introductions cut waste weight by 14% and
             // caused illegal dumping (Fullerton & Kinnaman 1996), which vanilla cannot show. The slider is the bag
             // price: -15% garbage from homes and shops at the highest price. Bag sales are booked as garbage fees.
             new PolicyDefinition
@@ -2468,6 +2492,142 @@ namespace RealisticPolicies.Engine
                 Groups = new[]
                 {
                     new GroupStake(TargetGroup.Households, 0.2f, 0.05f),
+                    new GroupStake(TargetGroup.CommercialCompanies, 0.1f, 0f),
+                },
+            },
+            // University–industry support (§14.20-2, 2026-11-06 user decision): grants for joint research between
+            // companies and universities. Companies and private universities are not public bodies, so this supports
+            // rather than mandates. Supported firms' sales rose by 11.4% one to seven years later (Jensen et al.), more
+            // for high-tech firms; the gain needs people to absorb the research (Cohen & Levinthal 1990), so the
+            // effect is full only when 5% of the population studies at college or university.
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kUniversityIndustry,
+                Icon = "Media/Game/Policies/HighTechHousing.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[]
+                {
+                    new SeriesWeight(ServiceSeries.Education, 0.5f),
+                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.5f),
+                },
+                ClearancePoints = 2,
+                Staff = new[] { new StaffRequirement(ServiceSeries.GeneralAdministration, 1f, 1f / 200f) },
+                Target = TargetGroup.OfficeCompanies,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 2f,
+                ScalesWithStudents = true,
+                Outputs = new[]
+                {
+                    PolicyOutput.CityModifier(CityModifierType.OfficeSoftwareEfficiency, 0.1f),
+                    PolicyOutput.CityModifier(CityModifierType.IndustrialElectronicsEfficiency, 0.1f),
+                    PolicyOutput.Expense(kUniversityIndustryRow, ExpenseSource.SubsidyOffice, 300f, 5f, TargetGroup.OfficeCompanies, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.OfficeCompanies, 0f, 0.4f),
+                    new GroupStake(TargetGroup.IndustrialCompanies, 0f, 0.2f),
+                },
+            },
+            // Livelihood support (§14.21, 2026-11-08 user proposal): money each month for households below "modest"
+            // wealth, from the city budget, poorest first. Social welfare staff handle 60 households each (50-70 judged
+            // right by welfare officials, 박윤희·기정훈 2011). 100% pays the game's unemployment benefit per household.
+            // The game rates wellbeing on household income, so the money is also added to income (LivelihoodSupportSystem):
+            // happier households commit less crime and keep their homes. Losing such support raised income-generating
+            // crime by 60% (Deshpande & Mueller-Smith 2022); cash cut homelessness (Dwyer et al. 2023); work hardly fell
+            // (Jones & Marinescu 2022; 이상은 2004).
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kLivelihoodSupport,
+                Icon = "Media/Game/Policies/TouristInformation.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 100f),
+                SliderDefault = 50f,
+                SliderStep = 10f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[] { new SeriesWeight(ServiceSeries.SocialWelfare, 1f) },
+                ClearancePoints = 1,
+                Staff = new[] { new StaffRequirement(ServiceSeries.SocialWelfare, 1f, 1f / LivelihoodSupportSystem.kHouseholdsPerWorker) },
+                StaffPerCase = true,
+                Target = TargetGroup.PoorHouseholds,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 0.5f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Expense(kLivelihoodRow, ExpenseSource.SubsidyResidential, 0f, 0f, TargetGroup.PoorHouseholds, MoneyBasis.External),
+                },
+                Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.5f) },
+            },
+            // Rent support (2026-11-09, in place of public rental housing): a share of the rent (slider 0-50%) back to poor
+            // renting households, poorest first, 100 households per social worker (RentSupportSystem). Supported tenants
+            // move and are evicted less while it lasts (Moretti & Schmid 2022; NLIHC review; direction only).
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kRentSupport,
+                Icon = "Media/Game/Policies/TouristInformation.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 50f),
+                SliderDefault = 30f,
+                SliderStep = 5f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[] { new SeriesWeight(ServiceSeries.SocialWelfare, 1f) },
+                ClearancePoints = 1,
+                Staff = new[] { new StaffRequirement(ServiceSeries.SocialWelfare, 1f, 1f / RentSupportSystem.kHouseholdsPerWorker) },
+                StaffPerCase = true,
+                Target = TargetGroup.PoorHouseholds,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 0.5f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Expense(kRentSupportRow, ExpenseSource.SubsidyResidential, 0f, 0f, TargetGroup.PoorHouseholds, MoneyBasis.External),
+                },
+                Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.4f) },
+            },
+            // Flexible working hours support (2026-11-09, renamed by the user: hours are the firms' call): the city pays
+            // workplaces that adopt staggered starts; a share of workplaces (slider 0-50%) take it up and their workers
+            // start up to 90 minutes later (FlexibleHoursSystem). Peak traffic falls by about 5-10% (NCHRP Synthesis 73;
+            // Vickrey 1969 bottleneck).
+            new PolicyDefinition
+            {
+                Id = PolicyCatalog.kFlexibleHours,
+                Icon = "Media/Game/Policies/RouteVehicleCount.svg",
+                Instrument = Instrument.Treasure,
+                Direction = Direction.Benefit,
+                Mechanism = Mechanism.Generic,
+                IsSlider = true,
+                SliderRange = new Bounds1(0f, 50f),
+                SliderDefault = 30f,
+                SliderStep = 5f,
+                SliderUnit = PolicySliderUnit.percentage,
+                Series = new[] { new SeriesWeight(ServiceSeries.GeneralAdministration, 1f) },
+                ClearancePoints = 1,
+                Staff = new[] { new StaffRequirement(ServiceSeries.GeneralAdministration, 1f, 0f) },
+                Target = TargetGroup.Households,
+                ChangeBand = 0.2f,
+                ChangeCost = 1f,
+                BaseLagDays = 1f,
+                Outputs = new[]
+                {
+                    PolicyOutput.Expense(kFlexibleHoursRow, ExpenseSource.SubsidyCommercial, 100f, 0.005f, TargetGroup.Households, MoneyBasis.Intensity),
+                },
+                Groups = new[]
+                {
+                    new GroupStake(TargetGroup.Households, 0f, 0.1f),
                     new GroupStake(TargetGroup.CommercialCompanies, 0.1f, 0f),
                 },
             },

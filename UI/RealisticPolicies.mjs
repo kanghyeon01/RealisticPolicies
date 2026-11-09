@@ -21,6 +21,7 @@ const SECTIONS_MODULE = "game-ui/game/components/selected-info-panel/selected-in
 const CITY_INFO_FIELD_MODULE = "game-ui/game/components/toolbar/top/city-info-field/city-info-field.tsx";
 const NUMBER_BADGE_MODULE = "game-ui/game/components/toolbar/components/number-badge/number-badge.tsx";
 const WELFARE_SECTION_TYPE = "RealisticPolicies.WelfareSeriesSection";
+const PROTEST_SECTION_TYPE = "RealisticPolicies.ProtestInfoSection";
 const MANDATE_ID = "RealisticPolicies.EquipmentMandate";
 const VANILLA_ID = "Advanced Pollution Management";
 
@@ -55,7 +56,7 @@ const selfTestStage$ = api.bindValue(GROUP, "selfTestStage", 0);
 // counting suits the city has not answered. It ignores the mouse, so the button works as before.
 function extendCityInfoField(Field) {
     return function RealisticPoliciesCityInfoField(props) {
-        const count = api.useValue(unansweredSuits$);
+        const count = api.useValue(unansweredSuits$) + useWaitingProtests();
         const ref = React.useRef(null);
         const [left, setLeft] = React.useState(null);
         React.useLayoutEffect(() => {
@@ -249,8 +250,16 @@ const useNameFormat = getGameModule("game-ui/common/localization/localized-entit
 const ui = window["cs2/ui"];
 
 const LAWSUITS_TAB = 2;
+const PROTESTS_TAB = 3;
 const policyReports$ = api.bindValue(GROUP, "policyReports", []);
 const lawsuits$ = api.bindValue(GROUP, "lawsuits", null);
+const protests$ = api.bindValue(GROUP, "protests", null);
+
+// Protests the city has not answered yet (they count on the City Info badge with the suits).
+function useWaitingProtests() {
+    const data = api.useValue(protests$);
+    return data && data.list ? data.list.filter((p) => p.response === 0 && !p.granted).length : 0;
+}
 
 // Set by the City Info panel wrapper for its tab bar and tab content; set by the policy page for its detail column.
 const CityInfoContext = React.createContext(null);
@@ -357,9 +366,12 @@ function Row(props) {
 function extendCityInfoPanel(Panel) {
     return function RealisticPoliciesCityInfoPanel(props) {
         const unanswered = api.useValue(unansweredSuits$);
+        const waiting = useWaitingProtests();
         React.useEffect(() => {
             if (unanswered > 0 && props.selectedTab !== LAWSUITS_TAB) {
                 api.trigger("game", "showCityInfoPanel", LAWSUITS_TAB);
+            } else if (unanswered === 0 && waiting > 0 && props.selectedTab !== PROTESTS_TAB) {
+                api.trigger("game", "showCityInfoPanel", PROTESTS_TAB);
             }
         }, []);
         const value = React.useMemo(() => ({ selectedTab: props.selectedTab, onSelectTab: props.onSelectTab }), [props.selectedTab, props.onSelectTab]);
@@ -381,6 +393,12 @@ function extendTabBar(TabBar) {
             selectedId: panel.selectedTab,
             onSelect: panel.onSelectTab,
         }, text("Tab.Lawsuits")));
+        children.push(React.createElement(Tab, {
+            key: "rp-protests",
+            id: PROTESTS_TAB,
+            selectedId: panel.selectedTab,
+            onSelect: panel.onSelectTab,
+        }, text("Tab.Protests")));
         // The tab content below must not see this context as its own tab bar.
         return React.createElement(CityInfoContext.Provider, { value: null }, React.createElement(TabBar, props, ...children));
     };
@@ -392,8 +410,9 @@ function extendTabNav(TabNav) {
         if (!panel) {
             return React.createElement(TabNav, props);
         }
-        const tabs = (props.tabs || []).concat([LAWSUITS_TAB]);
-        const children = props.selectedTab === LAWSUITS_TAB ? React.createElement(LawsuitsPage) : props.children;
+        const tabs = (props.tabs || []).concat([LAWSUITS_TAB, PROTESTS_TAB]);
+        const children = props.selectedTab === LAWSUITS_TAB ? React.createElement(LawsuitsPage)
+            : props.selectedTab === PROTESTS_TAB ? React.createElement(ProtestsPage) : props.children;
         return React.createElement(CityInfoContext.Provider, { value: null }, React.createElement(TabNav, Object.assign({}, props, { tabs }), children));
     };
 }
@@ -447,7 +466,7 @@ function PolicyReport({ id }) {
 
     const activity = [
         Row({ key: "eff", left: text("Report.Effectiveness"), right: percent(report.effectiveness), subRow: true, tooltip: text("Report.Effectiveness.Tooltip") }),
-        report.busiest ? Row({ key: "rho", left: text("Report.Utilization", { SERIES: seriesName(report.busiest) }), right: percent(report.utilization), subRow: true, tooltip: text("Report.Utilization.Tooltip") }) : null,
+        report.busiest ? Row({ key: "staff-share", left: text("Report.StaffShare", { SERIES: seriesName(report.busiest) }), right: percent(report.staffShare), subRow: true, tooltip: text("Report.StaffShare.Tooltip") }) : null,
         Row({ key: "lag", left: text("Report.Lag"), right: text("Report.LagValue", { DAYS: report.lagDays.toFixed(1) }), subRow: true }),
         report.fading >= 0 ? Row({ key: "fade", left: text("Report.Fading"), right: percent(report.fading), subRow: true, tooltip: text("Report.Fading.Tooltip") }) : null,
         report.capture >= 0.005 ? Row({ key: "cap", left: text("Report.Capture"), right: percent(report.capture), subRow: true, tooltip: text("Report.Capture.Tooltip") }) : null,
@@ -729,6 +748,200 @@ function AfterVerdict({ data }) {
     return React.createElement(InfoSection, { disableFocus: true }, ...rows);
 }
 
+
+// ---- Protests tab (docs/PLAN.md §12 "화면", docs/previews/protest-panel.html)
+
+const TRAITS = ["Peaceful", "General", "Hardline", "Extreme"];
+
+function ProtestsPage() {
+    const data = api.useValue(protests$);
+    const text = useText();
+    const list = data && data.list ? data.list : [];
+    const actions = data && data.actions ? data.actions : [];
+    const content = list.length === 0 && actions.length === 0
+        ? [React.createElement("div", { key: "none", style: { padding: "20rem 10rem", opacity: 0.7 } }, text("Protest.None"))]
+        : list.map((p) => React.createElement(ProtestSection, { key: p.id, protest: p }))
+            .concat(actions.map((a) => React.createElement(ActionSection, { key: `action-${a.id}`, action: a })));
+    const body = Scrollable
+        ? React.createElement(Scrollable, { style: { flex: "1 1 auto" } }, content)
+        : React.createElement("div", { style: { flex: "1 1 auto", overflowY: "auto" } }, content);
+    return React.createElement("div", { className: "rp-protests", style: { display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: "560rem" } }, body);
+}
+
+// The policy's value as the policy tab shows it (percent for percentage sliders), or the residential tax rate.
+function protestValue(protest, value) {
+    if (!protest.policyId) {
+        return `${Math.round(value)}%`;
+    }
+    return `${Math.round(value)}${protest.toggle ? "" : "%"}`;
+}
+
+// Legitimacy cost of repression scales with (1 - intensity)^2: a word, as the lawsuit hint.
+function legitimacyWord(text, protest, disperse) {
+    const v = (disperse ? 1 : 0.2) * Math.pow(1 - protest.intensity, 2);
+    return text(v >= 0.3 ? "Protest.Legitimacy.High" : v >= 0.1 ? "Protest.Legitimacy.Medium" : "Protest.Legitimacy.Low");
+}
+
+// Strike or collective closure (§12 "파업"): the same rows as a protest card. No response buttons: people keep going to
+// work and output falls; giving the policy back ends it, which the tooltip says.
+const ACTION_SECTORS = ["Industrial", "Office", "Public", "Commercial"];
+
+function ActionSection({ action }) {
+    const text = useText();
+    const { translate } = l10n.useLocalization();
+    const policy = translate(`Policy.TITLE[${action.policyId}]`, action.policyId);
+    const title = text(action.kind === 0 ? "Action.Title.Strike" : "Action.Title.Closure", { POLICY: policy });
+    const demand = action.toggle
+        ? text(action.demand > 0.5 ? "Protest.Demand.On" : "Protest.Demand.Off", { POLICY: policy, POLICY_OBJECT: josa(policy, "을", "를") })
+        : text("Protest.Demand.Value", { POLICY: policy, POLICY_OBJECT: josa(policy, "을", "를"), VALUE: protestValue(action, action.demand) });
+    const sector = ACTION_SECTORS[action.sector] || "Industrial";
+    const rows = [
+        Row({ key: "demand", left: text("Protest.Demand"), right: demand }),
+        Row({ key: "sector", left: text("Action.Sector"), right: text(`Action.Sector.${sector}`) }),
+        Row({ key: "share", left: text("Action.Share"), right: percent(action.share) }),
+        Row({ key: "effect", left: text("Action.Effect"),
+            right: React.createElement("span", { style: { color: "var(--negativeColor)" } }, text(`Action.Effect.${sector}`, { N: Math.max(1, Math.round(action.loss * 100)) })),
+            tooltip: text("Action.Effect.Tooltip") }),
+        Row({ key: "hours", left: text("Protest.Hours"), right: text("Protest.Hours.Value", { HOURS: Math.max(1, Math.round(action.hours)) }) }),
+    ];
+    return React.createElement(InfoSection, { disableFocus: true },
+        React.createElement("div", { style: { padding: "8rem 10rem 4rem" } },
+            React.createElement("div", { style: { fontSize: "var(--fontSizeL)", fontWeight: "bold" } }, title)),
+        ...rows);
+}
+
+// inBuilding: the section in the info panel of the building the protest icon sits on (docs/previews/protest-building-panel.html,
+// option B): the same rows, no response buttons, a link to the protests tab with the hint in its tooltip.
+function ProtestSection({ protest, inBuilding, focusKey }) {
+    const text = useText();
+    const { translate } = l10n.useLocalization();
+    const policy = protest.policyId ? translate(`Policy.TITLE[${protest.policyId}]`, protest.policyId) : text("Protest.Tax");
+    const title = protest.policyId ? text(protest.cut ? "Protest.Title.Cut" : "Protest.Title.Burden", { POLICY: policy }) : text("Protest.Title.Tax");
+    // State after the title in coloured text, as the other tabs show states.
+    const state = protest.granted ? text(protest.riot ? "Protest.Dispersing" : "Protest.Dissolved") : protest.riot ? text("Protest.Riot") : null;
+    const tags = state ? [React.createElement("span", {
+        key: "state",
+        style: { marginLeft: "10rem", fontWeight: "normal", fontSize: "var(--fontSizeM)", color: protest.granted ? "var(--positiveColor)" : "var(--negativeColor)" },
+    }, state)] : [];
+
+    let demand;
+    if (!protest.policyId) {
+        demand = text("Protest.Demand.Tax", { VALUE: protestValue(protest, protest.demand) });
+    } else if (protest.toggle) {
+        demand = text(protest.demand > 0.5 ? "Protest.Demand.On" : "Protest.Demand.Off", { POLICY: policy, POLICY_OBJECT: josa(policy, "을", "를") });
+    } else {
+        demand = text("Protest.Demand.Value", { POLICY: policy, POLICY_OBJECT: josa(policy, "을", "를"), VALUE: protestValue(protest, protest.demand) });
+    }
+    // A plain value like the other rows (no bar, docs/PLAN.md §10 "모양"); the riot threshold is in the tooltip.
+    const intensity = Math.round(protest.intensity * 100);
+    const intensityValue = React.createElement("span", { style: { color: protest.riot ? "var(--negativeColor)" : undefined } }, `${intensity}%`);
+
+    const rows = [
+        Row({ key: "demand", left: text("Protest.Demand"), right: demand }),
+        Row({ key: "people", left: text("Protest.People"), right: text("Protest.People.Value", { N: groupDigits(protest.people), SHARE: percent(protest.share) }) }),
+        Row({ key: "intensity", left: text("Protest.Intensity"), right: intensityValue, tooltip: text("Protest.Intensity.Tooltip") }),
+        Row({ key: "trait", left: text("Protest.Trait"), right: text(`Protest.Trait.${TRAITS[protest.trait] || "General"}`), tooltip: text("Protest.Trait.Tooltip") }),
+        Row({ key: "hours", left: text("Protest.Hours"), right: text("Protest.Hours.Value", { HOURS: Math.max(1, Math.round(protest.hours)) }) }),
+        Row({ key: "closed", left: text("Protest.Closure"),
+            right: protest.closed ? React.createElement("span", { style: { color: "var(--warningColor)" } }, text("Protest.Closure.On", { N: protest.segments }))
+                : text("Protest.Closure.Off"), tooltip: text("Protest.Closure.Tooltip") }),
+    ];
+    if (protest.riot) {
+        rows.push(Row({ key: "crime", left: text("Protest.Crime"), right: React.createElement("span", { style: { color: "var(--negativeColor)" } }, `${intensity}%`), tooltip: text("Protest.Crime.Tooltip") }));
+    }
+    const responses = ["Protest.Response.None", "Protest.Response.Negotiate", "Protest.Response.Watch", "Protest.Response.Disperse", "Protest.Response.Ignore"];
+    rows.push(Row({ key: "response", left: text("Protest.Response"),
+        right: protest.response === 0 ? React.createElement("span", { style: { color: "var(--warningColor)" } }, text(responses[0])) : text(responses[protest.response]),
+        tooltip: protest.response === 0 ? text("Protest.Response.None.Tooltip") : protest.response === 4 && !protest.riot ? text("Protest.Ignore.Detail") : undefined }));
+
+    let actions;
+    if (protest.granted) {
+        actions = React.createElement("div", { style: { color: "var(--positiveColor)", padding: "6rem 10rem" } },
+            protest.riot ? text("Protest.Granted.Riot", { HOURS: protest.riotHoursLeft.toFixed(1) }) : text("Protest.Granted"));
+    } else if (inBuilding) {
+        const link = ui && ui.Button
+            ? React.createElement(ui.Button, { variant: "text", onSelect: () => api.trigger("game", "showCityInfoPanel", PROTESTS_TAB) }, text("Protest.OpenTab"))
+            : text("Protest.OpenTab");
+        actions = Row({ key: "open-tab", left: link, tooltip: text("Protest.OpenTab.Tooltip") });
+    } else if (protest.response === 0) {
+        const watchCars = Math.max(1, Math.ceil(protest.people * protest.intensity / 20 * 0.5));
+        const disperseCars = Math.max(1, Math.ceil(protest.people * protest.intensity / 20));
+        actions = React.createElement("div", { style: { display: "flex", flexWrap: "wrap", padding: "6rem 10rem", gap: "6rem" } },
+            ActionButton(text("Protest.Negotiate"), text("Protest.Negotiate.Detail"), () => api.trigger(GROUP, "respondProtest", protest.id, 1)),
+            ActionButton(text("Protest.Watch"), text("Protest.Repress.Detail", { N: watchCars, WORD: legitimacyWord(text, protest, false) }), () => api.trigger(GROUP, "respondProtest", protest.id, 2)),
+            ActionButton(text("Protest.Disperse"), text("Protest.Repress.Detail", { N: disperseCars, WORD: legitimacyWord(text, protest, true) }), () => api.trigger(GROUP, "respondProtest", protest.id, 3)),
+            ActionButton(text("Protest.Ignore"), text(protest.riot ? "Protest.Ignore.Riot" : "Protest.Ignore.Detail"), () => api.trigger(GROUP, "respondProtest", protest.id, 4)));
+    } else {
+        const parts = [];
+        if (protest.response === 1) {
+            parts.push(React.createElement(NegotiationRows, { key: "neg", protest, policy }));
+        } else if (protest.response === 2 || protest.response === 3) {
+            const ratio = protest.carsNeeded > 0 ? Math.min(1, protest.carsArrived / protest.carsNeeded) : 0;
+            parts.push(Row({ key: "cars", left: text("Protest.Cars"), right: text("Protest.Cars.Value", { IN: protest.carsArrived, N: protest.carsNeeded }), tooltip: text("Protest.Cars.Tooltip") }));
+            parts.push(Row({ key: "effect", left: text("Protest.Effect"), right: percent(ratio * (protest.response === 3 ? 1 : 0.5)), tooltip: text("Protest.Effect.Tooltip") }));
+            parts.push(Row({ key: "legit", left: text("Protest.Legitimacy"), right: legitimacyWord(text, protest, protest.response === 3), tooltip: text("Protest.Legitimacy.Tooltip") }));
+            if (protest.carsArrived < protest.carsNeeded) {
+                parts.push(React.createElement("div", { key: "short", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Protest.Cars.Short")));
+            }
+        } else if (protest.response === 4 && protest.riot) {
+            // Only the warning stays on screen; the plain note is the response row's tooltip.
+            parts.push(React.createElement("div", { key: "ign", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Protest.Ignore.Riot")));
+        }
+        if (ui && ui.Button) {
+            parts.push(React.createElement(ui.Button, { key: "change", variant: "text", onSelect: () => api.trigger(GROUP, "respondProtest", protest.id, 0), style: { padding: "4rem 10rem" } }, text("Protest.Change")));
+        }
+        actions = React.createElement("div", null, ...parts);
+    }
+
+    const head = inBuilding ? [Row({ key: "head", left: text("Tab.Protests"), uppercase: true })] : [];
+    return React.createElement(InfoSection, inBuilding ? { focusKey, disableFocus: true } : { disableFocus: true },
+        ...head,
+        React.createElement("div", { style: { padding: "8rem 10rem 4rem" } },
+            React.createElement("div", { style: { opacity: 0.6, fontSize: "var(--fontSizeS)" } }, text("Protest.Segments", { N: protest.segments })),
+            React.createElement("div", { style: { display: "flex", flexDirection: "row", alignItems: "center", fontSize: "var(--fontSizeL)", fontWeight: "bold", marginTop: "2rem" } },
+                React.createElement("span", { key: "title" }, title), ...tags)),
+        ...rows, actions);
+}
+
+// Info panel section of the park or road the protest icon sits on (C#: ProtestInfoSection).
+function ProtestBuildingSection(props) {
+    return props.protest ? React.createElement(ProtestSection, { protest: props.protest, inBuilding: true, focusKey: props.focusKey }) : null;
+}
+
+// Negotiation: the policy moved toward the demand (a switch for toggles; the residential tax for a tax protest) and a payment.
+function NegotiationRows({ protest, policy }) {
+    const text = useText();
+    const lo = Math.min(protest.now, protest.demand);
+    const hi = Math.max(protest.now, protest.demand);
+    const [level, setLevel] = React.useState(protest.now);
+    const [compensation, setCompensation] = React.useState(0);
+    const transformer = useStepTransformer ? useStepTransformer(protest.step || 1) : undefined;
+    let control;
+    if (!protest.toggle && Slider && hi > lo) {
+        control = React.createElement("div", { style: { display: "flex", alignItems: "center" } },
+            React.createElement("div", { style: { width: "60rem", textAlign: "right", marginRight: "12rem" } }, protestValue(protest, level)),
+            React.createElement("div", { style: { width: "200rem" } },
+                React.createElement(Slider, { value: level, start: lo, end: hi, valueTransformer: transformer, onChange: setLevel, style: { width: "200rem" } })));
+    } else if (protest.toggle && Checkbox) {
+        const changed = level !== protest.now;
+        control = React.createElement(Checkbox, { checked: changed, onChange: () => setLevel(changed ? protest.now : protest.demand) });
+    } else {
+        control = protestValue(protest, level);
+    }
+    const input = IntInput
+        ? React.createElement(IntInput, { value: compensation, min: 0, onChange: (v) => setCompensation(Math.max(0, v | 0)), style: { width: "140rem" } })
+        : null;
+    const button = ui && ui.Button
+        ? React.createElement(ui.Button, { variant: "flat", onSelect: () => api.trigger(GROUP, "negotiateProtest", protest.id, level, compensation),
+            style: { padding: "8rem 10rem", margin: "6rem 10rem", textAlign: "center" } }, text("Protest.Apply"))
+        : null;
+    return React.createElement("div", null,
+        Row({ left: protest.policyId ? policy : text("Protest.Tax"), right: control, subRow: true }),
+        Row({ left: text("Protest.Compensation"), right: input, subRow: true, tooltip: text("Protest.Compensation.Tooltip") }),
+        button);
+}
+
+
 // ---------------------------------------------------------------- prototype self-test
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -766,7 +979,7 @@ async function runSelfTest(translate) {
         await sleep(1500);
         search.set("");
 
-        api.trigger("game", "closeActiveGamePanel");
+        api.trigger("game", "closeActivePanel");
         await sleep(1000);
         lastInjectedRows = 0;
         api.trigger("game", "showEconomyPanel", 0);
@@ -777,7 +990,7 @@ async function runSelfTest(translate) {
         check("Budget page shows the mod row names", !!taxName && text.indexOf(taxName) >= 0, taxName);
         report("shot:budget");
         await sleep(1500);
-        api.trigger("game", "closeActiveGamePanel");
+        api.trigger("game", "closeActivePanel");
     } catch (e) {
         check("UI self-test ran without errors", false, String(e && e.stack ? e.stack : e));
     }
@@ -828,9 +1041,89 @@ async function runReportTest(translate) {
         check("Policy report is shown under the policy description", !!panel && (panel.textContent || "").indexOf(input) >= 0, panel ? (panel.textContent || "").substring(0, 200) : "none");
         report("shot:policy-report");
         await sleep(1500);
-        api.trigger("game", "closeActiveGamePanel");
+        api.trigger("game", "closeActivePanel");
     } catch (e) {
         check("Report UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
+async function runProtestTest(translate) {
+    try {
+        api.trigger("game", "showCityInfoPanel", PROTESTS_TAB);
+        await sleep(3000);
+        const page = document.querySelector(".rp-protests");
+        const text = page ? page.textContent || "" : "";
+        check("Protests tab is rendered", !!page);
+        const policy = translate("Policy.TITLE[RealisticPolicies.Scholarships]", "");
+        const demand = translate("RealisticPolicies.UI.Protest.Demand", "");
+        check("Protests tab lists the protest with its demand", !!policy && text.indexOf(policy) >= 0 && !!demand && text.indexOf(demand) >= 0, text.substring(0, 240));
+        report("shot:protests-tab");
+        await sleep(1500);
+        // Click the Negotiate button as a player would.
+        const label = translate("RealisticPolicies.UI.Protest.Negotiate", "");
+        const buttons = page ? Array.from(page.querySelectorAll("button")) : [];
+        const button = buttons.find((b) => (b.textContent || "").indexOf(label) === 0);
+        check("Negotiate button is found", !!button, `${buttons.length} buttons`);
+        if (button) {
+            if (button.click) {
+                button.click();
+            } else {
+                button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            }
+        }
+        await sleep(2500);
+        const after = document.querySelector(".rp-protests");
+        const apply = translate("RealisticPolicies.UI.Protest.Apply", "");
+        check("Negotiation rows (policy level, compensation, apply) appear", !!after && !!apply && (after.textContent || "").indexOf(apply) >= 0, after ? (after.textContent || "").substring(0, 240) : "none");
+        report("shot:protest-negotiation");
+        // Where the negotiation slider's parts sit (its thumb looked off in a screenshot).
+        if (after) {
+            const parts = Array.from(after.querySelectorAll("div")).filter((d) => /slider|track|range|thumb/i.test(String(d.className || "")));
+            report("Slider parts: " + parts.map((d) => {
+                const r = d.getBoundingClientRect();
+                return `${String(d.className).split(" ")[0]} x${Math.round(r.left)} w${Math.round(r.width)} style.width=${d.style.width || "-"}`;
+            }).join("; "));
+            const slider = parts.find((d) => /^slider/.test(String(d.className || "")));
+            check("Negotiation slider is drawn at full width", !!slider && slider.getBoundingClientRect().width > 100, slider ? `${Math.round(slider.getBoundingClientRect().width)} px` : "not found");
+        }
+        await sleep(1500);
+        api.trigger("game", "closeActivePanel");
+    } catch (e) {
+        check("Protest UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
+async function runBuildingPanelTest(translate) {
+    try {
+        await sleep(3000);
+        const text = document.body ? document.body.textContent || "" : "";
+        const link = translate("RealisticPolicies.UI.Protest.OpenTab", "");
+        const demand = translate("RealisticPolicies.UI.Protest.Demand", "");
+        check("The building's info panel shows the protest with the link to the protests tab", !!link && text.indexOf(link) >= 0 && !!demand && text.indexOf(demand) >= 0, link);
+        report("shot:protest-building-panel");
+        await sleep(1500);
+    } catch (e) {
+        check("Building panel UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
+async function runActionTest(translate) {
+    try {
+        api.trigger("game", "showCityInfoPanel", PROTESTS_TAB);
+        await sleep(3000);
+        const page = document.querySelector(".rp-protests");
+        const text = page ? page.textContent || "" : "";
+        const pay = translate("Policy.TITLE[RealisticPolicies.ContractingOut]", "");
+        const effect = translate("RealisticPolicies.UI.Action.Effect", "");
+        check("The protests tab shows the strike and the closure cards", !!pay && text.indexOf(pay) >= 0 && !!effect && text.indexOf(effect) >= 0, text.substring(0, 240));
+        report("shot:industrial-actions");
+        await sleep(1500);
+        api.trigger("game", "closeActivePanel");
+    } catch (e) {
+        check("Strike card UI test ran without errors", false, String(e && e.stack ? e.stack : e));
     }
     report("done");
 }
@@ -845,6 +1138,12 @@ function SelfTestRunner() {
             runWelfareTest(translate);
         } else if (stage === 3) {
             runReportTest(translate);
+        } else if (stage === 4) {
+            runProtestTest(translate);
+        } else if (stage === 5) {
+            runBuildingPanelTest(translate);
+        } else if (stage === 6) {
+            runActionTest(translate);
         }
     }, [stage]);
     return null;
@@ -867,6 +1166,7 @@ export default function register(moduleRegistry) {
     if (InfoSection && InfoRow && Dropdown && DropdownToggle && DropdownItem) {
         moduleRegistry.extend(SECTIONS_MODULE, "selectedInfoSectionComponents", (components) => {
             components[WELFARE_SECTION_TYPE] = WelfareSeriesSection;
+            components[PROTEST_SECTION_TYPE] = ProtestBuildingSection;
             return components;
         });
     } else {

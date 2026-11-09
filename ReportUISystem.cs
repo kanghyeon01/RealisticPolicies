@@ -15,7 +15,7 @@ namespace RealisticPolicies
     /// Report panel data (docs/PLAN.md §10.8 stage 7): the logic model of each mod policy (input → activity → output →
     /// outcome) for the policy page, and the suits, bans and debts for the lawsuit tab, with the player's court actions.
     /// </summary>
-    public sealed class ReportUISystem : UISystemBase
+    public sealed partial class ReportUISystem : UISystemBase
     {
         private const string kGroup = ModUISystem.kGroup;
 
@@ -236,8 +236,8 @@ namespace RealisticPolicies
                 // Activity.
                 writer.PropertyName("effectiveness");
                 writer.Write(result.Effectiveness);
-                writer.PropertyName("utilization");
-                writer.Write(result.Utilization);
+                writer.PropertyName("staffShare");
+                writer.Write(result.StaffShare);
                 writer.PropertyName("busiest");
                 writer.Write(result.BusiestSeries == ServiceSeries.None ? "" : result.BusiestSeries.ToString());
                 writer.PropertyName("lagDays");

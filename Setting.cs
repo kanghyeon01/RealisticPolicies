@@ -21,12 +21,13 @@ namespace RealisticPolicies
     }
 
     [FileLocation("ModsSettings/" + Mod.kName + "/" + Mod.kName)]
-    [SettingsUIGroupOrder(kLitigationGroup)]
-    [SettingsUIShowGroupName(kLitigationGroup)]
+    [SettingsUIGroupOrder(kLitigationGroup, kRemovalGroup)]
+    [SettingsUIShowGroupName(kLitigationGroup, kRemovalGroup)]
     public sealed class Setting : ModSetting
     {
         public const string kSection = "Main";
         public const string kLitigationGroup = "Litigation";
+        public const string kRemovalGroup = "Removal";
 
         /// <summary>Damages multiplier with punitive damages on (Korean statutes moved from 3× to 5× of the loss, 2023–2025).</summary>
         public const float kPunitiveMultiplier = 5f;
@@ -45,6 +46,21 @@ namespace RealisticPolicies
 
         [SettingsUISection(kSection, kLitigationGroup)]
         public DefaultSuitResponse DefaultResponse { get; set; }
+
+        /// <summary>
+        /// Readies the loaded city for taking the mod out (2026-11-09 user decision): asks first, then ends protests, opens
+        /// closed roads, releases police cars and removes the mod's icons (<see cref="ModCleanup"/>).
+        /// </summary>
+        [SettingsUISection(kSection, kRemovalGroup)]
+        [SettingsUIButton]
+        [SettingsUIConfirmation]
+        public bool PrepareRemoval
+        {
+            set
+            {
+                ModCleanup.Run();
+            }
+        }
 
         public override void SetDefaults()
         {

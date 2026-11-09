@@ -116,9 +116,13 @@ namespace RealisticPolicies.Engine
         /// <summary>Open records and audits cut that gaming by up to half (§14.8; Bevan & Hood 2006).</summary>
         public const float kDisclosureGamingCut = 0.5f;
 
-        /// <summary>Ombudsman: grievances go to complaints instead of courts, suits filed -25% (Hirschman 1970; estimate).</summary>
+        /// <summary>
+        /// Ombudsman: grievances go to complaints instead of courts. Hirschman (1970) gives the direction; no study measures
+        /// the ombudsman's effect on suits, so -25% stays below the closest analogue (-47% suits after a hospital's
+        /// communication-and-resolution programme, Lambert et al. 2016). No legitimacy gain: studies find little or no
+        /// effect on public trust (Hertogh 2013; Van Roosbroek & Van de Walle 2008).
+        /// </summary>
         public const float kOmbudsmanFiling = 0.25f;
-        public const float kOmbudsmanLegitimacy = 0.02f;
 
         /// <summary>Wider information disclosure: capture ceiling -20% (Cordis & Warren 2014, 이재형 2004).</summary>
         public const float kDisclosureCapture = 0.2f;
@@ -289,7 +293,7 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Shift of the legitimacy the city returns to.</summary>
         public float LegitimacyBaseShift =>
-            kBudgetLegitimacy * Budget * BudgetRamp + kOmbudsmanLegitimacy * Ombudsman + kDisclosureLegitimacy * Disclosure
+            kBudgetLegitimacy * Budget * BudgetRamp + kDisclosureLegitimacy * Disclosure
             - kContractingLegitimacy * Contracting;
 
         /// <summary>Factor on the grievance of burdened groups when a burden is raised.</summary>
@@ -353,7 +357,6 @@ namespace RealisticPolicies.Engine
                     break;
                 case ReformKind.Ombudsman:
                     rows.Add(new ReformRow("SuitFiling", -kOmbudsmanFiling * Ombudsman, ReformUnit.Percent, true));
-                    rows.Add(new ReformRow("Legitimacy", kOmbudsmanLegitimacy * Ombudsman, ReformUnit.Points, true));
                     break;
                 case ReformKind.InformationDisclosure:
                     rows.Add(new ReformRow("CaptureCeiling", -kDisclosureCapture * Disclosure, ReformUnit.Percent, true));

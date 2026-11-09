@@ -26,11 +26,13 @@ namespace RealisticPolicies
     /// starts a throwaway new city from the main menu, checks every hook the design relies on,
     /// writes report.txt and screenshots next to the flag, then quits the game. Never touches saves.
     /// </summary>
-    public sealed class SelfTestSystem : GameSystemBase
+    public sealed partial class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff, MoneyWatch, Measure, Finish, Quit }
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff,
+            ProtestStart, ProtestIcon, ProtestPanel, ProtestUi, ProtestCrowd, ProtestPartial, ProtestFull, RiotStart, RiotClosed, RiotPolice, RiotShots, RiotSave, RiotReloading, RiotReloadSettle, RiotEnd, ActionStart, ActionRun, ActionUi, ActionEnd, CleanupStart, CleanupRiot, CleanupCheck,
+            MoneyWatch, Measure, Finish, Quit }
 
-        private const float kTimeoutSeconds = 1500f;
+        private const float kTimeoutSeconds = 3000f;
         private const string kPreferredMap = "Plains";
         private const int kSamples = 5;
         private const uint kSampleFrames = 4096;
@@ -51,6 +53,9 @@ namespace RealisticPolicies
         private Entity m_IconBuilding;
         private string m_SaveName;
         private bool m_MoneyMode;
+        private bool m_ProtestsOnly;
+        private bool m_ChangedOnly;
+        private bool m_LivelihoodOn;
         private float m_NextMoneySample;
         private int m_MoneyAtStart;
         private uint m_FrameAtStart;
@@ -108,6 +113,20 @@ namespace RealisticPolicies
                 m_MeasureVariant = request.Substring(measureAt + ";measure:".Length).Trim();
                 request = request.Substring(0, measureAt);
             }
+            // "save:<file name>;changed" runs only what changed lately (2026-11-10 user decision): batches 3-10 with the new
+            // policies, then protests, strikes, the riot with its save and reload, and the clean-up. The stages passed many
+            // times and not touched since (batches 1-2, the tax and series UI, lawsuits, the first save, trading) are left out.
+            m_ChangedOnly = request.EndsWith(";changed", StringComparison.Ordinal);
+            if (m_ChangedOnly)
+            {
+                request = request.Substring(0, request.Length - ";changed".Length);
+            }
+            // "save:<file name>;protests" runs only the protest and riot stages (PLAN §12).
+            m_ProtestsOnly = request.EndsWith(";protests", StringComparison.Ordinal);
+            if (m_ProtestsOnly)
+            {
+                request = request.Substring(0, request.Length - ";protests".Length);
+            }
             m_MoneyMode = request.EndsWith(";money", StringComparison.Ordinal);
             if (m_MoneyMode)
             {
@@ -154,18 +173,29 @@ namespace RealisticPolicies
                 m_SimulationSystem.selectedSpeed = kTestSpeed;
                 SetStage(Stage.ReloadSettle);
             }
+            else if (m_Stage == Stage.RiotReloading && mode == GameMode.Game)
+            {
+                Line("City saved during the riot loaded again.");
+                LogLoadedRoads();
+                World.GetOrCreateSystemManaged<AutoSaveSystem>().Enabled = false;
+                m_SimulationSystem.selectedSpeed = kTestSpeed;
+                SetStage(Stage.RiotReloadSettle);
+            }
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
+            HoldEdgeScrolling();
             if (m_Stage != Stage.Quit && m_Stage != Stage.Off && UnityEngine.Time.realtimeSinceStartup - m_TestStart > (m_MeasureVariant != null ? 4f * 3600f : kTimeoutSeconds))
             {
                 Check("Self-test finished before the time limit", false, $"stuck in stage {m_Stage}");
                 SetStage(Stage.Finish);
             }
 
-            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || m_Stage == Stage.MoneyWatch || m_Stage == Stage.Measure) && m_SimulationSystem.selectedSpeed != kTestSpeed)
+            bool protestStage = m_Stage >= Stage.ProtestStart && m_Stage <= Stage.RiotEnd && m_Stage != Stage.RiotSave && m_Stage != Stage.RiotReloading;
+            bool laterStage = m_ChangedOnly && (m_Stage == Stage.LaterBundles || m_Stage == Stage.LaterBundlesOff);
+            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || protestStage || laterStage || m_Stage == Stage.MoneyWatch || m_Stage == Stage.Measure) && m_SimulationSystem.selectedSpeed != kTestSpeed)
             {
                 // The test needs simulation frames: run at top speed whatever speed the city was loaded with.
                 m_SimulationSystem.selectedSpeed = kTestSpeed;
@@ -185,6 +215,17 @@ namespace RealisticPolicies
                     else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_MoneyMode)
                     {
                         StartMoneyWatch();
+                    }
+                    else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_ChangedOnly)
+                    {
+                        m_SimulationSystem.selectedSpeed = kTestSpeed;
+                        Line("Changed-only run: batches 3-10, protests, strikes, riot and clean-up.");
+                        StartLaterBundles();
+                    }
+                    else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_ProtestsOnly)
+                    {
+                        m_SimulationSystem.selectedSpeed = kTestSpeed;
+                        StartProtests();
                     }
                     else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading)
                     {
@@ -272,7 +313,7 @@ namespace RealisticPolicies
                     if (SimFrames() >= 2048)
                     {
                         CheckTaxStaff();
-                        // Social welfare staff gone: the floor goes back to 8%.
+                        // Social welfare staff gone: the floor goes back to 0% (no residential subsidy).
                         World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.GeneralAdministration);
                         SetStage(Stage.TaxFloor);
                     }
@@ -514,6 +555,15 @@ namespace RealisticPolicies
                     }
                     break;
                 case Stage.LaterBundles:
+                    if (!m_LivelihoodOn && SimFrames() >= 1024)
+                    {
+                        // Switched on after the other welfare policies: it gets only the social workers they leave.
+                        m_LivelihoodOn = true;
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport), true, 50f);
+                        // Rent support after livelihood support: it gets only the social workers left.
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRentSupport), true, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).SliderDefault);
+                        Line("Livelihood support, then rent support, switched on after the other batches.");
+                    }
                     if (SimFrames() >= 16384)
                     {
                         CheckLaterBundles();
@@ -525,8 +575,149 @@ namespace RealisticPolicies
                     if (SimFrames() >= 8192)
                     {
                         CheckLaterBundlesOff();
+                        StartProtests();
+                    }
+                    break;
+                case Stage.ProtestStart:
+                    UpdateProtestStart();
+                    break;
+                case Stage.ProtestIcon:
+                    HoldProtest();
+                    if (StageSeconds() >= 4f && SimFrames() >= 512)
+                    {
+                        CheckProtestNotifications();
+                        // Clicking a notification icon selects the park or road it sits on: the protest's section shows there.
+                        World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(m_IconOwnerOf);
+                        m_UiDone = false;
+                        m_UISystem.SetSelfTestStage(5);
+                        SetStage(Stage.ProtestPanel);
+                    }
+                    break;
+                case Stage.ProtestPanel:
+                    HoldProtest();
+                    if (m_UiDone || StageSeconds() > 60f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Building panel UI test reported back", false, "no report within 60 s");
+                        }
+                        Check("Selecting the park or road under the protest icon shows the protest's section",
+                            World.GetOrCreateSystemManaged<ProtestInfoSection>().visible, null);
+                        World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(Entity.Null);
+                        m_UiDone = false;
+                        m_UISystem.SetSelfTestStage(4);
+                        SetStage(Stage.ProtestUi);
+                    }
+                    break;
+                case Stage.ProtestUi:
+                    HoldProtest();
+                    if (m_UiDone || StageSeconds() > 90f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Protest UI test reported back", false, "no report within 90 s");
+                        }
+                        Follow(m_IconOwnerOf, 180f, 45f);
+                        m_ShotStep = 0;
+                        SetStage(Stage.ProtestCrowd);
+                    }
+                    break;
+                case Stage.ProtestCrowd:
+                    HoldProtest();
+                    if (m_ShotStep == 0 && StageSeconds() >= 6f && SimFrames() >= 4096 && CrowdArrived(m_ProtestId))
+                    {
+                        CheckCrowd("Protesters walk from home to the protest's park or road and stand there", m_ProtestId, "protest-crowd");
+                        // Close up on someone standing there, to see the crowd as a player would.
+                        Entity person = StandingMarcher(m_ProtestId);
+                        Follow(person != Entity.Null ? person : m_IconOwnerOf, 45f, 35f);
+                        m_ShotStep = 1;
+                        m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+                    }
+                    else if (m_ShotStep == 1 && StageSeconds() >= 4f)
+                    {
+                        Shot("protest-crowd-close");
+                        StartPartialNegotiation();
+                    }
+                    break;
+                case Stage.ProtestPartial:
+                    HoldProtest();
+                    if (SimFrames() >= 4096)
+                    {
+                        CheckPartialNegotiation();
+                    }
+                    break;
+                case Stage.ProtestFull:
+                    UpdateProtestFull();
+                    break;
+                case Stage.RiotStart:
+                    UpdateRiotStart();
+                    break;
+                case Stage.RiotClosed:
+                    PinRiot(0.8f);
+                    if (SimFrames() >= 4096)
+                    {
+                        CheckRiotClosed();
+                    }
+                    break;
+                case Stage.RiotPolice:
+                    PinRiot(0.8f);
+                    UpdateRiotPolice();
+                    break;
+                case Stage.RiotShots:
+                    PinRiot(0.8f);
+                    UpdateRiotShots();
+                    break;
+                case Stage.RiotSave:
+                    UpdateProtestSave();
+                    break;
+                case Stage.RiotReloading:
+                    if (StageSeconds() > 300f)
+                    {
+                        Check("The city saved during the riot loads again", false, "not loaded within 300 s");
                         SetStage(Stage.Finish);
                     }
+                    break;
+                case Stage.RiotReloadSettle:
+                    if (StageSeconds() >= 5f && SimFrames() >= 4096)
+                    {
+                        CheckProtestRoundTrip();
+                        GrantRiot();
+                    }
+                    break;
+                case Stage.RiotEnd:
+                    UpdateRiotEnd();
+                    break;
+                case Stage.ActionStart:
+                    UpdateActionStart();
+                    break;
+                case Stage.ActionRun:
+                    UpdateActionRun();
+                    break;
+                case Stage.ActionUi:
+                    if (m_UiDone || StageSeconds() > 60f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Strike card UI test reported back", false, "no report within 60 s");
+                        }
+                        // The policies were never changed: with the held change released, both end as "demand met".
+                        ProtestSystem.TestHeldChange = -1f;
+                        Line("Held change released: the strike and the closure should end.");
+                        SetStage(Stage.ActionEnd);
+                    }
+                    break;
+                case Stage.ActionEnd:
+                    UpdateActionEnd();
+                    break;
+                case Stage.CleanupStart:
+                    UpdateCleanupStart();
+                    break;
+                case Stage.CleanupRiot:
+                    PinRiot(0.8f);
+                    UpdateCleanupRiot();
+                    break;
+                case Stage.CleanupCheck:
+                    UpdateCleanupCheck();
                     break;
                 case Stage.MoneyWatch:
                     UpdateMoneyWatch();
@@ -1057,11 +1248,15 @@ namespace RealisticPolicies
             TaxParameterData limits = TaxLimits();
             int population = EntityManager.GetComponentData<Population>(m_CitySystem.City).m_Population;
             float ratio = (float)census.Workers(ServiceSeries.SocialWelfare) / population;
-            int expectedFloor = Mathf.Max(original.m_ResidentialTaxLimits.x,
-                Mathf.RoundToInt(TaxControl.kResidentialFloor - (TaxControl.kResidentialFloor - original.m_ResidentialTaxLimits.x) * Mathf.Min(1f, ratio / TaxControl.kWelfareStaffPerResident)));
-            Check("Tax staff lift the lock and restore the original limits", m_Engine.Tax.LastLock == TaxLock.None && census.Workers(ServiceSeries.Tax) > 0
-                && limits.m_TotalTaxLimits.Equals(original.m_TotalTaxLimits) && limits.m_CommercialTaxLimits.Equals(original.m_CommercialTaxLimits),
-                $"tax staff {census.Workers(ServiceSeries.Tax)}, total [{limits.m_TotalTaxLimits.x}, {limits.m_TotalTaxLimits.y}]");
+            float room = m_Engine.Tax.LastRoom;
+            Unity.Mathematics.int2 residential = TaxControl.Narrow(original.m_ResidentialTaxLimits, room);
+            int expectedFloor = Mathf.Max(residential.x, Mathf.Max(original.m_ResidentialTaxLimits.x,
+                Mathf.RoundToInt(TaxControl.kResidentialFloor - (TaxControl.kResidentialFloor - original.m_ResidentialTaxLimits.x) * Mathf.Min(1f, ratio / TaxControl.kWelfareStaffPerResident))));
+            float expectedRoom = Mathf.Clamp01((float)census.Workers(ServiceSeries.Tax) / population / TaxControl.kTaxStaffPerResident);
+            Check("Tax staff lift the lock; the room around 10% follows tax staff per resident", m_Engine.Tax.LastLock == TaxLock.None && census.Workers(ServiceSeries.Tax) > 0
+                && Mathf.Abs(room - expectedRoom) < 1e-4f
+                && limits.m_TotalTaxLimits.Equals(TaxControl.Narrow(original.m_TotalTaxLimits, room)) && limits.m_CommercialTaxLimits.Equals(TaxControl.Narrow(original.m_CommercialTaxLimits, room)),
+                $"tax staff {census.Workers(ServiceSeries.Tax)}, room {room:0.00} (expected {expectedRoom:0.00}), total [{limits.m_TotalTaxLimits.x}, {limits.m_TotalTaxLimits.y}]");
             Check("Residential floor follows social welfare staff per resident", limits.m_ResidentialTaxLimits.x == expectedFloor && m_Engine.Tax.LastFloor == expectedFloor,
                 $"social welfare {census.Workers(ServiceSeries.SocialWelfare)}, population {population}, ratio {ratio * 1000f:0.000} per thousand, floor {limits.m_ResidentialTaxLimits.x}, expected {expectedFloor}");
         }
@@ -1075,7 +1270,7 @@ namespace RealisticPolicies
             {
                 lowest = Mathf.Min(lowest, taxSystem.GetResidentialTaxRate(level));
             }
-            Check("Without social welfare staff, residential tax cannot go below 8%", limits.m_ResidentialTaxLimits.x == TaxControl.kResidentialFloor
+            Check("Without social welfare staff, residential tax cannot go below 0% (no subsidy)", limits.m_ResidentialTaxLimits.x == TaxControl.kResidentialFloor
                 && limits.m_JobLevelTaxLimits.x >= TaxControl.kResidentialFloor && taxSystem.GetTaxRate(TaxAreaType.Residential) >= TaxControl.kResidentialFloor && lowest >= TaxControl.kResidentialFloor,
                 $"limit {limits.m_ResidentialTaxLimits.x}, residential {taxSystem.GetTaxRate(TaxAreaType.Residential)}, lowest education level {lowest}");
         }
@@ -1345,6 +1540,8 @@ namespace RealisticPolicies
             PolicyCatalog.kHealthCampaign, PolicyCatalog.kEmergencyCare, PolicyCatalog.kAirQualityAlert,
             PolicyCatalog.kPublicHealthcare, PolicyCatalog.kScholarships, PolicyCatalog.kFreeHighSchool, PolicyCatalog.kLifelongLearning,
             PolicyCatalog.kDisasterWarning, PolicyCatalog.kEnergyCode, PolicyCatalog.kWasteFee,
+            PolicyCatalog.kUniversityIndustry, PolicyCatalog.kLivelihoodSupport,
+            PolicyCatalog.kRentSupport, PolicyCatalog.kFlexibleHours,
         };
 
         private Unity.Mathematics.float2 m_ConsumptionBefore;
@@ -1401,8 +1598,14 @@ namespace RealisticPolicies
             m_ConsumptionBefore = ZonedConsumption();
             m_EligibleBefore = ExtendedBenefitSearchSystem.EligibleSeen;
             m_DelayedBefore = ExtendedBenefitSearchSystem.Delayed;
+            m_LivelihoodOn = false;
             foreach (string id in kLaterBundles)
             {
+                // Both take social workers per case: switched on later, after the other welfare policies.
+                if (id == PolicyCatalog.kLivelihoodSupport || id == PolicyCatalog.kRentSupport)
+                {
+                    continue;
+                }
                 PolicyDefinition definition = PolicyCatalog.Definition(id);
                 float value = definition.IsSlider ? (definition.SliderDefault > 0f ? definition.SliderDefault : 0.5f * definition.SliderRange.max) : 0f;
                 SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), true, value);
@@ -1534,6 +1737,41 @@ namespace RealisticPolicies
             Line($"Staff for the stage: social welfare {m_Engine.Census.Workers(ServiceSeries.SocialWelfare)}, tax {m_Engine.Census.Workers(ServiceSeries.Tax)}.");
             Check($"Every output of batches 3-10 moves the right way ({outputs} outputs)", wrong.Length == 0, wrong.Length == 0 ? null : wrong.ToString());
 
+            // §14.21: the poorest households first, as many as the social welfare staff reach, booked as one budget row.
+            LivelihoodSupportSystem livelihood = World.GetOrCreateSystemManaged<LivelihoodSupportSystem>();
+            int livelihoodRow = m_Injection.GetRow(PolicyDefinitions.kLivelihoodRow);
+            int benefit = Singleton<EconomyParameterData>().m_UnemploymentBenefit;
+            float livelihoodIntensity = m_Engine.LastIntensity(PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport));
+            int livelihoodIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport));
+            float livelihoodNeed = m_Engine.PolicyStaff(livelihoodIndex, ServiceSeries.SocialWelfare);
+            float livelihoodShare = m_Engine.PolicyStaffShare(livelihoodIndex, ServiceSeries.SocialWelfare);
+            float livelihoodStaff = livelihoodNeed * livelihoodShare;
+            Check("Livelihood support pays the poorest households (benefit x slider each), at most 60 per social worker it got, as one budget row",
+                livelihood.LastPoor > 0 && livelihood.LastSupported <= livelihood.LastPoor
+                && livelihood.LastSupported <= Mathf.CeilToInt(livelihoodStaff * LivelihoodSupportSystem.kHouseholdsPerWorker) + 1
+                && livelihood.LastMonthlyEach == Mathf.RoundToInt(benefit * livelihoodIntensity) && livelihoodRow == livelihood.LastSupported * livelihood.LastMonthlyEach,
+                $"poor {livelihood.LastPoor}, supported {livelihood.LastSupported}, staff got {livelihoodStaff:0.0} of {livelihoodNeed:0.0} needed, each {livelihood.LastMonthlyEach} (benefit {benefit} x {livelihoodIntensity:0.00}), row {livelihoodRow}, social welfare staff {m_Engine.Census.Workers(ServiceSeries.SocialWelfare)}");
+            // The other welfare policies came first, so they keep their staff: none gets a smaller share than livelihood support.
+            var earlier = new StringBuilder();
+            bool keep = true;
+            foreach (string id in new[] { PolicyCatalog.kWelfareOutreach, PolicyCatalog.kHousingFirst, PolicyCatalog.kReentrySupport, PolicyCatalog.kVictimSupport })
+            {
+                int index = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(id));
+                float share = m_Engine.PolicyStaffShare(index, ServiceSeries.SocialWelfare);
+                keep &= share >= livelihoodShare - 1e-5f;
+                earlier.Append($"{Short(id)} {share:P0} of {m_Engine.PolicyStaff(index, ServiceSeries.SocialWelfare):0.0}; ");
+            }
+            Check("Welfare policies switched on before livelihood support keep their social workers", keep, earlier + $"livelihood {livelihoodShare:P1}");
+            PolicyDefinition livelihoodDefinition = PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport);
+            float baseLag = m_Engine.Reforms.BaseLag(livelihoodDefinition);
+            float lag = m_Engine.LastResults[livelihoodIndex].LagDays;
+            Check("Households livelihood support cannot take do not slow it down (only the work ahead of it counts)",
+                lag <= 2f * baseLag + 1e-3f, $"lag {lag:0.00} days, base {baseLag:0.00}");
+            CheckNewItems();
+            CheckStaffOrder();
+            int universityIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kUniversityIndustry));
+            Line($"University-industry support: delivery {m_Engine.LastResults[universityIndex].Progress:0.000}, software offices {AirModifierOf(PolicyCatalog.Find(PolicyCatalog.kUniversityIndustry), CityModifierType.OfficeSoftwareEfficiency):0.0000}.");
+
             FireConfigurationData fire = Singleton<FireConfigurationData>();
             float ratioBefore = m_FireBefore.m_StructuralIntegrityLevel3 / m_FireBefore.m_BuildingStructuralIntegrity;
             float ratioNow = fire.m_StructuralIntegrityLevel3 / fire.m_BuildingStructuralIntegrity;
@@ -1548,11 +1786,11 @@ namespace RealisticPolicies
                 && extractor.m_OreConsumption > m_ExtractorBefore.m_OreConsumption && extractor.m_OilConsumption > m_ExtractorBefore.m_OilConsumption,
                 $"fish {m_ExtractorBefore.m_FishConsumption} -> {extractor.m_FishConsumption}, ore {m_ExtractorBefore.m_OreConsumption} -> {extractor.m_OreConsumption}, oil {m_ExtractorBefore.m_OilConsumption} -> {extractor.m_OilConsumption}");
             EducationParameterData education = Singleton<EducationParameterData>();
-            Check("Free high school and lifelong learning raise the schooling chances (high school at most +20%)",
+            Check("Free high school raises the teen chance (at most +20%); lifelong learning leaves the adult and worker chances to the game",
                 education.m_EnterHighSchoolProbability > m_EducationParamsBefore.m_EnterHighSchoolProbability
                 && education.m_EnterHighSchoolProbability <= 1.2f * m_EducationParamsBefore.m_EnterHighSchoolProbability + 1e-4f
-                && education.m_AdultEnterHighSchoolProbability > m_EducationParamsBefore.m_AdultEnterHighSchoolProbability
-                && education.m_WorkerContinueEducationProbability > m_EducationParamsBefore.m_WorkerContinueEducationProbability,
+                && education.m_AdultEnterHighSchoolProbability == m_EducationParamsBefore.m_AdultEnterHighSchoolProbability
+                && education.m_WorkerContinueEducationProbability == m_EducationParamsBefore.m_WorkerContinueEducationProbability,
                 $"teen {m_EducationParamsBefore.m_EnterHighSchoolProbability} -> {education.m_EnterHighSchoolProbability}, adult {m_EducationParamsBefore.m_AdultEnterHighSchoolProbability} -> {education.m_AdultEnterHighSchoolProbability}, worker {m_EducationParamsBefore.m_WorkerContinueEducationProbability} -> {education.m_WorkerContinueEducationProbability}");
             Unity.Mathematics.float2 consumption = ZonedConsumption();
             Check("Energy code and waste fee lower the electricity and garbage of zoned building prefabs",
@@ -1604,6 +1842,38 @@ namespace RealisticPolicies
             Check("Performance management inflates the other policies' reported delivery (at most 10 points)", inflation > 0f && inflation <= 0.1f + 1e-4f, $"+{inflation:0.0000}");
             Line($"Legitimacy {m_Engine.LastState.m_Legitimacy:0.000} with community policing (+0.03) and zero tolerance (-0.04) on.");
             LogDisasterWarning("with batches on");
+        }
+
+        /// <summary>In every series, staff went in enactment order: full shares first, at most one partial, then none.</summary>
+        private void CheckStaffOrder()
+        {
+            var wrong = new StringBuilder();
+            int[] order = m_Engine.StaffOrder;
+            for (int j = 0; j < (int)ServiceSeries.Count; j++)
+            {
+                var series = (ServiceSeries)j;
+                float last = 1f;
+                int partial = 0;
+                foreach (int i in order)
+                {
+                    if (m_Engine.PolicyStaff(i, series) <= 0f)
+                    {
+                        continue;
+                    }
+                    float share = m_Engine.PolicyStaffShare(i, series);
+                    if (share > last + 1e-5f)
+                    {
+                        wrong.Append($"{series}: {Short(PolicyDefinitions.All[i].Id)} {share:0.00} after {last:0.00}; ");
+                    }
+                    partial += share > 1e-5f && share < 1f - 1e-5f ? 1 : 0;
+                    last = share;
+                }
+                if (partial > 1)
+                {
+                    wrong.Append($"{series}: {partial} partly staffed; ");
+                }
+            }
+            Check("In every series staff go in the order the policies were switched on", wrong.Length == 0, wrong.Length == 0 ? null : wrong.ToString());
         }
 
         private void StopLaterBundles()
@@ -1659,12 +1929,1300 @@ namespace RealisticPolicies
             Unity.Mathematics.float2 consumption = ZonedConsumption();
             if (!Same(consumption.x, m_ConsumptionBefore.x) || !Same(consumption.y, m_ConsumptionBefore.y)) differ.Append($"building consumption {consumption} vs {m_ConsumptionBefore}; ");
             Check($"Restoring the {keys.Count} levers of batches 3-10 gives back the game's values", differ.Length == 0, differ.Length == 0 ? null : differ.ToString());
+            LivelihoodSupportSystem livelihood = World.GetOrCreateSystemManaged<LivelihoodSupportSystem>();
+            Check("Livelihood support stops paying when switched off", m_Injection.GetRow(PolicyDefinitions.kLivelihoodRow) == 0 && livelihood.LastSupported == 0,
+                $"row {m_Injection.GetRow(PolicyDefinitions.kLivelihoodRow)}, supported {livelihood.LastSupported}");
+            RentSupportSystem rent = World.GetOrCreateSystemManaged<RentSupportSystem>();
+            BuildingEffectSystem effects = World.GetOrCreateSystemManaged<BuildingEffectSystem>();
+            FlexibleHoursSystem flexible = World.GetOrCreateSystemManaged<FlexibleHoursSystem>();
+            int serviceLeft = effects.CountServiceMismatch();
+            // A switched-off policy winds down (its delivery falls over days), so the service factor follows what is left of it.
+            float performanceLeft = m_Engine.Delivered(PolicyCatalog.kPerformanceManagement);
+            Check("Rent support stops paying, flexible hours stop holding trips and city services follow performance management as it winds down",
+                m_Injection.GetRow(PolicyDefinitions.kRentSupportRow) == 0 && rent.LastSupported == 0 && flexible.LastShare == 0f
+                && Mathf.Abs(effects.LastServiceFactor - (1f + 0.03f * performanceLeft)) < 1e-3f && serviceLeft == 0,
+                $"rent row {m_Injection.GetRow(PolicyDefinitions.kRentSupportRow)}, supported {rent.LastSupported}, flexible share {flexible.LastShare:0.000}, service factor {effects.LastServiceFactor:0.0000} (performance management left {performanceLeft:0.000}), buildings off {serviceLeft}");
             LitigationSystem.TestDisableRandomFiling = false;
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.GeneralAdministration);
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.GeneralAdministration);
         }
 
+        /// <summary>The 2026-11-09 items: rent support, flexible hours, lifelong learning seekers, building efficiency effects.</summary>
+        private void CheckNewItems()
+        {
+            RentSupportSystem rent = World.GetOrCreateSystemManaged<RentSupportSystem>();
+            int rentRow = m_Injection.GetRow(PolicyDefinitions.kRentSupportRow);
+            // Switched on after livelihood support, it gets only the social workers left (none in a city with few of them):
+            // as many households as the staff it got reach, never more, and the row is what is paid.
+            int rentIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kRentSupport));
+            float rentStaff = m_Engine.PolicyStaff(rentIndex, ServiceSeries.SocialWelfare) * m_Engine.PolicyStaffShare(rentIndex, ServiceSeries.SocialWelfare);
+            bool reached = rentStaff < 0.05f || rent.LastSupported > 0;
+            Check("Rent support gives poor renting households part of their rent back, poorest first, at most 100 per social worker it got, booked as what is paid",
+                rent.LastRenters > 0 && reached && rent.LastSupported <= Mathf.CeilToInt(rentStaff * RentSupportSystem.kHouseholdsPerWorker) + 1
+                && rentRow == rent.LastMonthly,
+                $"poor renters {rent.LastRenters}, supported {rent.LastSupported}, staff got {rentStaff:0.0}, monthly {rent.LastMonthly}, row {rentRow}");
+
+            FlexibleHoursSystem flexible = World.GetOrCreateSystemManaged<FlexibleHoursSystem>();
+            int workers = 0, taking = 0;
+            var firms = new System.Collections.Generic.HashSet<Entity>();
+            var adopting = new System.Collections.Generic.HashSet<Entity>();
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Citizens.Worker>(), ComponentType.ReadOnly<Game.Citizens.Citizen>()))
+            using (Unity.Collections.NativeArray<Game.Citizens.Citizen> citizens = query.ToComponentDataArray<Game.Citizens.Citizen>(Unity.Collections.Allocator.Temp))
+            using (Unity.Collections.NativeArray<Game.Citizens.Worker> jobs = query.ToComponentDataArray<Game.Citizens.Worker>(Unity.Collections.Allocator.Temp))
+            {
+                for (int i = 0; i < citizens.Length; i++)
+                {
+                    workers++;
+                    firms.Add(jobs[i].m_Workplace);
+                    bool part = FlexibleHoursSystem.Participates(citizens[i], jobs[i], flexible.LastShare, out float delay);
+                    if (part)
+                    {
+                        adopting.Add(jobs[i].m_Workplace);
+                    }
+                    if (part && delay <= FlexibleHoursSystem.kMaxDelayDays)
+                    {
+                        taking++;
+                    }
+                }
+            }
+            float shareTaking = workers > 0 ? taking / (float)workers : 0f;
+            float firmShare = firms.Count > 0 ? adopting.Count / (float)firms.Count : 0f;
+            Check("Flexible hours support: the share of workplaces adopting it follows the delivered slider (each workplace fixed, delay up to 90 min)",
+                flexible.LastShare > 0f && firms.Count > 0 && Mathf.Abs(firmShare - flexible.LastShare) < 0.05f,
+                $"share {flexible.LastShare:0.000}, {adopting.Count} of {firms.Count} workplaces ({firmShare:0.000}), {taking} of {workers} workers ({shareTaking:0.000}), going-to-work trips held at the last update {flexible.LastHeld}, time of day {World.GetOrCreateSystemManaged<TimeSystem>().normalizedTime * 24f:0.0} h");
+
+            LifelongLearningSystem lifelong = World.GetOrCreateSystemManaged<LifelongLearningSystem>();
+            Line($"Lifelong learning: {lifelong.TotalStarted} school searches started for unemployed adults since loading (delivery {m_Engine.Delivered(PolicyCatalog.kLifelongLearning):0.000}).");
+
+            BuildingEffectSystem effects = World.GetOrCreateSystemManaged<BuildingEffectSystem>();
+            int mismatch = effects.CountServiceMismatch();
+            Check("Performance management raises city service buildings' service budget factor (1 + 0.03 x delivered), on each building once",
+                effects.LastServiceFactor > 1f && effects.LastServiceFactor <= 1.03f + 1e-5f && mismatch == 0,
+                $"factor {effects.LastServiceFactor:0.0000}, buildings off the expected value {mismatch}, tracked {effects.ServiceTrackedCount}");
+            Entity rescue = PolicyCatalog.Find(PolicyCatalog.kCorporateRescue);
+            Check("Corporate rescue no longer lowers industry and offices city-wide; the drag is per industry",
+                AirModifierOf(rescue, Game.City.CityModifierType.IndustrialEfficiency) == 0f && AirModifierOf(rescue, Game.City.CityModifierType.OfficeEfficiency) == 0f
+                && effects.LastWorstIndustryFactor >= 0.5f - 1e-5f && effects.LastWorstIndustryFactor <= 1f,
+                $"zombie firms {effects.LastZombies}, worst industry factor {effects.LastWorstIndustryFactor:0.000}, delivery {m_Engine.Delivered(PolicyCatalog.kCorporateRescue):0.000}");
+        }
+
         private static bool Same(float a, float b) => Mathf.Abs(a - b) <= 1e-6f * Mathf.Max(1f, Mathf.Abs(b));
+
+        // ------------------------------------------------------------------ protests and riots (PLAN §12)
+
+        private const string kProtestSave = "RP SelfTest Protest";
+        private readonly System.Collections.Generic.HashSet<int> m_KnownProtests = new System.Collections.Generic.HashSet<int>();
+        private readonly System.Collections.Generic.List<Entity> m_ClosedLanesSeen = new System.Collections.Generic.List<Entity>();
+        private readonly System.Collections.Generic.List<Entity> m_PostEntities = new System.Collections.Generic.List<Entity>();
+        private int m_ProtestId;
+        private int m_RiotId;
+        private bool m_PostsChecked;
+        private int m_ShotStep;
+        private uint m_EndSeenAt;
+        private Entity m_HeldCar;
+        private string m_ProtestSnapshot;
+
+        private ProtestSystem Protests => World.GetOrCreateSystemManaged<ProtestSystem>();
+
+        private DynamicBuffer<Protest> ProtestBuffer(bool readOnly = true) => EntityManager.GetBuffer<Protest>(m_CitySystem.City, readOnly);
+
+        private int ProtestIndex(int id)
+        {
+            if (!EntityManager.HasBuffer<Protest>(m_CitySystem.City))
+            {
+                return -1;
+            }
+            DynamicBuffer<Protest> protests = ProtestBuffer();
+            for (int i = 0; i < protests.Length; i++)
+            {
+                if (protests[i].m_Id == id)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private Protest GetProtest(int id) => ProtestBuffer()[ProtestIndex(id)];
+
+        private void SetProtest(Protest protest)
+        {
+            int index = ProtestIndex(protest.m_Id);
+            if (index >= 0)
+            {
+                DynamicBuffer<Protest> protests = ProtestBuffer(false);
+                protests[index] = protest;
+            }
+        }
+
+        /// <summary>A protest that started during this stage, about <paramref name="policy"/> (Entity.Null: the residential tax).</summary>
+        private int NewProtest(Entity policy)
+        {
+            if (!EntityManager.HasBuffer<Protest>(m_CitySystem.City))
+            {
+                return 0;
+            }
+            DynamicBuffer<Protest> protests = ProtestBuffer();
+            for (int i = 0; i < protests.Length; i++)
+            {
+                if (!m_KnownProtests.Contains(protests[i].m_Id) && protests[i].m_Policy == policy)
+                {
+                    return protests[i].m_Id;
+                }
+            }
+            return 0;
+        }
+
+        private void RememberProtests()
+        {
+            m_KnownProtests.Clear();
+            if (EntityManager.HasBuffer<Protest>(m_CitySystem.City))
+            {
+                DynamicBuffer<Protest> protests = ProtestBuffer();
+                for (int i = 0; i < protests.Length; i++)
+                {
+                    m_KnownProtests.Add(protests[i].m_Id);
+                }
+            }
+        }
+
+        private bool HasIcon(Entity building, Entity icon)
+        {
+            if (building == Entity.Null || icon == Entity.Null || !EntityManager.TryGetBuffer(building, true, out DynamicBuffer<Game.Notifications.IconElement> icons))
+            {
+                return false;
+            }
+            for (int i = 0; i < icons.Length; i++)
+            {
+                if (EntityManager.TryGetComponent(icons[i].m_Icon, out PrefabRef prefab) && prefab.m_Prefab == icon)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private int CountChirps(Entity chirpPrefab)
+        {
+            int chirps = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Triggers.Chirp>(), ComponentType.ReadOnly<PrefabRef>()))
+            using (NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity entity in entities)
+                {
+                    chirps += EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab == chirpPrefab ? 1 : 0;
+                }
+            }
+            return chirps;
+        }
+
+        private void Follow(Entity entity, float zoom, float pitch = 0f)
+        {
+            Game.Rendering.CameraUpdateSystem cameras = World.GetOrCreateSystemManaged<Game.Rendering.CameraUpdateSystem>();
+            if (entity != Entity.Null && cameras.orbitCameraController != null)
+            {
+                cameras.orbitCameraController.followedEntity = entity;
+                cameras.orbitCameraController.zoom = zoom;
+                if (pitch > 0f)
+                {
+                    // Looking down on the roads, so their colours show in the screenshot.
+                    cameras.orbitCameraController.rotation = new Vector3(pitch, cameras.orbitCameraController.rotation.y, 0f);
+                }
+                cameras.activeCameraController = cameras.orbitCameraController;
+            }
+        }
+
+        private void Shot(string name)
+        {
+            string file = Path.Combine(m_Directory, "selftest", name + ".png");
+            ScreenCapture.CaptureScreenshot(file);
+            Line($"Screenshot {file}");
+        }
+
+        private void StartProtests()
+        {
+            LitigationSystem.TestDisableRandomFiling = true;
+            RememberProtests();
+            Line($"Protests before the stage: {m_KnownProtests.Count}; pressure {Protests.LastPressure:0.000}% of monthly income, {Protests.LastYearlyRate:0.000} new protests a year.");
+            ProtestSystem.TestProtestPolicy = PolicyCatalog.Find(PolicyCatalog.kScholarships);
+            ProtestSystem.TestStartProtest = true;
+            Line("Forcing a protest over the scholarships.");
+            SetStage(Stage.ProtestStart);
+        }
+
+        private void UpdateProtestStart()
+        {
+            int id = NewProtest(PolicyCatalog.Find(PolicyCatalog.kScholarships));
+            if (id > 0)
+            {
+                m_ProtestId = id;
+                Protest protest = GetProtest(id);
+                Check("A forced protest starts over the scholarships on a lived-in road segment, with a character and a representative",
+                    EntityManager.Exists(protest.m_StartEdge) && EntityManager.Exists(protest.m_Representative) && protest.m_Residents >= 1 && protest.m_Trait <= 3 && protest.m_Size > 0f,
+                    $"edge {protest.m_StartEdge.Index}, residents {protest.m_Residents}, trait {(ProtestTrait)protest.m_Trait}, size {protest.m_Size:0.000}, intensity {protest.m_Intensity:0.00}, demand {protest.m_DemandIntensity:0.00} from {protest.m_StartIntensity:0.00}");
+                CheckPlace("It gathers in a park with its own lot beside a road within 256 m of where the aggrieved live (Huff), or on their road when none is in reach", protest, false);
+                Follow(protest.m_IconOwner, 300f);
+                SetStage(Stage.ProtestIcon);
+            }
+            else if (SimFrames() > 8192)
+            {
+                Check("A forced protest starts over the scholarships", false, "none within 8192 frames");
+                SetStage(Stage.Finish);
+            }
+        }
+
+        private void CheckProtestNotifications()
+        {
+            Protest protest = GetProtest(m_ProtestId);
+            Check("The protest shows the megaphone icon over its park (or its road when there is none)", HasIcon(protest.m_IconOwner, ProtestPrefabs.ProtestIcon),
+                $"{(protest.m_Place != Entity.Null ? "park" : "road")} {protest.m_IconOwner.Index}");
+            Check("A protester posts the protest chirp", CountChirps(ProtestPrefabs.ProtestChirp) > 0, $"{CountChirps(ProtestPrefabs.ProtestChirp)} chirps");
+            Shot("protest-icon");
+            m_IconOwnerOf = protest.m_IconOwner;
+            // For the negotiation checks: the demand is to bring the scholarships back from where they are now to 60%.
+            protest.m_StartIntensity = m_Engine.LastIntensity(PolicyCatalog.Definition(PolicyCatalog.kScholarships));
+            protest.m_DemandIntensity = 0.6f;
+            SetProtest(protest);
+            Line($"Demand set to bring the scholarships from {protest.m_StartIntensity:0.00} to 0.60.");
+        }
+
+        /// <summary>
+        /// Where the protest gathers (§12, 2026-11-02 and 2026-11-09 user decisions): a park within 256 m of the residents'
+        /// road, the protest starting on the park's road with the icon on the park; with none in reach (or none allowed by
+        /// the test), the residents' own road, with the icon on that road.
+        /// </summary>
+        private void CheckPlace(string name, Protest protest, bool noParkForced)
+        {
+            Unity.Mathematics.float2 from = EntityManager.TryGetComponent(protest.m_HomeEdge, out Game.Net.Curve curve) ? Colossal.Mathematics.MathUtils.Position(curve.m_Bezier, 0.5f).xz : default;
+            // Parks in reach: those that count (own lot beside a road) and those left out (made to stand on a road).
+            int inReach = 0;
+            var onRoad = new System.Collections.Generic.List<string>();
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Park>(), ComponentType.ReadOnly<Game.Buildings.Building>(),
+                ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Game.Tools.Temp>()))
+            using (NativeArray<Entity> parks = query.ToEntityArray(Allocator.Temp))
+            {
+                PrefabSystem prefabs = World.GetOrCreateSystemManaged<PrefabSystem>();
+                foreach (Entity park in parks)
+                {
+                    if (EntityManager.GetComponentData<Game.Buildings.Building>(park).m_RoadEdge == Entity.Null
+                        || Unity.Mathematics.math.distance(from, EntityManager.GetComponentData<Game.Objects.Transform>(park).m_Position.xz) > 256f)
+                    {
+                        continue;
+                    }
+                    if (ProtestSystem.IsRoadsidePark(EntityManager, park, out _))
+                    {
+                        inReach++;
+                    }
+                    else
+                    {
+                        onRoad.Add(prefabs.GetPrefabName(EntityManager.GetComponentData<PrefabRef>(park).m_Prefab));
+                    }
+                }
+            }
+            Line($"Parks within 256 m: {inReach} beside a road, {onRoad.Count} left out as standing on a road ({string.Join(", ", onRoad)}).");
+            if (protest.m_Place != Entity.Null)
+            {
+                float d = Unity.Mathematics.math.distance(from, EntityManager.GetComponentData<Game.Objects.Transform>(protest.m_Place).m_Position.xz);
+                Unity.Mathematics.int2 lot = EntityManager.TryGetComponent(EntityManager.GetComponentData<PrefabRef>(protest.m_Place).m_Prefab, out BuildingData data) ? data.m_LotSize : default;
+                string parkName = World.GetOrCreateSystemManaged<PrefabSystem>().GetPrefabName(EntityManager.GetComponentData<PrefabRef>(protest.m_Place).m_Prefab);
+                Check(name, !noParkForced && EntityManager.HasComponent<Game.Buildings.Park>(protest.m_Place) && ProtestSystem.IsRoadsidePark(EntityManager, protest.m_Place, out _) && d <= 256f
+                    && protest.m_StartEdge == EntityManager.GetComponentData<Game.Buildings.Building>(protest.m_Place).m_RoadEdge && protest.m_IconOwner == protest.m_Place,
+                    $"park {protest.m_Place.Index} '{parkName}' ({lot.x}x{lot.y} cells) {d:0} m from the residents' road, {inReach} parks in reach");
+            }
+            else
+            {
+                Check(name, (noParkForced || inReach == 0) && protest.m_StartEdge == protest.m_HomeEdge && protest.m_IconOwner == protest.m_StartEdge,
+                    $"residents' road {protest.m_StartEdge.Index}, {inReach} parks in reach{(noParkForced ? " (parks left out by the test)" : "")}");
+            }
+        }
+
+        /// <summary>People heading to (and standing at) the gathering places of one protest (its park and spots), or at any spot when null.</summary>
+        private (int heading, int standing) CountCrowd(int? protestId)
+        {
+            var spots = new System.Collections.Generic.HashSet<Entity>();
+            if (EntityManager.TryGetBuffer(m_CitySystem.City, true, out DynamicBuffer<ProtestSpot> buffer))
+            {
+                for (int i = 0; i < buffer.Length; i++)
+                {
+                    if (protestId == null || buffer[i].m_Protest == protestId.Value)
+                    {
+                        spots.Add(buffer[i].m_Spot);
+                    }
+                }
+            }
+            if (protestId != null && ProtestIndex(protestId.Value) >= 0 && GetProtest(protestId.Value).m_Place != Entity.Null)
+            {
+                spots.Add(GetProtest(protestId.Value).m_Place);
+            }
+            int heading = 0;
+            int standing = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Creatures.Resident>(), ComponentType.ReadOnly<Target>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> people = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity person in people)
+                {
+                    Entity target = EntityManager.GetComponentData<Target>(person).m_Target;
+                    if (target == Entity.Null || (protestId != null && !spots.Contains(target)) || (protestId == null && !EntityManager.HasComponent<Game.Objects.SpawnLocation>(target)))
+                    {
+                        continue;
+                    }
+                    if (protestId == null && (!EntityManager.TryGetComponent(target, out PrefabRef prefab) || prefab.m_Prefab != ProtestPrefabs.Spot))
+                    {
+                        continue;
+                    }
+                    heading++;
+                    if (IsStanding(person))
+                    {
+                        standing++;
+                    }
+                }
+            }
+            return (heading, standing);
+        }
+
+        private uint m_NextArrivalCheck;
+
+        /// <summary>
+        /// Someone stands at the place yet (in the park when there is one), or long enough has passed: from a park up to
+        /// 256 m away the walk takes about 12,000 frames (the first run checked at 4,096 frames with all 70 still on the way;
+        /// the second stopped waiting when the nearer sidewalks filled, with the park-goers 40-50 m short). Looked at every
+        /// 1,024 frames.
+        /// </summary>
+        private bool CrowdArrived(int protestId)
+        {
+            uint frames = SimFrames();
+            if (frames >= 20480)
+            {
+                return true;
+            }
+            if (frames < m_NextArrivalCheck && m_NextArrivalCheck - frames <= 1024)
+            {
+                return false;
+            }
+            m_NextArrivalCheck = frames + 1024;
+            Entity park = ProtestIndex(protestId) >= 0 ? GetProtest(protestId).m_Place : Entity.Null;
+            return park != Entity.Null ? StandingAt(protestId, park) > 0 : CountCrowd(protestId).standing > 0;
+        }
+
+        /// <summary>Marchers of this protest sent to this place who stand there now.</summary>
+        private int StandingAt(int protestId, Entity place)
+        {
+            int count = 0;
+            DynamicBuffer<ProtestMarcher> sent = EntityManager.GetBuffer<ProtestMarcher>(m_CitySystem.City, true);
+            for (int i = 0; i < sent.Length; i++)
+            {
+                if (sent[i].m_Protest == protestId && sent[i].m_Spot == place
+                    && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport transport) && IsStanding(transport.m_CurrentTransport))
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        /// <summary>A person staying at the place: the game marks the lane they mill about on ("hang around").</summary>
+        private bool IsStanding(Entity person)
+        {
+            return EntityManager.TryGetComponent(person, out Game.Creatures.HumanCurrentLane lane) && (lane.m_Flags & Game.Creatures.CreatureLaneFlags.Hangaround) != 0;
+        }
+
+        /// <summary>Someone of this protest milling about at a spot, for a close-up.</summary>
+        private Entity StandingMarcher(int protestId)
+        {
+            DynamicBuffer<ProtestMarcher> sent = EntityManager.GetBuffer<ProtestMarcher>(m_CitySystem.City, true);
+            for (int i = 0; i < sent.Length; i++)
+            {
+                if (sent[i].m_Protest == protestId && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport transport) && IsStanding(transport.m_CurrentTransport))
+                {
+                    return transport.m_CurrentTransport;
+                }
+            }
+            return Entity.Null;
+        }
+
+        /// <param name="parkCheck">Check that someone stands in the park: only right after they arrive, as a small park
+        /// (16 people in one cell) can be empty a moment later while its stays end and the next walkers come.</param>
+        private void CheckCrowd(string name, int protestId, string shot, bool parkCheck = true)
+        {
+            int index = ProtestIndex(protestId);
+            int participants = index >= 0 ? GetProtest(protestId).m_Participants : 0;
+            int spots = 0;
+            DynamicBuffer<ProtestSpot> buffer = EntityManager.GetBuffer<ProtestSpot>(m_CitySystem.City, true);
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                spots += buffer[i].m_Protest == protestId ? 1 : 0;
+            }
+            int marchers = 0;
+            DynamicBuffer<ProtestMarcher> sent = EntityManager.GetBuffer<ProtestMarcher>(m_CitySystem.City, true);
+            for (int i = 0; i < sent.Length; i++)
+            {
+                marchers += sent[i].m_Protest == protestId ? 1 : 0;
+            }
+            (int heading, int standing) = CountCrowd(protestId);
+            Protest of = index >= 0 ? GetProtest(protestId) : default;
+            // In the park: those standing there; from home: marchers living on the road the aggrieved live on.
+            int inPark = 0;
+            int fromHome = 0;
+            for (int i = 0; i < sent.Length; i++)
+            {
+                if (sent[i].m_Protest != protestId)
+                {
+                    continue;
+                }
+                if (of.m_Place != Entity.Null && sent[i].m_Spot == of.m_Place && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport walkerInPark)
+                    && IsStanding(walkerInPark.m_CurrentTransport))
+                {
+                    inPark++;
+                }
+                if (EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.HouseholdMember member) && EntityManager.TryGetComponent(member.m_Household, out Game.Buildings.PropertyRenter renter)
+                    && EntityManager.TryGetComponent(renter.m_Property, out Game.Buildings.Building home) && home.m_RoadEdge == of.m_HomeEdge)
+                {
+                    fromHome++;
+                }
+            }
+            Line($"Protest {protestId}: {inPark} standing in its park, {fromHome} of those sent live on the road the aggrieved live on.");
+            // Where the people sent are: trip not started, waiting for a path, walking, standing, gone into the spot.
+            int pending = 0, waiting = 0, walking = 0, still = 0, inside = 0, other = 0;
+            for (int i = 0; i < sent.Length; i++)
+            {
+                if (sent[i].m_Protest != protestId)
+                {
+                    continue;
+                }
+                Entity citizen = sent[i].m_Citizen;
+                Entity spot = sent[i].m_Spot;
+                bool tripPending = false;
+                if (EntityManager.TryGetBuffer(citizen, true, out DynamicBuffer<Game.Citizens.TripNeeded> trips))
+                {
+                    for (int k = 0; k < trips.Length; k++)
+                    {
+                        tripPending |= trips[k].m_TargetAgent == spot;
+                    }
+                }
+                if (EntityManager.TryGetComponent(citizen, out Game.Citizens.CurrentBuilding current) && current.m_CurrentBuilding == spot) inside++;
+                else if (EntityManager.TryGetComponent(citizen, out Game.Citizens.CurrentTransport transport) && EntityManager.TryGetComponent(transport.m_CurrentTransport, out Game.Creatures.Resident resident))
+                {
+                    if (IsStanding(transport.m_CurrentTransport)) still++;
+                    else walking++;
+                }
+                else if (tripPending) pending++;
+                else if (EntityManager.TryGetComponent(citizen, out Target target) && target.m_Target == spot) waiting++;
+                else other++;
+            }
+            // A few of those walking: what their path looks like and how far they are from their spot.
+            int samples = 0;
+            for (int i = 0; i < sent.Length && samples < 5; i++)
+            {
+                if (sent[i].m_Protest != protestId || !EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport walker)
+                    || !EntityManager.TryGetComponent(walker.m_CurrentTransport, out Game.Creatures.Resident walkerData) || (walkerData.m_Flags & Game.Creatures.ResidentFlags.Hangaround) != 0)
+                {
+                    continue;
+                }
+                samples++;
+                Entity creature = walker.m_CurrentTransport;
+                Entity spot = sent[i].m_Spot;
+                string divert = EntityManager.TryGetComponent(creature, out Game.Creatures.Divert d) ? d.m_Purpose.ToString() : "-";
+                string path = "-";
+                if (EntityManager.TryGetComponent(creature, out Game.Pathfind.PathOwner owner) && EntityManager.TryGetBuffer(creature, true, out DynamicBuffer<Game.Pathfind.PathElement> elements))
+                {
+                    Entity last = elements.Length > 0 ? elements[elements.Length - 1].m_Target : Entity.Null;
+                    string lastKind = last == spot ? "spot" : last == Entity.Null ? "none" : EntityManager.HasComponent<Game.Net.PedestrianLane>(last) ? "sidewalk" : "other";
+                    string flags = elements.Length > 0 ? elements[elements.Length - 1].m_Flags.ToString() : "-";
+                    path = $"{owner.m_State} at {owner.m_ElementIndex}/{elements.Length}, last {lastKind} ({flags})";
+                }
+                string lane = "-";
+                float distance = -1f;
+                if (EntityManager.TryGetComponent(creature, out Game.Creatures.HumanCurrentLane current))
+                {
+                    Entity spotLane = EntityManager.TryGetComponent(spot, out Game.Objects.SpawnLocation location) ? location.m_ConnectedLane1 : Entity.Null;
+                    lane = $"{(current.m_Lane == spotLane ? "spot lane" : current.m_Lane == spot ? "spot" : "other")} {current.m_CurvePosition.x:0.00}->{current.m_CurvePosition.y:0.00} {current.m_Flags}";
+                }
+                if (EntityManager.TryGetComponent(creature, out Game.Objects.Transform here) && EntityManager.TryGetComponent(spot, out Game.Objects.Transform there))
+                {
+                    distance = Unity.Mathematics.math.distance(here.m_Position, there.m_Position);
+                }
+                Line($"  walker {creature.Index}: flags {walkerData.m_Flags}, divert {divert}, path {path}, lane {lane}, {distance:0} m from its spot");
+            }
+            Line($"Crowd of protest {protestId}: {pending} trip not started, {waiting} waiting for a path, {walking} walking, {still} standing, {inside} gone into the spot, {other} elsewhere; "
+                + $"last update moved on {Protests.LastMovedOn}, left {Protests.LastLeft}, sent {Protests.LastSent}.");
+            Check(name, (spots > 0 || of.m_Place != Entity.Null) && marchers > 0 && standing > 0,
+                $"{participants} participants, {(of.m_Place != Entity.Null ? "a park and " : "")}{spots} spots, {marchers} sent, {heading} on the way or there, {standing} standing");
+            if (of.m_Place != Entity.Null && parkCheck)
+            {
+                Check("Protesters stand in the park, and they come from the road the aggrieved live on", inPark > 0 && fromHome > 0,
+                    $"{inPark} standing in the park, {fromHome} from the residents' road");
+            }
+            if (shot != null)
+            {
+                Shot(shot);
+            }
+        }
+
+        private void StartPartialNegotiation()
+        {
+            Protest protest = GetProtest(m_ProtestId);
+            Check("[UI] Clicking Negotiate in the protests tab sets the response", protest.m_Response == (byte)ProtestResponse.Negotiate, $"response {(ProtestResponse)protest.m_Response}");
+            Protests.Negotiate(m_ProtestId, 0.3f, 0);
+            Line("Negotiation: scholarships to 30% (half the demand), no compensation.");
+            SetStage(Stage.ProtestPartial);
+        }
+
+        private void CheckPartialNegotiation()
+        {
+            CheckCrowd("Protesters are still out on the street a while later", m_ProtestId, null, false);
+            int index = ProtestIndex(m_ProtestId);
+            float now = m_Engine.LastIntensity(PolicyCatalog.Definition(PolicyCatalog.kScholarships));
+            Protest protest = index >= 0 ? GetProtest(m_ProtestId) : default;
+            Check("Meeting half the demand sets the policy through the policy panel's path and keeps the protest going",
+                IsActive(PolicyCatalog.Find(PolicyCatalog.kScholarships)) && Mathf.Abs(now - 0.3f) < 0.01f && index >= 0 && !protest.m_Granted && protest.m_EverConceded
+                && protest.m_Response == (byte)ProtestResponse.Negotiate,
+                $"scholarships {now:0.00}, protest {(index >= 0 ? "on" : "gone")}, granted {protest.m_Granted}, conceded {protest.m_EverConceded}, size {protest.m_Size:0.000}");
+            Protests.Negotiate(m_ProtestId, 0.6f, 0);
+            Line("Negotiation: scholarships to 60% (the full demand).");
+            m_EndSeenAt = 0;
+            SetStage(Stage.ProtestFull);
+        }
+
+        private void UpdateProtestFull()
+        {
+            if (ProtestIndex(m_ProtestId) >= 0)
+            {
+                if (SimFrames() > 16384)
+                {
+                    Protest protest = GetProtest(m_ProtestId);
+                    Check("Meeting the full demand ends a protest", false, $"still on: granted {protest.m_Granted}, riot {protest.m_Riot}, scholarships {m_Engine.LastIntensity(PolicyCatalog.Definition(PolicyCatalog.kScholarships)):0.00}");
+                    StartActionTest();
+                }
+                return;
+            }
+            if (m_EndSeenAt == 0)
+            {
+                m_EndSeenAt = SimFrames();
+                return;
+            }
+            if (SimFrames() - m_EndSeenAt < 1024)
+            {
+                return;
+            }
+            Check("Meeting the full demand ends the protest and takes its icon away", !HasIcon(m_IconOwnerOf, ProtestPrefabs.ProtestIcon), $"ended within {m_EndSeenAt} frames");
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kScholarships), false, 0f);
+            // Strikes and closures before the riot: their protests-tab check runs before the riot's save and reload.
+            StartActionTest();
+        }
+
+        private Entity m_IconOwnerOf;
+
+        private void StartRiot()
+        {
+            RememberProtests();
+            ProtestSystem.TestProtestTax = true;
+            // This one starts on the residents' road, as when no park is near: its icon is on the road.
+            ProtestSystem.TestNoPark = true;
+            ProtestSystem.TestStartProtest = true;
+            Line("Forcing a protest over the residential tax, to be turned into a riot.");
+            SetStage(Stage.RiotStart);
+        }
+
+        private void UpdateRiotStart()
+        {
+            int id = NewProtest(Entity.Null);
+            if (id > 0)
+            {
+                m_RiotId = id;
+                PinRiot(0.8f);
+                Protest protest = GetProtest(id);
+                Line($"Tax protest {id} on edge {protest.m_StartEdge.Index} ({protest.m_Residents} residents) pushed to intensity 0.8; legitimacy {m_Engine.LastState.m_Legitimacy:0.000}.");
+                CheckPlace("Without a park in reach it starts on the residents' road, with the icon on that road", protest, true);
+                // Clicking the icon on a road selects the road: the protest's section shows in the road's panel.
+                World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(protest.m_IconOwner);
+                Follow(protest.m_IconOwner, 400f);
+                SetStage(Stage.RiotClosed);
+            }
+            else if (SimFrames() > 8192)
+            {
+                Check("A forced protest starts over the residential tax", false, "none within 8192 frames");
+                SetStage(Stage.Finish);
+            }
+        }
+
+        /// <summary>
+        /// Keeps the first protest going and below a riot while its negotiation is checked (a forced protest with little
+        /// real pressure behind it would otherwise fade out, and an extreme one turn into a riot).
+        /// </summary>
+        private void HoldProtest()
+        {
+            if (ProtestIndex(m_ProtestId) < 0)
+            {
+                return;
+            }
+            Protest protest = GetProtest(m_ProtestId);
+            if (protest.m_Size < 0.1f || protest.m_Intensity > 0.4f)
+            {
+                protest.m_Size = Mathf.Max(protest.m_Size, 0.1f);
+                protest.m_Intensity = Mathf.Min(protest.m_Intensity, 0.4f);
+                SetProtest(protest);
+            }
+        }
+
+        /// <summary>Holds the riot at least at <paramref name="intensity"/> and a third of the residents, so the stages see a riot.</summary>
+        private void PinRiot(float intensity)
+        {
+            if (ProtestIndex(m_RiotId) < 0)
+            {
+                return;
+            }
+            Protest protest = GetProtest(m_RiotId);
+            if (protest.m_Intensity < intensity || protest.m_Size < 0.3f)
+            {
+                protest.m_Intensity = Mathf.Max(protest.m_Intensity, intensity);
+                protest.m_Size = Mathf.Max(protest.m_Size, 0.3f);
+                SetProtest(protest);
+            }
+        }
+
+        private void CheckRiotClosed()
+        {
+            Protest protest = GetProtest(m_RiotId);
+            Check("Selecting the road under the riot icon shows the protest's section in the road's panel",
+                World.GetOrCreateSystemManaged<ProtestInfoSection>().visible && World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().selectedEntity == protest.m_IconOwner,
+                $"road {protest.m_IconOwner.Index}");
+            Shot("riot-road-panel");
+            World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>().SetSelection(Entity.Null);
+            Check("At intensity 0.6 or more it is a riot, with the riot chirp and the flame icon",
+                protest.m_Riot && HasIcon(protest.m_IconOwner, ProtestPrefabs.RiotIcon) && CountChirps(ProtestPrefabs.RiotChirp) > 0,
+                $"riot {protest.m_Riot}, icon {HasIcon(protest.m_IconOwner, ProtestPrefabs.RiotIcon)}, chirps {CountChirps(ProtestPrefabs.RiotChirp)}");
+            DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true);
+            int flagged = 0;
+            for (int i = 0; i < closed.Length; i++)
+            {
+                if (EntityManager.TryGetComponent(closed[i].m_Lane, out Game.Net.CarLane lane) && (lane.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0)
+                {
+                    flagged++;
+                }
+            }
+            Check("A riot closes its roads to private cars: public-only lanes, recorded to give back",
+                closed.Length > 0 && flagged == closed.Length && Protests.LastClosedEdges.Contains(protest.m_StartEdge),
+                $"{closed.Length} lanes recorded, {flagged} public-only, {Protests.LastClosedEdges.Count} closed segments, {Protests.LastClosedNodes.Count} closed nodes");
+
+            float maxCrime = Singleton<PoliceConfigurationData>().m_MaxCrimeAccumulation;
+            int buildings = 0;
+            int raised = 0;
+            if (EntityManager.TryGetBuffer(protest.m_StartEdge, true, out DynamicBuffer<Game.Buildings.ConnectedBuilding> connected))
+            {
+                for (int b = 0; b < connected.Length; b++)
+                {
+                    if (EntityManager.TryGetComponent(connected[b].m_Building, out Game.Buildings.CrimeProducer crime))
+                    {
+                        buildings++;
+                        raised += crime.m_Crime >= 0.5f * maxCrime ? 1 : 0;
+                    }
+                }
+            }
+            Check("Buildings along a riot hold crime at the riot's intensity", buildings > 0 && raised > 0, $"{raised} of {buildings} buildings at half the maximum or more (max {maxCrime:0})");
+            Protests.Respond(m_RiotId, ProtestResponse.Disperse);
+            Line("Response: repression by forced dispersal.");
+            m_PostsChecked = false;
+            SetStage(Stage.RiotPolice);
+        }
+
+        private int PostCount(int protestId)
+        {
+            DynamicBuffer<PolicePost> posts = EntityManager.GetBuffer<PolicePost>(m_CitySystem.City, true);
+            int count = 0;
+            for (int i = 0; i < posts.Length; i++)
+            {
+                count += posts[i].m_Protest == protestId ? 1 : 0;
+            }
+            return count;
+        }
+
+        /// <summary>A police car standing at one of the riot's posts, or Entity.Null.</summary>
+        private Entity StandingCar()
+        {
+            var sites = new System.Collections.Generic.HashSet<Entity>();
+            DynamicBuffer<PolicePost> posts = EntityManager.GetBuffer<PolicePost>(m_CitySystem.City, true);
+            for (int i = 0; i < posts.Length; i++)
+            {
+                sites.Add(posts[i].m_Site);
+            }
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Vehicles.PoliceCar>(), ComponentType.ReadOnly<ServiceDispatch>()))
+            using (NativeArray<Entity> cars = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity car in cars)
+                {
+                    Game.Vehicles.PoliceCar data = EntityManager.GetComponentData<Game.Vehicles.PoliceCar>(car);
+                    DynamicBuffer<ServiceDispatch> dispatches = EntityManager.GetBuffer<ServiceDispatch>(car, true);
+                    if ((data.m_State & Game.Vehicles.PoliceCarFlags.AtTarget) != 0 && dispatches.Length > 0
+                        && EntityManager.TryGetComponent(dispatches[0].m_Request, out PoliceEmergencyRequest request) && sites.Contains(request.m_Site))
+                    {
+                        return car;
+                    }
+                }
+            }
+            return Entity.Null;
+        }
+
+        private void UpdateRiotPolice()
+        {
+            if (ProtestIndex(m_RiotId) < 0)
+            {
+                Check("The riot lasts while it is repressed", false, "it ended");
+                SetStage(Stage.Finish);
+                return;
+            }
+            Protest protest = GetProtest(m_RiotId);
+            if (!m_PostsChecked && SimFrames() >= 4096)
+            {
+                m_PostsChecked = true;
+                DynamicBuffer<PolicePost> posts = EntityManager.GetBuffer<PolicePost>(m_CitySystem.City, true);
+                bool sites = posts.Length > 0;
+                for (int i = 0; i < posts.Length; i++)
+                {
+                    sites &= EntityManager.HasComponent<Game.Events.AccidentSite>(posts[i].m_Site) && EntityManager.Exists(posts[i].m_Point);
+                }
+                Check("Forced dispersal sets up police posts that ask the game for police cars, one after another",
+                    PostCount(m_RiotId) >= 1 && sites && protest.m_CarsNeeded >= 1,
+                    $"{PostCount(m_RiotId)} posts for {protest.m_CarsNeeded} cars needed ({protest.m_Participants} people), {Protests.LastPoliceEdges.Count} police segments, {Protests.LastClosedNodes.Count} closed nodes");
+            }
+            if (m_PostsChecked && protest.m_CarsArrived >= 1)
+            {
+                m_HeldCar = StandingCar();
+                Game.Vehicles.PoliceCar car = m_HeldCar != Entity.Null ? EntityManager.GetComponentData<Game.Vehicles.PoliceCar>(m_HeldCar) : default;
+                Check("A police car reaches its post and stands there, taken off other calls",
+                    m_HeldCar != Entity.Null && car.m_PurposeMask == 0 && Protests.HeldCarCount >= 1,
+                    $"{protest.m_CarsArrived}/{protest.m_CarsNeeded} in place after {SimFrames()} frames, purpose {car.m_PurposeMask}, held {Protests.HeldCarCount}, repression {protest.m_Repression:0.00}");
+                m_ShotStep = 0;
+                SetStage(Stage.RiotShots);
+            }
+            else if (SimFrames() > 60000)
+            {
+                Check("A police car reaches a riot post", false, $"needed {protest.m_CarsNeeded}, posts {PostCount(m_RiotId)}, arrived {protest.m_CarsArrived}");
+                m_ShotStep = 0;
+                SetStage(Stage.RiotShots);
+            }
+        }
+
+        /// <summary>Screenshots of the riot as it is and in the protest infoview, with the road colour check.</summary>
+        private void UpdateRiotShots()
+        {
+            Game.Tools.ToolSystem tools = World.GetOrCreateSystemManaged<Game.Tools.ToolSystem>();
+            if (m_ShotStep == 0)
+            {
+                Follow(GetProtest(m_RiotId).m_IconOwner, 500f, 60f);
+                m_ShotStep = 1;
+                m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+            }
+            else if (m_ShotStep == 1 && StageSeconds() >= 4f && CrowdArrived(m_RiotId))
+            {
+                // Waits until someone stands there: on a long road the walk to the spots can take a while (one run checked
+                // with all 383 still 29-99 m away, some posting a letter on the way).
+                CheckCrowd("Rioters fill the sidewalks of the riot roads", m_RiotId, null);
+                Shot("riot-police");
+                Entity person = StandingMarcher(m_RiotId);
+                Follow(person != Entity.Null ? person : GetProtest(m_RiotId).m_IconOwner, 45f, 35f);
+                m_ShotStep = 2;
+                m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+            }
+            else if (m_ShotStep == 2 && StageSeconds() >= 4f)
+            {
+                Shot("riot-crowd-close");
+                Follow(GetProtest(m_RiotId).m_IconOwner, 500f, 60f);
+                tools.infoview = ProtestInfoview.Prefab;
+                m_ShotStep = 3;
+                m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+            }
+            else if (m_ShotStep == 3 && StageSeconds() >= 4f)
+            {
+                Protest protest = GetProtest(m_RiotId);
+                int riot = ProtestInfoview.Index(EntityManager, m_PrefabSystem, ProtestInfoview.Riot);
+                int police = ProtestInfoview.Index(EntityManager, m_PrefabSystem, ProtestInfoview.Police);
+                Game.Net.EdgeColor color = EntityManager.TryGetComponent(protest.m_StartEdge, out Game.Net.EdgeColor c) ? c : default;
+                int policeOk = 0;
+                foreach (Entity edge in Protests.LastPoliceEdges.Keys)
+                {
+                    policeOk += EntityManager.TryGetComponent(edge, out Game.Net.EdgeColor e) && e.m_Index == police ? 1 : 0;
+                }
+                Check("The protest infoview colours riot roads and police roads in their legend colours",
+                    ProtestInfoview.IsActive(tools) && riot >= 0 && color.m_Index == riot && policeOk == Protests.LastPoliceEdges.Count,
+                    $"infoview {ProtestInfoview.IsActive(tools)}, riot index {riot}, start edge {color.m_Index}, police roads {policeOk}/{Protests.LastPoliceEdges.Count} (index {police})");
+                Shot("riot-infoview");
+                tools.infoview = null;
+                StartProtestSave();
+            }
+        }
+
+        private string ProtestSnapshot()
+        {
+            Protest protest = GetProtest(m_RiotId);
+            int pressures = EntityManager.GetBuffer<ProtestPressure>(m_CitySystem.City, true).Length;
+            return $"protest {protest.m_Id} response {(ProtestResponse)protest.m_Response} trait {(ProtestTrait)protest.m_Trait} demand {protest.m_DemandIntensity:0.00} repressed {protest.m_EverRepressed}; pressures {pressures}";
+        }
+
+        private void StartProtestSave()
+        {
+            m_CrimesBeforeSave = Protests.RiotCrimes;
+            LogCrimeScenes(GetProtest(m_RiotId));
+            m_ProtestSnapshot = ProtestSnapshot();
+            Line($"Protest data before saving: {m_ProtestSnapshot}; closed lanes {EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true).Length}, posts {PostCount(m_RiotId)}.");
+            var preview = Game.UI.ScreenCaptureHelper.CreateRenderTarget("RealisticPoliciesSelfTest", 680, 383);
+            Game.UI.ScreenCaptureHelper.CaptureScreenshot(Camera.main, preview, new Game.UI.Menu.MenuHelpers.SaveGamePreviewSettings());
+            SaveInfo info = World.GetOrCreateSystemManaged<Game.UI.Menu.MenuUISystem>().GetSaveInfo(false);
+            m_SaveTask = GameManager.instance.Save(kProtestSave, info, AssetDatabase.user, preview);
+            SetStage(Stage.RiotSave);
+        }
+
+        private void UpdateProtestSave()
+        {
+            if (m_SaveTask != null && m_SaveTask.IsCompleted)
+            {
+                bool saved = !m_SaveTask.IsFaulted && m_SaveTask.Result && FindSave(kProtestSave) != null;
+                Check("The city saves during a riot", saved, m_SaveTask.IsFaulted ? m_SaveTask.Exception?.GetBaseException().Message : null);
+                m_SaveTask = null;
+                if (saved)
+                {
+                    Line($"Reloading '{kProtestSave}'.");
+                    SetStage(Stage.RiotReloading);
+                    _ = GameManager.instance.Load(GameMode.Game, Purpose.LoadGame, FindSave(kProtestSave));
+                }
+                else
+                {
+                    SetStage(Stage.Finish);
+                }
+            }
+            else if (StageSeconds() > 120f)
+            {
+                Check("The city saves during a riot", false, "no result within 120 s");
+                SetStage(Stage.Finish);
+            }
+        }
+
+        /// <summary>What the load itself left of the closures and posts, before the mod's next update repairs them.</summary>
+        private void LogLoadedRoads()
+        {
+            Entity city = m_CitySystem.City;
+            if (city == Entity.Null || !EntityManager.HasBuffer<ClosedLane>(city))
+            {
+                Line("Loaded roads: no protest buffers yet.");
+                return;
+            }
+            DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(city, true);
+            int flagged = 0;
+            int exists = 0;
+            for (int i = 0; i < closed.Length; i++)
+            {
+                exists += EntityManager.Exists(closed[i].m_Lane) ? 1 : 0;
+                if (EntityManager.TryGetComponent(closed[i].m_Lane, out Game.Net.CarLane lane) && (lane.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0)
+                {
+                    flagged++;
+                }
+            }
+            var posts = new StringBuilder();
+            DynamicBuffer<PolicePost> buffer = EntityManager.GetBuffer<PolicePost>(city, true);
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                PolicePost post = buffer[i];
+                int targets = EntityManager.TryGetBuffer(post.m_Event, true, out DynamicBuffer<Game.Events.TargetElement> t) ? t.Length : -1;
+                posts.Append($"[site {EntityManager.Exists(post.m_Site)}/{EntityManager.HasComponent<Game.Events.AccidentSite>(post.m_Site)}, "
+                    + $"point {EntityManager.Exists(post.m_Point)}/{EntityManager.HasComponent<Game.Events.InvolvedInAccident>(post.m_Point)}/{EntityManager.HasComponent<Game.Objects.Attached>(post.m_Point)}, "
+                    + $"event {EntityManager.Exists(post.m_Event)} targets {targets}] ");
+            }
+            Line($"Loaded roads, before the mod updates: {flagged} of {closed.Length} recorded lanes public-only ({exists} exist); posts {posts}");
+        }
+
+        private void CheckProtestRoundTrip()
+        {
+            if (ProtestIndex(m_RiotId) < 0)
+            {
+                Check("The riot survives saving and loading", false, "not in the loaded city");
+                SetStage(Stage.Finish);
+                return;
+            }
+            string loaded = ProtestSnapshot();
+            Line($"Protest data after loading: {loaded}");
+            Check("The riot survives saving and loading (response, character, demand, pressure references)", loaded == m_ProtestSnapshot, loaded == m_ProtestSnapshot ? null : $"before: {m_ProtestSnapshot}");
+            DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true);
+            int flagged = 0;
+            for (int i = 0; i < closed.Length; i++)
+            {
+                if (EntityManager.TryGetComponent(closed[i].m_Lane, out Game.Net.CarLane lane) && (lane.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0)
+                {
+                    flagged++;
+                }
+            }
+            Check("Closed lanes are still closed after loading", closed.Length > 0 && flagged == closed.Length, $"{flagged} of {closed.Length} lanes public-only");
+            DynamicBuffer<PolicePost> posts = EntityManager.GetBuffer<PolicePost>(m_CitySystem.City, true);
+            int intact = 0;
+            for (int i = 0; i < posts.Length; i++)
+            {
+                intact += Protests.PostIntact(posts[i]) ? 1 : 0;
+            }
+            CheckCrowd("After loading, the rioters keep coming to the riot roads", m_RiotId, null);
+            Protest protest = GetProtest(m_RiotId);
+            Check("After loading, police posts are whole (broken ones asked for again)", posts.Length > 0 && intact == posts.Length,
+                $"{intact} of {posts.Length} posts whole, {protest.m_CarsArrived}/{protest.m_CarsNeeded} cars in place");
+        }
+
+        private void GrantRiot()
+        {
+            Protest protest = GetProtest(m_RiotId);
+            // Just above the riot threshold, so the fade after the concession ends it within a few updates.
+            protest.m_Intensity = 0.62f;
+            SetProtest(protest);
+            m_IconOwnerOf = protest.m_IconOwner;
+            m_ClosedLanesSeen.Clear();
+            DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true);
+            for (int i = 0; i < closed.Length; i++)
+            {
+                m_ClosedLanesSeen.Add(closed[i].m_Lane);
+            }
+            m_PostEntities.Clear();
+            DynamicBuffer<PolicePost> posts = EntityManager.GetBuffer<PolicePost>(m_CitySystem.City, true);
+            for (int i = 0; i < posts.Length; i++)
+            {
+                m_PostEntities.Add(posts[i].m_Site);
+                m_PostEntities.Add(posts[i].m_Point);
+                m_PostEntities.Add(posts[i].m_Event);
+            }
+            m_HeldCar = StandingCar();
+
+            float income = Mathf.Max(1f, m_BudgetSystem.GetTotalIncome());
+            float pressure = Protests.DemandPressure(Entity.Null);
+            int compensation = Mathf.CeilToInt(12f * income * Mathf.Max(0.001f, pressure / 100f) * 1.1f) + 1;
+            int rate = World.GetOrCreateSystemManaged<TaxSystem>().GetTaxRate(TaxAreaType.Residential);
+            int before = Money();
+            Protests.Negotiate(m_RiotId, rate, compensation);
+            int paid = before - Money();
+            bool postsGone = PostCount(m_RiotId) == 0;
+            foreach (Entity entity in m_PostEntities)
+            {
+                postsGone &= !EntityManager.Exists(entity);
+            }
+            Check("A year of the protesters' loss as compensation is paid at once and the police posts go",
+                paid == compensation && postsGone, $"paid {paid} of {compensation} (income {income:0}/month, pressure {pressure:0.000}%), posts {PostCount(m_RiotId)}");
+            m_EndSeenAt = 0;
+            SetStage(Stage.RiotEnd);
+        }
+
+        private void UpdateRiotEnd()
+        {
+            if (ProtestIndex(m_RiotId) >= 0)
+            {
+                if (SimFrames() > 30000)
+                {
+                    Protest protest = GetProtest(m_RiotId);
+                    Check("A riot whose demand is met fades and ends", false, $"granted {protest.m_Granted}, intensity {protest.m_Intensity:0.00}");
+                    SetStage(Stage.Finish);
+                }
+                return;
+            }
+            if (m_EndSeenAt == 0)
+            {
+                m_EndSeenAt = SimFrames();
+                Line($"The riot ended {m_EndSeenAt} frames after the concession.");
+                return;
+            }
+            if (SimFrames() - m_EndSeenAt < 2560)
+            {
+                return;
+            }
+            int stillClosed = 0;
+            foreach (Entity lane in m_ClosedLanesSeen)
+            {
+                if (EntityManager.TryGetComponent(lane, out Game.Net.CarLane data) && (data.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0)
+                {
+                    stillClosed++;
+                }
+            }
+            int recorded = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true).Length;
+            Check("When the riot ends every closed lane opens again", recorded == 0 && stillClosed == 0, $"{stillClosed} of {m_ClosedLanesSeen.Count} lanes still public-only, {recorded} recorded");
+            Game.Vehicles.PoliceCar car = m_HeldCar != Entity.Null && EntityManager.Exists(m_HeldCar) && EntityManager.HasComponent<Game.Vehicles.PoliceCar>(m_HeldCar)
+                ? EntityManager.GetComponentData<Game.Vehicles.PoliceCar>(m_HeldCar) : default;
+            bool carBack = m_HeldCar == Entity.Null || !EntityManager.Exists(m_HeldCar) || car.m_PurposeMask != 0;
+            Check("The police car loaded while standing gets its station's duties back", carBack && Protests.HeldCarCount == 0,
+                m_HeldCar == Entity.Null ? "no car stood there after loading" : $"purpose {car.m_PurposeMask}, held {Protests.HeldCarCount}");
+            ProtestCityState state = EntityManager.GetComponentData<ProtestCityState>(m_CitySystem.City);
+            Check("Concession after repression raises the start rate of the next protests for a year", state.m_MixedUntil > m_SimulationSystem.frameIndex,
+                $"until frame {state.m_MixedUntil}, now {m_SimulationSystem.frameIndex}");
+            int leftSpots = EntityManager.GetBuffer<ProtestSpot>(m_CitySystem.City, true).Length;
+            (int leftHeading, int leftStanding) = CountCrowd(null);
+            Check("When the riot ends its gathering spots go and nobody still heads for them", leftSpots == 0 && leftHeading == 0,
+                $"{leftSpots} spots, {leftHeading} people heading to a spot ({leftStanding} standing)");
+            Check("The riot's icon goes when it ends", !HasIcon(m_IconOwnerOf, ProtestPrefabs.RiotIcon) && !HasIcon(m_IconOwnerOf, ProtestPrefabs.ProtestIcon), null);
+
+            Entity scholarships = PolicyCatalog.Find(PolicyCatalog.kScholarships);
+            Protests.NoteSurpriseWin(scholarships, 0.8f);
+            DynamicBuffer<ProtestPressure> pressures = EntityManager.GetBuffer<ProtestPressure>(m_CitySystem.City, true);
+            float factor = 0f;
+            uint until = 0;
+            for (int i = 0; i < pressures.Length; i++)
+            {
+                if (pressures[i].m_Policy == scholarships)
+                {
+                    factor = pressures[i].m_SurpriseFactor;
+                    until = pressures[i].m_SurpriseUntil;
+                }
+            }
+            Check("A suit residents expected to win (p 0.8) but lost raises their pressure x1.6 for a year", Mathf.Abs(factor - 1.6f) < 1e-4f && until > m_SimulationSystem.frameIndex,
+                $"x{factor:0.00} until {until}");
+            Line($"Legitimacy after the protest stages: {m_Engine.LastState.m_Legitimacy:0.000}.");
+            StartCleanupTest();
+        }
+
+        // ------------------------------------------------------------------ strikes and collective closures (§12 "파업")
+
+        private float m_BaseIndustrialEfficiency;
+
+        private float CityIndustrialEfficiency()
+        {
+            DynamicBuffer<Game.City.CityModifier> modifiers = EntityManager.GetBuffer<Game.City.CityModifier>(m_CitySystem.City, true);
+            int index = (int)Game.City.CityModifierType.IndustrialEfficiency;
+            return modifiers.Length > index ? modifiers[index].m_Delta.y : 0f;
+        }
+
+        /// <summary>
+        /// A closure in industry (emission standard), a public servants' strike (contracting out) and a shop workers' strike
+        /// (minimum wage), held at a 0.3 change. Contracting out, not civil service pay: batches 3-10 switch civil service pay on
+        /// and off just before, a real cut the strike rightly keeps going over (changed-only run 2026-11-10).
+        /// </summary>
+        private void StartActionTest()
+        {
+            m_BaseIndustrialEfficiency = CityIndustrialEfficiency();
+            ProtestSystem.TestHeldChange = 0.3f;
+            ProtestSystem.TestStartActions.Add((PolicyCatalog.Find(PolicyCatalog.kEmissionStandard), ActionKind.Closure, ActionSector.Industrial));
+            ProtestSystem.TestStartActions.Add((PolicyCatalog.Find(PolicyCatalog.kContractingOut), ActionKind.Strike, ActionSector.Public));
+            ProtestSystem.TestStartActions.Add((PolicyCatalog.Find(PolicyCatalog.kMinimumWage), ActionKind.Strike, ActionSector.Commercial));
+            Line($"Forcing an industrial closure, a public servants' strike and a shop workers' strike; city industrial efficiency modifier now {m_BaseIndustrialEfficiency:0.000}.");
+            SetStage(Stage.ActionStart);
+        }
+
+        private void UpdateActionStart()
+        {
+            int count = EntityManager.GetBuffer<IndustrialAction>(m_CitySystem.City, true).Length;
+            if (count >= 3)
+            {
+                SetStage(Stage.ActionRun);
+            }
+            else if (SimFrames() > 8192)
+            {
+                Check("A strike and a closure start", false, $"{count} within 8192 frames");
+                ProtestSystem.TestHeldChange = -1f;
+                StartRiot();
+            }
+        }
+
+        private void UpdateActionRun()
+        {
+            if (SimFrames() < 6144)
+            {
+                return;
+            }
+            DynamicBuffer<IndustrialAction> actions = EntityManager.GetBuffer<IndustrialAction>(m_CitySystem.City, true);
+            var parts = new System.Collections.Generic.List<string>();
+            bool grew = actions.Length >= 3;
+            for (int i = 0; i < actions.Length; i++)
+            {
+                parts.Add($"{(ActionKind)actions[i].m_Kind} {(ActionSector)actions[i].m_Sector} {actions[i].m_Share:0.000}");
+                grew &= actions[i].m_Share > 0.05f;
+            }
+            Check("A strike and a closure start and draw more people in", grew, string.Join(", ", parts));
+            float now = CityIndustrialEfficiency();
+            Check("The closure lowers industrial efficiency through the game's city modifier (hidden policy on); people still go to work",
+                Protests.IsActionPolicyActive(m_CitySystem.City) && Protests.LastIndustrialLoss > 0f && now < m_BaseIndustrialEfficiency - 0.005f,
+                $"loss {Protests.LastIndustrialLoss:0.000}, city modifier {m_BaseIndustrialEfficiency:0.000} -> {now:0.000}, hidden policy {Protests.IsActionPolicyActive(m_CitySystem.City)}");
+            Check("Public servants on strike leave less staff for policy work", ProtestSystem.PublicStaffLoss > 0f, $"staff loss {ProtestSystem.PublicStaffLoss:0.000}");
+            BuildingEffectSystem effects = World.GetOrCreateSystemManaged<BuildingEffectSystem>();
+            Check("A shop workers' strike lowers each shop's employee happiness factor (people still go to work)",
+                ProtestSystem.CommercialLoss > 0f && effects.LastCommercialFactor < 1f && effects.CommercialTrackedCount > 0,
+                $"shop loss {ProtestSystem.CommercialLoss:0.000}, factor {effects.LastCommercialFactor:0.000}, shops changed {effects.CommercialTrackedCount}");
+            m_UiDone = false;
+            m_UISystem.SetSelfTestStage(6);
+            SetStage(Stage.ActionUi);
+        }
+
+        private void UpdateActionEnd()
+        {
+            if (SimFrames() < 4096)
+            {
+                return;
+            }
+            int left = EntityManager.GetBuffer<IndustrialAction>(m_CitySystem.City, true).Length;
+            Check("Giving back what they ask ends the strike and the closure, and the losses go",
+                left == 0 && Protests.LastIndustrialLoss == 0f && ProtestSystem.PublicStaffLoss == 0f && ProtestSystem.CommercialLoss == 0f
+                && World.GetOrCreateSystemManaged<BuildingEffectSystem>().CommercialTrackedCount == 0,
+                $"{left} left, industrial loss {Protests.LastIndustrialLoss:0.000}, staff loss {ProtestSystem.PublicStaffLoss:0.000}, hidden policy {Protests.IsActionPolicyActive(m_CitySystem.City)}");
+            StartRiot();
+        }
+
+        // ------------------------------------------------------------------ clean-up before removing the mod
+
+        private int m_CrimesBeforeSave;
+        private Entity[] m_CleanupLanes = new Entity[0];
+        private Entity m_CleanupOwner;
+
+        /// <summary>
+        /// Distance from the scene of a rioter's crime (the game's crime site whose event is that rioter's) to the nearest of
+        /// the riot's roads; -1 while none of their crimes has reached its scene.
+        /// </summary>
+        private float RiotCrimeSceneDistance(Protest riot)
+        {
+            var events = new System.Collections.Generic.HashSet<Entity>();
+            foreach (Entity citizen in Protests.RiotCriminals)
+            {
+                if (EntityManager.TryGetComponent(citizen, out Game.Citizens.Criminal criminal) && criminal.m_Event != Entity.Null)
+                {
+                    events.Add(criminal.m_Event);
+                }
+            }
+            if (events.Count == 0)
+            {
+                return -1f;
+            }
+            var roads = new System.Collections.Generic.List<Unity.Mathematics.float3>();
+            DynamicBuffer<ProtestEdge> edges = EntityManager.GetBuffer<ProtestEdge>(m_CitySystem.City, true);
+            for (int i = 0; i < edges.Length; i++)
+            {
+                if (edges[i].m_Protest == riot.m_Id && EntityManager.TryGetComponent(edges[i].m_Edge, out Game.Net.Curve curve))
+                {
+                    roads.Add(Colossal.Mathematics.MathUtils.Position(curve.m_Bezier, 0.5f));
+                }
+            }
+            float best = -1f;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> sites = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity site in sites)
+                {
+                    Game.Events.AccidentSite data = EntityManager.GetComponentData<Game.Events.AccidentSite>(site);
+                    if (!events.Contains(data.m_Event))
+                    {
+                        continue;
+                    }
+                    Unity.Mathematics.float3 at = EntityManager.GetComponentData<Game.Objects.Transform>(site).m_Position;
+                    foreach (Unity.Mathematics.float3 road in roads)
+                    {
+                        float d = Unity.Mathematics.math.distance(at, road);
+                        best = best < 0f ? d : Unity.Mathematics.math.min(best, d);
+                    }
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Crime scenes the game has open now, and how many lie within 300 m of the riot's start (log only).</summary>
+        private void LogCrimeScenes(Protest riot)
+        {
+            Unity.Mathematics.float3 at = EntityManager.TryGetComponent(riot.m_StartEdge, out Game.Net.Curve curve) ? Colossal.Mathematics.MathUtils.Position(curve.m_Bezier, 0.5f) : default;
+            int scenes = 0, near = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> sites = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity site in sites)
+                {
+                    if ((EntityManager.GetComponentData<Game.Events.AccidentSite>(site).m_Flags & Game.Events.AccidentSiteFlags.CrimeScene) == 0)
+                    {
+                        continue;
+                    }
+                    scenes++;
+                    near += Unity.Mathematics.math.distance(at, EntityManager.GetComponentData<Game.Objects.Transform>(site).m_Position) <= 300f ? 1 : 0;
+                }
+            }
+            Line($"Riot crimes so far: {Protests.RiotCrimes} started; crime scenes open in the city {scenes}, within 300 m of the riot {near}.");
+        }
+
+        /// <summary>A new riot to clean up: started on a road, dispersed by police, then the options button is pressed.</summary>
+        private void StartCleanupTest()
+        {
+            RememberProtests();
+            ProtestSystem.TestProtestTax = true;
+            ProtestSystem.TestNoPark = true;
+            ProtestSystem.TestStartProtest = true;
+            Line("Forcing a riot to test the clean-up for removing the mod.");
+            SetStage(Stage.CleanupStart);
+        }
+
+        private void UpdateCleanupStart()
+        {
+            int id = NewProtest(Entity.Null);
+            if (id > 0)
+            {
+                m_RiotId = id;
+                PinRiot(0.8f);
+                Protests.Respond(id, ProtestResponse.Disperse);
+                SetStage(Stage.CleanupRiot);
+            }
+            else if (SimFrames() > 8192)
+            {
+                Check("A riot starts for the clean-up test", false, "none within 8192 frames");
+                SetStage(Stage.Finish);
+            }
+        }
+
+        private void UpdateCleanupRiot()
+        {
+            // The crime check waits here, on a riot held at 0.8: about 0.16 crimes per segment and protest update, so a short
+            // riot often has none yet (the first run checked after about 6 updates on one segment and saw 0).
+            int crimes = m_CrimesBeforeSave + Protests.RiotCrimes;
+            float sceneDistance = RiotCrimeSceneDistance(GetProtest(m_RiotId));
+            if (SimFrames() < 6144 || ((crimes == 0 || sceneDistance < 0f) && SimFrames() < 98304))
+            {
+                return;
+            }
+            Protest riot = GetProtest(m_RiotId);
+            LogCrimeScenes(riot);
+            Check("Rioters commit crimes through the game's crime event (about 7 for each fire)", crimes > 0,
+                $"{crimes} crimes started ({m_CrimesBeforeSave} before saving, {Protests.RiotCrimes} since loading), {SimFrames()} frames into this riot");
+            // The game sends a criminal to the building with the most crime; the riot holds its buildings' crime at the
+            // intensity, so the crime should happen at the riot (2026-11-09 user: "당연히 폭동 현장 근처로").
+            Check("A rioter's crime happens near the riot (within 300 m of its roads)", sceneDistance >= 0f && sceneDistance <= 300f,
+                sceneDistance >= 0f ? $"{sceneDistance:0} m from the nearest riot road" : "no crime scene of a rioter yet");
+            DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true);
+            m_CleanupLanes = new Entity[closed.Length];
+            for (int i = 0; i < closed.Length; i++)
+            {
+                m_CleanupLanes[i] = closed[i].m_Lane;
+            }
+            m_CleanupOwner = riot.m_IconOwner;
+            Line($"Before the clean-up: riot {riot.m_Riot}, {closed.Length} closed lanes, {PostCount(m_RiotId)} posts, {Protests.HeldCarCount} police cars held, "
+                + $"{EntityManager.GetBuffer<ProtestSpot>(m_CitySystem.City, true).Length} spots, icon {HasIcon(m_CleanupOwner, ProtestPrefabs.RiotIcon)}.");
+            bool ran = ModCleanup.Run();
+            Line($"Options button 'Prepare for removal' pressed (confirmed): {(ran ? "done" : "no city")}.");
+            SetStage(Stage.CleanupCheck);
+        }
+
+        private void UpdateCleanupCheck()
+        {
+            // Past a protest update, so nothing the mod would add again has come back.
+            if (SimFrames() < 2560)
+            {
+                return;
+            }
+            Entity city = m_CitySystem.City;
+            int stillClosed = 0;
+            foreach (Entity lane in m_CleanupLanes)
+            {
+                if (EntityManager.TryGetComponent(lane, out Game.Net.CarLane carLane) && (carLane.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0)
+                {
+                    stillClosed++;
+                }
+            }
+            int protests = EntityManager.GetBuffer<Protest>(city, true).Length;
+            int posts = EntityManager.GetBuffer<PolicePost>(city, true).Length;
+            int spots = EntityManager.GetBuffer<ProtestSpot>(city, true).Length;
+            bool icon = HasIcon(m_CleanupOwner, ProtestPrefabs.RiotIcon) || HasIcon(m_CleanupOwner, ProtestPrefabs.ProtestIcon);
+            int lawsuitIcons = 0;
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> buildings = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity building in buildings)
+                {
+                    lawsuitIcons += HasLawsuitIcon(building) ? 1 : 0;
+                }
+            }
+            Check("'Prepare for removal' ends every protest, opens the closed roads, releases police and takes the icons off, and they stay off",
+                ModCleanup.Done && protests == 0 && m_CleanupLanes.Length > 0 && stillClosed == 0 && posts == 0 && Protests.HeldCarCount == 0 && spots == 0 && !icon && lawsuitIcons == 0,
+                $"{protests} protests, {stillClosed} of {m_CleanupLanes.Length} lanes still closed, {posts} posts, {Protests.HeldCarCount} cars held, {spots} spots, riot icon {icon}, lawsuit icons {lawsuitIcons}");
+            SetStage(Stage.Finish);
+        }
 
         // ------------------------------------------------------------------ measurement runs (PLAN §14.19)
 
@@ -2102,7 +3660,8 @@ namespace RealisticPolicies
 
         private void OnUiReport(string message)
         {
-            if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi && m_Stage != Stage.ReportUi)
+            if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi && m_Stage != Stage.ReportUi && m_Stage != Stage.ProtestUi && m_Stage != Stage.ProtestPanel
+                && m_Stage != Stage.ActionUi)
             {
                 return;
             }
@@ -2129,8 +3688,45 @@ namespace RealisticPolicies
             }
         }
 
+        // The cursor sits on another monitor while the test runs, and the game read it as being at the screen edge and kept
+        // pushing the camera (2026-11-10 user report). Edge scrolling is off while the test runs and given back at the end;
+        // the value is not saved by the test.
+        private bool m_EdgeScrollingHeld;
+        private bool m_EdgeScrollingBefore;
+
+        private void HoldEdgeScrolling()
+        {
+            Game.Settings.GameplaySettings gameplay = Game.Settings.SharedSettings.instance?.gameplay;
+            if (m_EdgeScrollingHeld || gameplay == null || m_Stage == Stage.Quit || m_Stage == Stage.Off)
+            {
+                return;
+            }
+            m_EdgeScrollingBefore = gameplay.edgeScrolling;
+            gameplay.edgeScrolling = false;
+            m_EdgeScrollingHeld = true;
+            Line($"Edge scrolling off for the test (was {(m_EdgeScrollingBefore ? "on" : "off")}).");
+        }
+
+        private void ReleaseEdgeScrolling()
+        {
+            Game.Settings.GameplaySettings gameplay = Game.Settings.SharedSettings.instance?.gameplay;
+            if (m_EdgeScrollingHeld && gameplay != null)
+            {
+                gameplay.edgeScrolling = m_EdgeScrollingBefore;
+            }
+            m_EdgeScrollingHeld = false;
+        }
+
+        [Preserve]
+        protected override void OnDestroy()
+        {
+            ReleaseEdgeScrolling();
+            base.OnDestroy();
+        }
+
         private void Finish()
         {
+            ReleaseEdgeScrolling();
             LitigationSystem.TestTimeScale = 1f;
             LitigationSystem.TestDisableRandomFiling = false;
             LitigationSystem.TestForceInjunctionRequest = false;

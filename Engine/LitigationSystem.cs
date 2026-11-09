@@ -20,7 +20,7 @@ namespace RealisticPolicies.Engine
     /// damages and the plaintiffs' costs, paid in daily instalments that never take the city below a reserve.
     /// Runs every 1024 frames (about 1.4 game hours); filing decisions use the engine's latest step.
     /// </summary>
-    public sealed class LitigationSystem : GameSystemBase
+    public sealed partial class LitigationSystem : GameSystemBase
     {
         public const int kFramesPerDay = PolicyEngineSystem.kFramesPerDay;
         public const string kLawyerFeeRow = "RealisticPolicies.Court.LawyerFees";
@@ -87,6 +87,10 @@ namespace RealisticPolicies.Engine
 
         // Costs (§7 "소송 대응", "소송 비용 부담").
         private const float kLawyerShareOfIncome = 0.005f;
+
+        // Olson threshold: each member's yearly loss against each member's share of the suit's cost (§14.20-4).
+        private const float kOlsonLow = 0.5f;
+        private const float kOlsonHigh = 2f;
         private const float kStandardWorkload = 66f;
         private const float kLateLawyerSurcharge = 1.5f;
         private const float kLateShare = 0.3f;
@@ -154,6 +158,13 @@ namespace RealisticPolicies.Engine
             OfficialStaff = 0f;
             UnansweredCount = 0;
             m_Notifications.Reset();
+        }
+
+        /// <summary>Before the mod is taken out (<see cref="ModCleanup"/>): the lawsuit icons come off the city halls.</summary>
+        internal void CleanUpForRemoval()
+        {
+            m_Notifications.RemoveAll();
+            UnansweredCount = 0;
         }
 
         // ------------------------------------------------------------------ queries for the engine and the UI
@@ -409,7 +420,7 @@ namespace RealisticPolicies.Engine
         private void Step()
         {
             Entity city = m_CitySystem.City;
-            if (city == Entity.Null || !PolicyCatalog.IsRegistered || !EntityManager.HasComponent<PolicyEngineState>(city))
+            if (city == Entity.Null || !PolicyCatalog.IsRegistered || !EntityManager.HasComponent<PolicyEngineState>(city) || ModCleanup.Done)
             {
                 return;
             }
@@ -500,8 +511,10 @@ namespace RealisticPolicies.Engine
                     grievance = 1f;
                     againstCut = false;
                 }
-                // An ombudsman takes part of the grievance as complaints instead of suits (§14.11).
-                float daily = m_Engine.Reforms.SuitFilingScale / (1f + math.exp(-(kFilingIntercept + kFilingSlope * grievance)));
+                // An ombudsman takes part of the grievance as complaints instead of suits (§14.11). Olson (1965):
+                // a group sues only when what each member loses is worth what each pays for the suit (§14.20-4).
+                float daily = m_Engine.Reforms.SuitFilingScale / (1f + math.exp(-(kFilingIntercept + kFilingSlope * grievance)))
+                    * (forced ? 1f : CollectiveActionFactor(definition, result, stake, grievance, againstCut));
                 float chance = 1f - math.pow(1f - daily, days);
                 var random = new Random(math.max(1u, frame * 747796405u + (uint)i * 2891336453u));
                 if (!forced && random.NextFloat() >= chance)
@@ -548,9 +561,7 @@ namespace RealisticPolicies.Engine
                 }
             }
             bool companies = stake.Group != TargetGroup.Households;
-            float members = m_Engine.Census.TargetCount(stake.Group);
-            float share = math.min(kMaxShare, (companies ? kCompanyShare : kHouseholdShare) * grievance);
-            int plaintiffs = math.max(1, (int)math.round(members * share));
+            int plaintiffs = PlaintiffCount(stake.Group, grievance);
 
             var suit = new Lawsuit
             {
@@ -583,11 +594,7 @@ namespace RealisticPolicies.Engine
             suit.m_Injunction = (byte)(injunction ? InjunctionStage.Requested : InjunctionStage.NotRequested);
 
             // Bottom-up workload (§7, staff-hours).
-            float workload = 12f + 6f * issues
-                + (companies ? 6f * math.sqrt(plaintiffs) : 8f * math.log10(plaintiffs + 1f))
-                + 6f * definition.ClearancePoints
-                + (injunction ? 8f : 0f);
-            suit.m_Workload = workload * 1.15f;
+            suit.m_Workload = Workload(definition, companies, plaintiffs, issues, injunction);
 
             float durationDays = 1f + math.min(0.5f, 0.05f * math.log10(plaintiffs + 1f) + 0.05f * definition.ClearancePoints);
             suit.m_DurationFrames = (uint)(durationDays * kFramesPerDay * TestTimeScale);
@@ -721,6 +728,11 @@ namespace RealisticPolicies.Engine
                     }
                 }
                 Mod.Log.Info($"Case {suit.m_Year}-{suit.m_CaseNumber}: the city wins (lose chance {lose:0.00}); costs recovered {recovered}.");
+                // Residents who expected to win may take to the streets (§12 "예상 밖 승소 뒤 시위", b = 2).
+                if (lose > 0.5f && suit.m_Group == (byte)TargetGroup.Households)
+                {
+                    World.GetOrCreateSystemManaged<ProtestSystem>().NoteSurpriseWin(definition.Prefab, lose);
+                }
                 return;
             }
 
@@ -999,6 +1011,65 @@ namespace RealisticPolicies.Engine
                 return group == TargetGroup.Households ? kHouseholdLossPerDay : kCompanyLossPerDay;
             }
             return kLossShareOfTax * tax / members;
+        }
+
+        /// <summary>Plaintiffs who join a suit: a share of the group that grows with its grievance (households sue together, companies alone).</summary>
+        private int PlaintiffCount(TargetGroup group, float grievance)
+        {
+            bool companies = group != TargetGroup.Households;
+            float share = math.min(kMaxShare, (companies ? kCompanyShare : kHouseholdShare) * grievance);
+            return math.max(1, (int)math.round(m_Engine.Census.TargetCount(group) * share));
+        }
+
+        /// <summary>Bottom-up workload of a suit in staff-hours, with the 15% reserve (§7).</summary>
+        private static float Workload(PolicyDefinition definition, bool companies, int plaintiffs, int issues, bool injunction)
+        {
+            float workload = 12f + 6f * issues
+                + (companies ? 6f * math.sqrt(plaintiffs) : 8f * math.log10(plaintiffs + 1f))
+                + 6f * definition.ClearancePoints
+                + (injunction ? 8f : 0f);
+            return workload * 1.15f;
+        }
+
+        /// <summary>
+        /// Olson (1965) collective action (§14.20-4, 2026-11-06 user decision): what each would-be plaintiff loses in a
+        /// year, against each one's share of the plaintiffs' lawyer. Below half the cost nobody sues; from half to
+        /// twice the cost the filing chance rises to its full value. Concentrated losses (a few companies) clear it;
+        /// losses spread thin over many households rarely do.
+        /// </summary>
+        private float CollectiveActionFactor(PolicyDefinition definition, PolicyStepResult result, GroupStake stake, float grievance, bool againstCut)
+        {
+            int plaintiffs = PlaintiffCount(stake.Group, grievance);
+            float contested = againstCut ? math.max(0f, CurrentReference(definition) - result.Intensity) : result.Intensity;
+            float stakeShare = againstCut ? stake.Benefit : stake.Burden;
+            float annualLoss = LossPerDay(stake.Group) * stakeShare * m_Engine.BurdenFactor(definition) * contested * 12f;
+            float costEach = AnnualIncome() * kLawyerShareOfIncome * Workload(definition, stake.Group != TargetGroup.Households, plaintiffs, 2, false)
+                / kStandardWorkload / plaintiffs;
+            if (costEach <= 0f)
+            {
+                return 1f;
+            }
+            float ratio = annualLoss / costEach;
+            return math.saturate((ratio - kOlsonLow) / (kOlsonHigh - kOlsonLow));
+        }
+
+        /// <summary>Reference intensity (what people are used to) of a policy.</summary>
+        private float CurrentReference(PolicyDefinition definition)
+        {
+            Entity city = m_CitySystem.City;
+            if (city == Entity.Null || !EntityManager.HasBuffer<PolicyRuntime>(city))
+            {
+                return 0f;
+            }
+            DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city, true);
+            for (int r = 0; r < runtimes.Length; r++)
+            {
+                if (runtimes[r].m_Policy == definition.Prefab)
+                {
+                    return runtimes[r].m_Reference;
+                }
+            }
+            return 0f;
         }
 
         /// <summary>What the plaintiffs lose in a year (12 days) at full burden; turns money into grievance for settlements.</summary>

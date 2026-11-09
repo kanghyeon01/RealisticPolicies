@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protest Building Section</title>
+<style>
+/* Values copied from the game's own stylesheet (same tokens as protest-panel.html). */
+:root {
+  --panel: rgba(42,55,83,.92);
+  --panelDark: rgba(24,33,51,.94);
+  --divider: rgba(255,255,255,.1);
+  --accent: #4bc3f1;
+  --text: #f0fbff;
+  --dim: rgba(240,251,255,.7);
+  --dimmer: rgba(240,251,255,.5);
+  --positive: #8bdb46;
+  --warning: #ffa42d;
+  --negative: #e95f4a;
+  --radius: 4px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #2f3a2c; color: var(--text);
+  font-family: Overpass, "Noto Sans KR", "Noto Sans", "Malgun Gothic", sans-serif; font-size: 14px; }
+.page { padding: 16px; max-width: 1000px; }
+.intro { font-size: 13px; color: var(--dim); line-height: 1.6; margin: 0 0 16px; max-width: 780px; }
+.intro b { color: var(--text); font-weight: 600; }
+.cols { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.col { flex: 1 1 380px; max-width: 420px; }
+.label-out { font-size: 12px; color: var(--dimmer); margin: 0 0 6px; }
+
+/* selected info panel (building) */
+.sip { background: var(--panelDark); border-radius: var(--radius); overflow: hidden; }
+.sip-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,.04); }
+.sip-head .ico { width: 30px; height: 30px; border-radius: 3px; background: #6b86a8; flex: none; }
+.sip-head .name { font-size: 15px; font-weight: 600; }
+.sip-head .kind { font-size: 12px; color: var(--dimmer); margin-top: 1px; }
+.sip-head .x { margin-left: auto; font-size: 18px; opacity: .8; }
+.sec { background: var(--panel); padding: 6px 0; }
+.sec + .sec { border-top: 2px solid var(--divider); }
+.sec.vanilla { opacity: .45; }
+.irow { display: flex; align-items: center; gap: 10px; padding: 4px 12px; min-height: 28px; font-size: 13px; }
+.irow .l { flex: 1; color: var(--dim); }
+.irow .r { text-align: right; white-space: nowrap; }
+.irow.head .l { color: var(--text); text-transform: uppercase; font-size: 12px; letter-spacing: .02em; }
+.r.neg { color: var(--negative); }
+.r.warn { color: var(--warning); }
+[title] { cursor: help; }
+.ptitle { padding: 4px 12px 4px; }
+.ptitle .sub { font-size: 12px; color: var(--dimmer); }
+.ptitle .t { display: flex; align-items: center; margin-top: 2px; font-size: 15px; font-weight: 600; }
+.ptitle .state { font-size: 13px; font-weight: 400; margin-left: 10px; color: var(--negative); }
+.note { padding: 4px 12px 2px; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.link { display: block; text-align: center; padding: 6px 12px 4px; font-size: 13px; color: var(--text); text-decoration: underline; cursor: pointer; }
+.link:hover { color: var(--accent); }
+.tip { font-size: 12px; color: var(--dimmer); padding: 0 12px 6px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="intro">
+    <b>시위 아이콘을 누르면 나오는 칸 (미리보기).</b> 게임은 아이콘이 붙은 건물을 선택하고 그 건물의 정보 패널을 연다.
+    그 패널 맨 위에 그 시위 하나의 정보만 담은 "시위" 칸을 더한다 (복지 사무소의 "공무원 직렬" 칸과 같은 방식).
+    대응 버튼은 넣지 않고, 도시 정보 창의 시위 탭으로 가는 링크로 대신한다. 숫자는 예시이고, 흐린 부분은 게임의 원래 칸이다.
+  </p>
+
+  <div class="cols">
+    <div class="col">
+      <div class="label-out">A안: 안내 문장 + 링크</div>
+      <div class="sip">
+        <div class="sip-head"><div class="ico"></div><div><div class="name">그린 거리 214</div><div class="kind">주거 건물</div></div><div class="x">×</div></div>
+        <div class="sec">
+          <div class="irow head"><span class="l">시위</span></div>
+          <div class="ptitle"><div class="sub">도로 구간 2곳</div><div class="t">주거세 인상 반대 시위<span class="state">폭동</span></div></div>
+          <div class="irow"><span class="l">요구</span><span class="r">주거세를 8%로 되돌릴 것</span></div>
+          <div class="irow"><span class="l">참가자</span><span class="r">503명 (구간 주민의 30%)</span></div>
+          <div class="irow" title="60%를 넘으면 폭동이 됩니다. 폭동이 난 도로에서는 불이 나고 약탈이 일어나며 범죄가 늘어납니다."><span class="l">강도</span><span class="r neg">81%</span></div>
+          <div class="irow"><span class="l">성격</span><span class="r">일반</span></div>
+          <div class="irow"><span class="l">경과</span><span class="r">1시간째</span></div>
+          <div class="irow"><span class="l">도로 폐쇄</span><span class="r warn">2개 구간 통제 중</span></div>
+          <div class="irow"><span class="l">폭동 구간 범죄율</span><span class="r neg">81%</span></div>
+          <div class="irow"><span class="l">대응</span><span class="r warn">아직 정하지 않음</span></div>
+          <div class="note">대응 방식은 도시 정보 창의 시위 탭에서 정할 수 있습니다.</div>
+          <a class="link">시위 탭 열기</a>
+        </div>
+        <div class="sec vanilla">
+          <div class="irow head"><span class="l">가구</span></div>
+          <div class="irow"><span class="l">거주 가구</span><span class="r">24 / 24</span></div>
+          <div class="irow"><span class="l">행복도</span><span class="r">보통</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="label-out">B안: 대응 줄 + 링크, 안내 문장은 링크의 툴팁</div>
+      <div class="sip">
+        <div class="sip-head"><div class="ico"></div><div><div class="name">그린 거리 214</div><div class="kind">주거 건물</div></div><div class="x">×</div></div>
+        <div class="sec">
+          <div class="irow head"><span class="l">시위</span></div>
+          <div class="ptitle"><div class="sub">도로 구간 2곳</div><div class="t">주거세 인상 반대 시위<span class="state">폭동</span></div></div>
+          <div class="irow"><span class="l">요구</span><span class="r">주거세를 8%로 되돌릴 것</span></div>
+          <div class="irow"><span class="l">참가자</span><span class="r">503명 (구간 주민의 30%)</span></div>
+          <div class="irow" title="60%를 넘으면 폭동이 됩니다. 폭동이 난 도로에서는 불이 나고 약탈이 일어나며 범죄가 늘어납니다."><span class="l">강도</span><span class="r neg">81%</span></div>
+          <div class="irow"><span class="l">성격</span><span class="r">일반</span></div>
+          <div class="irow"><span class="l">경과</span><span class="r">1시간째</span></div>
+          <div class="irow"><span class="l">도로 폐쇄</span><span class="r warn">2개 구간 통제 중</span></div>
+          <div class="irow"><span class="l">폭동 구간 범죄율</span><span class="r neg">81%</span></div>
+          <div class="irow"><span class="l">대응</span><span class="r warn">아직 정하지 않음</span></div>
+          <a class="link" title="대응 방식은 도시 정보 창의 시위 탭에서 정할 수 있습니다.">시위 탭 열기</a>
+          <div class="tip">(링크에 마우스를 올리면 안내 문장이 툴팁으로 뜸)</div>
+        </div>
+        <div class="sec vanilla">
+          <div class="irow head"><span class="l">가구</span></div>
+          <div class="irow"><span class="l">거주 가구</span><span class="r">24 / 24</span></div>
+          <div class="irow"><span class="l">행복도</span><span class="r">보통</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

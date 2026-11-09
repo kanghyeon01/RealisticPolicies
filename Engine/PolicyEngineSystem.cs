@@ -23,7 +23,7 @@ namespace RealisticPolicies.Engine
     /// the effect into the policy prefab's city modifiers, which vanilla applies to the city.
     /// A step is a handful of scalar passes; the building census behind it runs once a day.
     /// </summary>
-    public sealed class PolicyEngineSystem : GameSystemBase
+    public sealed partial class PolicyEngineSystem : GameSystemBase
     {
         public const int kFramesPerDay = 262144;
 
@@ -48,6 +48,7 @@ namespace RealisticPolicies.Engine
         private EntityArchetype m_ModifyArchetype;
         private bool m_MigrationDue = true;
         private float[,] m_GroupGrievance;
+        private float[] m_TaxShare;
 
         // Combined factor per parameter lever this step, and the factor last written.
         private readonly Dictionary<string, float> m_LeverFactors = new Dictionary<string, float>();
@@ -65,6 +66,18 @@ namespace RealisticPolicies.Engine
 
         // Policy report (stage 7): each policy's own staff need per series, and the frame of its last legitimacy warning.
         private float[,] m_PolicyStaff;
+
+        // Share of its need each policy got from each series (staff go in enactment order), and that order.
+        private float[,] m_PolicyShare;
+
+        // Workload each policy queues behind in each series: its own need and the needs of those switched on before it
+        // (a priority queue: later work does not slow earlier work).
+        private float[,] m_PolicyLoad;
+        private int[] m_StaffOrder;
+        private uint[] m_EnactedFrame;
+        private readonly float[] m_Remaining = new float[(int)ServiceSeries.Count];
+        private readonly float[] m_Capacity = new float[(int)ServiceSeries.Count];
+        private readonly float[] m_Queued = new float[(int)ServiceSeries.Count];
         private uint[] m_WarningFrame;
         private AirPollutionSystem m_AirPollutionSystem;
         private bool m_CensusDue = true;
@@ -98,6 +111,18 @@ namespace RealisticPolicies.Engine
             return index >= 0 ? m_Intensity[index] : 0f;
         }
 
+        /// <summary>Delivered level of a policy at the last step (its progress, 0..1 of the full slider); 0 when off or before the first step.</summary>
+        public float Delivered(string id)
+        {
+            PolicyDefinition definition = PolicyCatalog.Definition(id);
+            if (definition == null || definition.Prefab == Entity.Null || LastResults == null)
+            {
+                return 0f;
+            }
+            int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
+            return index >= 0 && index < LastResults.Length ? math.saturate(LastResults[index].Progress) : 0f;
+        }
+
         /// <summary>Staff demanded from each series at the last step.</summary>
         public float[] Demand => m_Demand;
 
@@ -120,6 +145,12 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Staff of one series the policy needs at the last step (intensity and change surge included).</summary>
         public float PolicyStaff(int definitionIndex, ServiceSeries series) => m_PolicyStaff[definitionIndex, (int)series];
+
+        /// <summary>Share of that need the policy got at the last step (1 when it needs none).</summary>
+        public float PolicyStaffShare(int definitionIndex, ServiceSeries series) => m_PolicyShare[definitionIndex, (int)series];
+
+        /// <summary>Definition indices in the order staff went to them at the last step (earliest enacted first).</summary>
+        public int[] StaffOrder => m_StaffOrder;
 
         /// <summary>Frame of the last legitimacy warning this policy caused (0 = none).</summary>
         public uint WarningFrame(int definitionIndex) => m_WarningFrame[definitionIndex];
@@ -222,8 +253,13 @@ namespace RealisticPolicies.Engine
             m_Intensity = new float[count];
             m_Amplification = new float[count];
             m_GroupGrievance = new float[count, (int)TargetGroup.Count];
+            m_TaxShare = new float[count];
             LastResults = new PolicyStepResult[count];
             m_PolicyStaff = new float[count, (int)ServiceSeries.Count];
+            m_PolicyShare = new float[count, (int)ServiceSeries.Count];
+            m_PolicyLoad = new float[count, (int)ServiceSeries.Count];
+            m_StaffOrder = new int[count];
+            m_EnactedFrame = new uint[count];
             m_WarningFrame = new uint[count];
             m_AirPollutionSystem = World.GetOrCreateSystemManaged<AirPollutionSystem>();
         }
@@ -294,7 +330,9 @@ namespace RealisticPolicies.Engine
             if (m_CensusDue || day != m_LastCensusDay)
             {
                 // The heavy part: walks every staffed building. Daily, after loading and on policy changes only.
+                long census = Perf.Start();
                 m_Census.Count();
+                Perf.Stop("Engine.Census", census);
                 m_CensusDue = false;
                 m_LastCensusDay = day;
             }
@@ -306,6 +344,8 @@ namespace RealisticPolicies.Engine
             int population = EntityManager.TryGetComponent(city, out Population cityPopulation) ? cityPopulation.m_Population : 0;
             // Sharing services pays most for small towns (Bel & Sebő 2021): full at 50,000 people, half from 200,000.
             m_CitySizeFactor = 1f - 0.5f * math.saturate((population - 50000f) / 150000f);
+            // University–industry support works as far as there are students to absorb research (§14.20-2): full at 5%.
+            StudentFactor = population > 0 ? math.saturate(m_Census.TargetCount(TargetGroup.TertiaryStudents) / population / 0.05f) : 0f;
             m_TaxBase = TaxBase(all);
             m_TaxControl.Apply(ref state, m_Census.Workers(ServiceSeries.Tax), m_Census.Workers(ServiceSeries.SocialWelfare), population);
             AirPollution = MeanAirPollution();
@@ -347,12 +387,16 @@ namespace RealisticPolicies.Engine
                 {
                     runtime.m_BaselineAir = AirPollution;
                     runtime.m_HasBaseline = true;
+                    // Switched on (again): its place in the queue for staff is now the last.
+                    runtime.m_EnactedFrame = frame;
                 }
                 runtime.m_LastIntensity = s;
                 runtimes[r] = runtime;
+                m_EnactedFrame[i] = runtime.m_EnactedFrame;
 
-                // Ongoing work scales with intensity; a change adds work even while switching off.
-                float workload = s + runtime.m_Surge;
+                // Ongoing work scales with intensity (for per-case policies, the slider sets the amount, not the
+                // caseload); a change adds work even while switching off.
+                float workload = (definition.StaffPerCase ? (s > 0f ? 1f : 0f) : s) + runtime.m_Surge;
                 for (int j = 0; j < (int)ServiceSeries.Count; j++)
                 {
                     m_PolicyStaff[i, j] = 0f;
@@ -371,13 +415,15 @@ namespace RealisticPolicies.Engine
             // Officials defending suits work on top of policy duties (§7 "소송 대응").
             m_Demand[(int)ServiceSeries.GeneralAdministration] += m_Litigation.OfficialStaff;
             float[] available = m_Census.AvailableStaff;
-            float availableScale = reforms.AvailableStaffScale;
+            // Public servants on strike leave less staff for policy work (ProtestSystem, §12 "파업").
+            float availableScale = reforms.AvailableStaffScale * (1f - ProtestSystem.PublicStaffLoss);
             for (int j = 0; j < m_Utilization.Length; j++)
             {
                 m_Utilization[j] = m_Demand[j] <= 0f ? 0f
                     : available[j] > 0f ? m_Demand[j] / (available[j] * availableScale)
                     : EngineParameters.kUnstaffedUtilization;
             }
+            AllocateStaff(all.Length, available, availableScale);
 
             float watch = 0f;
             float disclosure = 0f;
@@ -398,6 +444,7 @@ namespace RealisticPolicies.Engine
 
             float grievance = 0f;
             float delivery = 0f;
+            float deliveryWeight = 0f;
             for (int i = 0; i < all.Length; i++)
             {
                 PolicyDefinition definition = all[i];
@@ -415,19 +462,32 @@ namespace RealisticPolicies.Engine
                 // A strong hub cannot deliver more than the policy promises.
                 effectiveness = math.min(1f, effectiveness);
 
-                // ④ The busiest series the policy needs sets its delay and rationing.
+                // ④ The series where the policy queues behind most work (its own and earlier policies') sets its delay;
+                // the share of its need it got from the series that gave least (enactment order) sets its rationing.
                 float rho = 0f;
                 ServiceSeries busiest = ServiceSeries.None;
+                float rationing = 1f;
+                ServiceSeries scarcest = ServiceSeries.None;
                 foreach (StaffRequirement staff in definition.Staff)
                 {
-                    if (busiest == ServiceSeries.None || m_Utilization[(int)staff.Series] > rho)
+                    if (busiest == ServiceSeries.None || m_PolicyLoad[i, (int)staff.Series] > rho)
                     {
-                        rho = m_Utilization[(int)staff.Series];
+                        rho = m_PolicyLoad[i, (int)staff.Series];
                         busiest = staff.Series;
                     }
+                    float share = m_PolicyShare[i, (int)staff.Series];
+                    if (scarcest == ServiceSeries.None || share < rationing)
+                    {
+                        rationing = share;
+                        scarcest = staff.Series;
+                    }
+                }
+                if (rationing >= 1f)
+                {
+                    // Fully staffed: the report names the busiest series.
+                    scarcest = busiest;
                 }
                 float delayFactor = 1f / (1f - math.min(rho, EngineParameters.kMaxUtilization));
-                float rationing = rho > 1f ? 1f / rho : 1f;
 
                 // ⑦ Compliance and ⑦' capture, by mechanism (§10.5). Inspectors raise detection; disclosure raises
                 // voluntary compliance only as far as breaches can be seen.
@@ -494,9 +554,23 @@ namespace RealisticPolicies.Engine
                     m_GroupGrievance[i, (int)stake.Group] += groupGrievance;
                     grievance += groupGrievance;
                 }
+                // Taxpayers carry what the policy spends, all in the same proportion (§14.20-3): its monthly cost at
+                // full strength against the city's monthly tax income. Small programmes weigh little on anyone.
+                float taxShare = TaxShare(definition, s);
+                m_TaxShare[i] = taxShare;
+                if (taxShare > 0f)
+                {
+                    foreach (TargetGroup payer in s_Taxpayers)
+                    {
+                        float groupGrievance = EngineParameters.kLossAversion * taxShare * up * burdenRaise - taxShare * down;
+                        m_GroupGrievance[i, (int)payer] += groupGrievance;
+                        grievance += groupGrievance;
+                    }
+                }
                 if (s > 0f)
                 {
                     delivery += s * (math.min(1f, runtime.m_Progress / s) - EngineParameters.kExpectedDelivery);
+                    deliveryWeight += s;
                 }
                 // People do not get used to a policy that is in court (§6).
                 if (m_Litigation.FindSuit(definition.Prefab) < 0)
@@ -513,16 +587,20 @@ namespace RealisticPolicies.Engine
                     Intensity = s,
                     Effectiveness = effectiveness,
                     Utilization = rho,
+                    StaffShare = rationing,
                     Compliance = compliance,
                     Capture = capture,
                     Target = target,
                     Progress = runtime.m_Progress,
                     LagDays = tau,
-                    BusiestSeries = busiest,
+                    BusiestSeries = scarcest,
                     Voluntary = voluntary,
                 };
             }
 
+            // Delivery earns trust as an intensity-weighted average once the policies add up to more than one at full
+            // strength: one or two policies count as before, dozens no longer pin legitimacy at 1 (§14.19, 2026-11-06).
+            delivery /= math.max(1f, deliveryWeight);
             float drop = dt * EngineParameters.kGrievanceRate * grievance;
             state.m_Legitimacy = math.saturate(state.m_Legitimacy
                 - drop
@@ -621,6 +699,67 @@ namespace RealisticPolicies.Engine
             return changed;
         }
 
+        /// <summary>
+        /// ④ Staff go to the policies in the order they were switched on (2026-11-09 user decision): in each series the
+        /// earliest policy gets its whole need, the next one what is left, and so on. Officials the city designated to
+        /// defend suits are taken off first. Ties (same frame, older saves) go in definition order.
+        /// </summary>
+        private void AllocateStaff(int count, float[] available, float availableScale)
+        {
+            float[] capacity = m_Capacity;
+            float[] queued = m_Queued;
+            System.Array.Clear(queued, 0, queued.Length);
+            for (int j = 0; j < m_Remaining.Length; j++)
+            {
+                capacity[j] = math.max(0f, available[j] * availableScale);
+                m_Remaining[j] = capacity[j];
+            }
+            int admin = (int)ServiceSeries.GeneralAdministration;
+            m_Remaining[admin] = math.max(0f, m_Remaining[admin] - m_Litigation.OfficialStaff);
+            queued[admin] = m_Litigation.OfficialStaff;
+
+            for (int i = 0; i < count; i++)
+            {
+                m_StaffOrder[i] = i;
+            }
+            m_ByEnactment ??= CompareEnactment;
+            System.Array.Sort(m_StaffOrder, m_ByEnactment);
+
+            for (int o = 0; o < count; o++)
+            {
+                int i = m_StaffOrder[o];
+                for (int j = 0; j < m_Remaining.Length; j++)
+                {
+                    float need = m_PolicyStaff[i, j];
+                    if (need <= 0f)
+                    {
+                        m_PolicyShare[i, j] = 1f;
+                        m_PolicyLoad[i, j] = 0f;
+                        continue;
+                    }
+                    float given = math.min(need, m_Remaining[j]);
+                    if (PolicyDefinitions.All[i].StaffPerCase)
+                    {
+                        // Cases nobody takes are not served rather than kept waiting: only the staff it got add to the
+                        // queue, and its own delay is the work ahead of it.
+                        m_PolicyLoad[i, j] = capacity[j] > 0f ? queued[j] / capacity[j] : EngineParameters.kUnstaffedUtilization;
+                        queued[j] += given;
+                    }
+                    else
+                    {
+                        queued[j] += need;
+                        m_PolicyLoad[i, j] = capacity[j] > 0f ? queued[j] / capacity[j] : EngineParameters.kUnstaffedUtilization;
+                    }
+                    m_PolicyShare[i, j] = given / need;
+                    m_Remaining[j] -= given;
+                }
+            }
+        }
+
+        private System.Comparison<int> m_ByEnactment;
+
+        private int CompareEnactment(int a, int b) => m_EnactedFrame[a] != m_EnactedFrame[b] ? m_EnactedFrame[a].CompareTo(m_EnactedFrame[b]) : a.CompareTo(b);
+
         /// <summary>② Weberian hub: average efficiency of administration buildings.</summary>
         private float AdminHub()
         {
@@ -699,6 +838,10 @@ namespace RealisticPolicies.Engine
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
+                            if (output.Basis == MoneyBasis.External)
+                            {
+                                break;
+                            }
                             float basis = output.Basis == MoneyBasis.Intensity ? intensity
                                 : output.Basis == MoneyBasis.Delivery || output.Basis == MoneyBasis.TaxShare ? progress
                                 : MoneyShape(definition, progress, intensity, LastResults[i].Compliance);
@@ -821,6 +964,49 @@ namespace RealisticPolicies.Engine
                 ? math.max(definition.EffectFloor, math.pow(0.5f, ageDays / definition.EffectHalfLifeDays))
                 : 1f;
 
+        private static readonly TargetGroup[] s_Taxpayers =
+        {
+            TargetGroup.Households, TargetGroup.IndustrialCompanies, TargetGroup.CommercialCompanies, TargetGroup.OfficeCompanies,
+        };
+
+        /// <summary>
+        /// Tax burden of a policy (§14.20-3): its budget spending per month at full strength over the city's own tax
+        /// income per month, 0..1. Mechanism-paid money (subsidies per unit cut) is taken from the last row at the
+        /// current strength.
+        /// </summary>
+        private float TaxShare(PolicyDefinition definition, float intensity)
+        {
+            if (m_TaxBase <= 0f)
+            {
+                return 0f;
+            }
+            float monthly = 0f;
+            foreach (PolicyOutput output in definition.Outputs)
+            {
+                if (output.Kind != OutputKind.Expense)
+                {
+                    continue;
+                }
+                switch (output.Basis)
+                {
+                    case MoneyBasis.TaxShare:
+                        monthly += output.PerUnitMonthly * m_TaxBase;
+                        break;
+                    case MoneyBasis.Mechanism:
+                    case MoneyBasis.External:
+                        monthly += m_Budget.GetRow(output.Key) / math.max(intensity, 0.1f);
+                        break;
+                    default:
+                        monthly += output.FixedMonthly + output.PerUnitMonthly * m_Census.TargetCount(output.Unit);
+                        break;
+                }
+            }
+            return math.saturate(monthly / m_TaxBase);
+        }
+
+        /// <summary>Tax burden of each policy at the last step (§14.20-3).</summary>
+        public float LastTaxShare(int definitionIndex) => m_TaxShare[definitionIndex];
+
         /// <summary>Share of a parameter lever's full effect: allowance auctioning by what companies pay; others by delivery.</summary>
         private float LeverShape(PolicyDefinition definition, float progress, float intensity) =>
             definition.Mechanism == Mechanism.AllowanceAuction ? intensity * math.min(1f, TradingPrice / FirmModel.kBasePrice) : progress;
@@ -843,6 +1029,10 @@ namespace RealisticPolicies.Engine
             if (definition.ScalesWithLegitimacy)
             {
                 return progress * LegitimacyFactor;
+            }
+            if (definition.ScalesWithStudents)
+            {
+                return progress * StudentFactor;
             }
             if (definition.Mechanism == Mechanism.EmissionTrading)
             {
@@ -904,6 +1094,9 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Amplification of a policy's levers (1 when it amplifies only one modifier).</summary>
         public float LeverAmplification(int index) => PolicyDefinitions.All[index].AmplifyOnly == null ? Amplification(index) : 1f;
+
+        /// <summary>College and university students per resident against 5%, 0..1 (§14.20-2).</summary>
+        public float StudentFactor { get; private set; }
 
         /// <summary>Legitimacy against its base, 0.5-1.2 times (§14.8 emergency response).</summary>
         public float LegitimacyFactor => math.clamp(LastState.m_Legitimacy / EngineParameters.kLegitimacyBase, 0.5f, 1.2f);
@@ -1020,6 +1213,9 @@ namespace RealisticPolicies.Engine
         public float Intensity;
         public float Effectiveness;
         public float Utilization;
+
+        /// <summary>Share of its staff need the policy got, from the series that gave least (enactment order).</summary>
+        public float StaffShare;
         public float Compliance;
         public float Capture;
         public float Target;

@@ -35,7 +35,7 @@ namespace RealisticPolicies
     /// BudgetApplySystem moves the money and every vanilla total (budget page, toolbar, charts) includes it.
     /// The budget page shows each row separately (see UI module).
     /// </summary>
-    public sealed class BudgetInjectionSystem : GameSystemBase
+    public sealed partial class BudgetInjectionSystem : GameSystemBase
     {
         // Row ids of the first bundle's money flows (also used by the self-test).
         public const string kIncomeRowId = "RealisticPolicies.PollutionTax";

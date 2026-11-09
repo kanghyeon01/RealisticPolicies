@@ -35,6 +35,11 @@ namespace RealisticPolicies.Engine
 
         public string Id { get; }
 
+        /// <summary>The game's own value, captured before the first change (corporate rescue counts against it).</summary>
+        public bool HasOriginal => m_Captured;
+
+        public float Original => m_Original;
+
         public ScaledFloatLever(string id, Getter get, Setter set)
         {
             Id = id;
@@ -405,6 +410,14 @@ namespace RealisticPolicies.Engine
 
         // §14.13 housing and environment.
         public const string kResidentialLandValue = "Economy.ResidentialLandValue";
+        /// <summary>Vacancy share residential demand aims for, per density (x, y, z): a lower target means fewer new homes.</summary>
+        public const string kFreeResidential = "Demand.FreeResidentialProportion";
+        /// <summary>
+        /// Time between home searches. Vanilla stretches the interval by the chance multiplier and homeless households
+        /// divide the same value by the divisor, so raising both leaves homeless households' searches as they were
+        /// (<c>HouseholdBehaviorSystem</c>).
+        /// </summary>
+        public const string kLookForHome = "Citizen.LookForHomeChance";
         public const string kBuildingNoise = "Pollution.BuildingNoise";
         public const string kRoadNoise = "Pollution.RoadNoise";
         public const string kRoadAir = "Pollution.RoadAir";
@@ -504,6 +517,32 @@ namespace RealisticPolicies.Engine
             Register(new ScaledFloatLever<Game.Prefabs.EconomyParameterData>(kResidentialLandValue,
                 (in Game.Prefabs.EconomyParameterData d) => d.m_LandValueModifier.x,
                 (ref Game.Prefabs.EconomyParameterData d, float v) => d.m_LandValueModifier.x = v));
+            Register(new ScaledFloatsLever<Game.Prefabs.DemandParameterData>(kFreeResidential,
+                new ScaledFloatLever<Game.Prefabs.DemandParameterData>.Getter[]
+                {
+                    (in Game.Prefabs.DemandParameterData d) => d.m_FreeResidentialProportion.x,
+                    (in Game.Prefabs.DemandParameterData d) => d.m_FreeResidentialProportion.y,
+                    (in Game.Prefabs.DemandParameterData d) => d.m_FreeResidentialProportion.z,
+                },
+                new ScaledFloatLever<Game.Prefabs.DemandParameterData>.Setter[]
+                {
+                    (ref Game.Prefabs.DemandParameterData d, float v) => d.m_FreeResidentialProportion.x = v,
+                    (ref Game.Prefabs.DemandParameterData d, float v) => d.m_FreeResidentialProportion.y = v,
+                    (ref Game.Prefabs.DemandParameterData d, float v) => d.m_FreeResidentialProportion.z = v,
+                }));
+            Register(new ScaledFloatsLever<Game.Prefabs.CitizenParametersData>(kLookForHome,
+                new ScaledFloatLever<Game.Prefabs.CitizenParametersData>.Getter[]
+                {
+                    (in Game.Prefabs.CitizenParametersData d) => d.m_LookForHomeChanceMultiplier.x,
+                    (in Game.Prefabs.CitizenParametersData d) => d.m_LookForHomeChanceMultiplier.y,
+                    (in Game.Prefabs.CitizenParametersData d) => d.m_LookForHomeHomelessDivisor,
+                },
+                new ScaledFloatLever<Game.Prefabs.CitizenParametersData>.Setter[]
+                {
+                    (ref Game.Prefabs.CitizenParametersData d, float v) => d.m_LookForHomeChanceMultiplier.x = v,
+                    (ref Game.Prefabs.CitizenParametersData d, float v) => d.m_LookForHomeChanceMultiplier.y = v,
+                    (ref Game.Prefabs.CitizenParametersData d, float v) => d.m_LookForHomeHomelessDivisor = Unity.Mathematics.math.max(1, (int)Unity.Mathematics.math.round(v)),
+                }));
             Register(new ScaledFloatLever<Game.Prefabs.PollutionParameterData>(kBuildingNoise,
                 (in Game.Prefabs.PollutionParameterData d) => d.m_NoiseMultiplier,
                 (ref Game.Prefabs.PollutionParameterData d, float v) => d.m_NoiseMultiplier = v));

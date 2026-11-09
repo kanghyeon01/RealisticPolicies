@@ -120,7 +120,31 @@ namespace RealisticPolicies.Engine
             m_CreateChirpSystem.AddQueueWriter(default);
         }
 
-        /// <summary>Shows the icon over the buildings of unanswered suits and removes it everywhere else.</summary>
+        /// <summary>Takes the icon off every city hall and welfare office (before the mod is removed).</summary>
+        public void RemoveAll()
+        {
+            Entity icon = CourtPrefabs.Icon;
+            if (icon == Entity.Null)
+            {
+                return;
+            }
+            IconCommandBuffer buffer = m_IconCommandSystem.CreateCommandBuffer();
+            using (NativeArray<Entity> buildings = m_OfficeQuery.ToEntityArray(Allocator.Temp))
+            {
+                for (int i = 0; i < buildings.Length; i++)
+                {
+                    Entity prefab = m_EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab;
+                    if (m_EntityManager.HasComponent<AdminBuildingData>(prefab) || m_EntityManager.HasComponent<WelfareOfficeData>(prefab))
+                    {
+                        buffer.Remove(buildings[i], icon);
+                    }
+                }
+            }
+            m_IconCommandSystem.AddCommandBufferWriter(default);
+            m_Shown.Clear();
+        }
+
+        /// <summary>Asks for the icon over the buildings of unanswered suits on every update and removes it everywhere else.</summary>
         public void Refresh(DynamicBuffer<Lawsuit> suits)
         {
             Entity icon = CourtPrefabs.Icon;
@@ -136,11 +160,6 @@ namespace RealisticPolicies.Engine
                 {
                     wanted.Add(building);
                 }
-            }
-            bool changed = m_ClearSaved || !wanted.SetEquals(m_Shown);
-            if (!changed)
-            {
-                return;
             }
             IconCommandBuffer buffer = m_IconCommandSystem.CreateCommandBuffer();
             if (m_ClearSaved)
@@ -166,12 +185,11 @@ namespace RealisticPolicies.Engine
                     buffer.Remove(building, icon);
                 }
             }
+            // Every update, as the game's own warnings do (ElectricityStatusSystem): adding an icon that is already there
+            // changes nothing, and one the game did not put up comes back (2026-11-09 user decision, with the protest icon).
             foreach (Entity building in wanted)
             {
-                if (!m_Shown.Contains(building))
-                {
-                    buffer.Add(building, icon, IconPriority.Warning);
-                }
+                buffer.Add(building, icon, IconPriority.Warning);
             }
             m_IconCommandSystem.AddCommandBufferWriter(default);
             m_Shown.Clear();

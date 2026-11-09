@@ -21,8 +21,11 @@ namespace RealisticPolicies.Engine
     /// <summary>
     /// Narrows the vanilla tax limits (<see cref="TaxParameterData"/>), which both the tax sliders and
     /// <see cref="TaxSystem"/>'s clamping read:
-    /// - residential rates (area and per education level) cannot go below a floor that falls from 8% to the vanilla
-    ///   minimum as social welfare staff per resident reach 0.4 per thousand;
+    /// - the room around the 10% default grows with tax staff per resident and reaches the vanilla limits at
+    ///   0.18 per thousand (local tax officials 9,051 in 2012 against about 50.95 million people; docs/PLAN.md §5.1);
+    /// - residential rates (area and per education level) cannot go below a floor that falls from 0% to the vanilla
+    ///   minimum as social welfare staff per resident reach 0.4 per thousand: without welfare staff no residential
+    ///   subsidy (negative rate);
     /// - without tax staff the rates are held (see <see cref="TaxLock"/>).
     /// The limits live on a prefab entity that survives loading another city, so the original is captured once
     /// per session and every write starts from it.
@@ -30,8 +33,12 @@ namespace RealisticPolicies.Engine
     public sealed class TaxControl
     {
         public const int kDefaultRate = 10;
-        public const int kResidentialFloor = 8;
+        public const int kResidentialFloor = 0;
         public const float kWelfareStaffPerResident = 0.0004f;
+        public const float kTaxStaffPerResident = 0.00018f;
+
+        /// <summary>Share of the vanilla room around the default rate the tax staff allow at the last step (0..1).</summary>
+        public float LastRoom { get; private set; } = 1f;
 
         private static readonly FieldInfo s_CachedLimits = typeof(TaxSystem).GetField("m_TaxParameterData", BindingFlags.NonPublic | BindingFlags.Instance);
 
@@ -75,12 +82,23 @@ namespace RealisticPolicies.Engine
                 state.m_TaxStaffSeen = true;
             }
 
+            // Room around the default rate from the tax staff (2026-11-08 user decision).
+            float room = population > 0 ? math.saturate((float)taxStaff / population / kTaxStaffPerResident) : 1f;
+            LastRoom = room;
             TaxParameterData desired = m_Original;
+            desired.m_TotalTaxLimits = Narrow(m_Original.m_TotalTaxLimits, room);
+            desired.m_ResidentialTaxLimits = Narrow(m_Original.m_ResidentialTaxLimits, room);
+            desired.m_CommercialTaxLimits = Narrow(m_Original.m_CommercialTaxLimits, room);
+            desired.m_IndustrialTaxLimits = Narrow(m_Original.m_IndustrialTaxLimits, room);
+            desired.m_OfficeTaxLimits = Narrow(m_Original.m_OfficeTaxLimits, room);
+            desired.m_JobLevelTaxLimits = Narrow(m_Original.m_JobLevelTaxLimits, room);
+            desired.m_ResourceTaxLimits = Narrow(m_Original.m_ResourceTaxLimits, room);
+
             float ratio = population > 0 ? (float)welfareStaff / population : 0f;
             int floor = (int)math.round(kResidentialFloor - (kResidentialFloor - m_Original.m_ResidentialTaxLimits.x) * math.min(1f, ratio / kWelfareStaffPerResident));
             floor = math.max(floor, m_Original.m_ResidentialTaxLimits.x);
-            desired.m_ResidentialTaxLimits.x = math.min(floor, desired.m_ResidentialTaxLimits.y);
-            desired.m_JobLevelTaxLimits.x = math.min(math.max(floor, m_Original.m_JobLevelTaxLimits.x), desired.m_JobLevelTaxLimits.y);
+            desired.m_ResidentialTaxLimits.x = math.min(math.max(floor, desired.m_ResidentialTaxLimits.x), desired.m_ResidentialTaxLimits.y);
+            desired.m_JobLevelTaxLimits.x = math.min(math.max(floor, desired.m_JobLevelTaxLimits.x), desired.m_JobLevelTaxLimits.y);
 
             TaxLock taxLock = taxStaff > 0 ? TaxLock.None : state.m_TaxStaffSeen ? TaxLock.Default : TaxLock.FreezeCurrent;
             if (taxLock == TaxLock.Default)
@@ -126,6 +144,8 @@ namespace RealisticPolicies.Engine
             }
             else if (taxLock == TaxLock.None)
             {
+                // Setting the total rate again clamps it, every area, education level and resource rate to the new limits.
+                m_TaxSystem.TaxRate = m_TaxSystem.TaxRate;
                 if (m_TaxSystem.GetTaxRate(TaxAreaType.Residential) < desired.m_ResidentialTaxLimits.x)
                 {
                     m_TaxSystem.SetTaxRate(TaxAreaType.Residential, desired.m_ResidentialTaxLimits.x);
@@ -162,6 +182,14 @@ namespace RealisticPolicies.Engine
         }
 
         private static int2 Point(int value) => new int2(value, value);
+
+        /// <summary>A vanilla limit pair pulled toward the default rate, keeping <paramref name="room"/> of its distance.</summary>
+        public static int2 Narrow(int2 limits, float room)
+        {
+            int low = (int)math.round(kDefaultRate - (kDefaultRate - limits.x) * room);
+            int high = (int)math.round(kDefaultRate + (limits.y - kDefaultRate) * room);
+            return new int2(math.min(low, high), math.max(low, high));
+        }
 
         private static int2 Union(int2 a, int2 b) => new int2(math.min(a.x, b.x), math.max(a.y, b.y));
     }

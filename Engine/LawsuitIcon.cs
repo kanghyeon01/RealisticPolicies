@@ -15,7 +15,13 @@ namespace RealisticPolicies.Engine
         private static readonly Color32 kGrey = new Color32(66, 66, 66, 255);
 
         /// <summary>Creates the icon like <paramref name="reference"/>, or returns null (with the reason) for an unsupported format.</summary>
-        public static Texture2D Create(Texture2D reference, out string problem)
+        public static Texture2D Create(Texture2D reference, out string problem) => Create(reference, Draw, "RealisticPolicies.LawsuitIcon", out problem);
+
+        /// <summary>
+        /// Creates an icon drawn by <paramref name="draw"/> (size → bottom-up RGBA pixels) with the reference's size, mip count
+        /// and format, or returns null (with the reason) for an unsupported format.
+        /// </summary>
+        public static Texture2D Create(Texture2D reference, System.Func<int, Color32[]> draw, string name, out string problem)
         {
             problem = null;
             int size = reference.width;
@@ -34,9 +40,9 @@ namespace RealisticPolicies.Engine
             int mips = reference.mipmapCount;
             var texture = new Texture2D(size, size, format, mips, mips > 1 ? TextureCreationFlags.MipChain : TextureCreationFlags.None)
             {
-                name = "RealisticPolicies.LawsuitIcon",
+                name = name,
             };
-            Color32[] level = Draw(size);
+            Color32[] level = draw(size);
             int levelSize = size;
             var data = new System.Collections.Generic.List<byte>();
             for (int m = 0; m < mips; m++)

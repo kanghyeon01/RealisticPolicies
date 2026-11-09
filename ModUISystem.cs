@@ -7,7 +7,7 @@ using UnityEngine.Scripting;
 namespace RealisticPolicies
 {
     /// <summary>Bindings shared with the UI module.</summary>
-    public sealed class ModUISystem : UISystemBase
+    public sealed partial class ModUISystem : UISystemBase
     {
         public const string kGroup = "RealisticPolicies";
 

@@ -54,14 +54,30 @@ namespace RealisticPolicies
             // Saved policy references in the mod's buffers go through the game's prefab reference mapping (save and load).
             updateSystem.UpdateAfter<Engine.ModPrefabReferencesSystem, Game.Serialization.PrimaryPrefabReferencesSystem>(SystemUpdatePhase.PrefabReferences);
             updateSystem.UpdateAfter<Engine.LitigationSystem, Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
+            // Protests and riots (§12): pressure from the engine's last step, then roads and police.
+            updateSystem.UpdateAfter<Engine.ProtestSystem, Engine.LitigationSystem>(SystemUpdatePhase.GameSimulation);
             // Longer unemployment benefits slow the search of those paid in the extension (§14.12).
             updateSystem.UpdateAt<Engine.ExtendedBenefitSearchSystem>(SystemUpdatePhase.GameSimulation);
+            // Livelihood support adds to household income right after the game recomputes it, slice by slice (§14.21).
+            updateSystem.UpdateAfter<Engine.LivelihoodSupportSystem, HouseholdBehaviorSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<Engine.RentSupportSystem, HouseholdBehaviorSystem>(SystemUpdatePhase.GameSimulation);
+            // Building efficiency effects (commercial strikes, performance management, corporate rescue) and lifelong learning.
+            updateSystem.UpdateAt<Engine.BuildingEffectSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<Engine.LifelongLearningSystem>(SystemUpdatePhase.GameSimulation);
+            // Same interval as the trip system, so it shares its frame and runs just before it.
+            updateSystem.UpdateBefore<Engine.FlexibleHoursSystem, TripNeededSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<ReportUISystem>(SystemUpdatePhase.UIUpdate);
+            updateSystem.UpdateAt<ProtestUISystem>(SystemUpdatePhase.UIUpdate);
+            // The protest infoview: legend prefabs now, road colours after the game's, the grievance map with its heatmaps.
+            ProtestInfoview.Create(updateSystem.World.GetOrCreateSystemManaged<PrefabSystem>());
+            updateSystem.UpdateAfter<ProtestRoadColorSystem, Game.Rendering.NetColorSystem>(SystemUpdatePhase.Rendering);
+            updateSystem.UpdateAfter<ProtestGrievanceTintSystem, Game.Rendering.OverlayInfomodeSystem>(SystemUpdatePhase.PreCulling);
             updateSystem.UpdateAt<SelfTestSystem>(SystemUpdatePhase.MainLoop);
 
             // Info panel sections aren't scheduled; the selected-info system updates the ones it knows about.
             updateSystem.World.GetOrCreateSystemManaged<WelfareSeriesSection>();
+            updateSystem.World.GetOrCreateSystemManaged<ProtestInfoSection>();
         }
 
         public void OnDispose()

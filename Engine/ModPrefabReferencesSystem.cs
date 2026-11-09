@@ -14,12 +14,15 @@ namespace RealisticPolicies.Engine
     /// the mod's runtime state, suits and bans point nowhere after loading (found in the stage 8 save test).
     /// Runs in SystemUpdatePhase.PrefabReferences, right after PrimaryPrefabReferencesSystem.
     /// </summary>
-    public sealed class ModPrefabReferencesSystem : GameSystemBase
+    public sealed partial class ModPrefabReferencesSystem : GameSystemBase
     {
         private CheckPrefabReferencesSystem m_CheckPrefabReferencesSystem;
         private EntityQuery m_RuntimeQuery;
         private EntityQuery m_SuitQuery;
         private EntityQuery m_BanQuery;
+        private EntityQuery m_ProtestQuery;
+        private EntityQuery m_PressureQuery;
+        private EntityQuery m_ActionQuery;
 
         [Preserve]
         protected override void OnCreate()
@@ -29,12 +32,16 @@ namespace RealisticPolicies.Engine
             m_RuntimeQuery = GetEntityQuery(ComponentType.ReadWrite<PolicyRuntime>());
             m_SuitQuery = GetEntityQuery(ComponentType.ReadWrite<Lawsuit>());
             m_BanQuery = GetEntityQuery(ComponentType.ReadWrite<PolicyBan>());
+            m_ProtestQuery = GetEntityQuery(ComponentType.ReadWrite<Protest>());
+            m_PressureQuery = GetEntityQuery(ComponentType.ReadWrite<ProtestPressure>());
+            m_ActionQuery = GetEntityQuery(ComponentType.ReadWrite<IndustrialAction>());
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
-            if (m_RuntimeQuery.IsEmptyIgnoreFilter && m_SuitQuery.IsEmptyIgnoreFilter && m_BanQuery.IsEmptyIgnoreFilter)
+            if (m_RuntimeQuery.IsEmptyIgnoreFilter && m_SuitQuery.IsEmptyIgnoreFilter && m_BanQuery.IsEmptyIgnoreFilter
+                && m_ProtestQuery.IsEmptyIgnoreFilter && m_PressureQuery.IsEmptyIgnoreFilter && m_ActionQuery.IsEmptyIgnoreFilter)
             {
                 return;
             }
@@ -82,6 +89,54 @@ namespace RealisticPolicies.Engine
                     for (int i = 0; i < buffer.Length; i++)
                     {
                         PolicyBan value = buffer[i];
+                        if (value.m_Policy != Entity.Null)
+                        {
+                            references.Check(ref value.m_Policy);
+                            buffer[i] = value;
+                        }
+                    }
+                }
+            }
+            using (NativeArray<Entity> entities = m_ProtestQuery.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity entity in entities)
+                {
+                    DynamicBuffer<Protest> buffer = EntityManager.GetBuffer<Protest>(entity);
+                    for (int i = 0; i < buffer.Length; i++)
+                    {
+                        Protest value = buffer[i];
+                        if (value.m_Policy != Entity.Null)
+                        {
+                            references.Check(ref value.m_Policy);
+                            buffer[i] = value;
+                        }
+                    }
+                }
+            }
+            using (NativeArray<Entity> entities = m_PressureQuery.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity entity in entities)
+                {
+                    DynamicBuffer<ProtestPressure> buffer = EntityManager.GetBuffer<ProtestPressure>(entity);
+                    for (int i = 0; i < buffer.Length; i++)
+                    {
+                        ProtestPressure value = buffer[i];
+                        if (value.m_Policy != Entity.Null)
+                        {
+                            references.Check(ref value.m_Policy);
+                            buffer[i] = value;
+                        }
+                    }
+                }
+            }
+            using (NativeArray<Entity> entities = m_ActionQuery.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity entity in entities)
+                {
+                    DynamicBuffer<IndustrialAction> buffer = EntityManager.GetBuffer<IndustrialAction>(entity);
+                    for (int i = 0; i < buffer.Length; i++)
+                    {
+                        IndustrialAction value = buffer[i];
                         if (value.m_Policy != Entity.Null)
                         {
                             references.Check(ref value.m_Policy);

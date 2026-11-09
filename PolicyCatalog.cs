@@ -69,6 +69,10 @@ namespace RealisticPolicies
         public const string kDisasterWarning = "RealisticPolicies.DisasterWarning";
         public const string kEnergyCode = "RealisticPolicies.EnergyCode";
         public const string kWasteFee = "RealisticPolicies.WasteFee";
+        public const string kUniversityIndustry = "RealisticPolicies.UniversityIndustry";
+        public const string kLivelihoodSupport = "RealisticPolicies.LivelihoodSupport";
+        public const string kRentSupport = "RealisticPolicies.RentSupport";
+        public const string kFlexibleHours = "RealisticPolicies.FlexibleHours";
 
         // Vanilla toggle that the equipment mandate replaces; hidden from the policy list.
         public const string kVanillaPollutionManagement = "Advanced Pollution Management";
@@ -104,7 +108,7 @@ namespace RealisticPolicies
     /// Adds a prefab for every policy definition once vanilla prefabs are available, and hides the vanilla toggles
     /// they replace. Disables itself after the first successful pass.
     /// </summary>
-    public sealed class PolicyRegistrationSystem : GameSystemBase
+    public sealed partial class PolicyRegistrationSystem : GameSystemBase
     {
         private PrefabSystem m_PrefabSystem;
         private EntityQuery m_NotificationIconQuery;
@@ -140,6 +144,7 @@ namespace RealisticPolicies
             }
             PolicyCatalog.IsRegistered = allAdded;
             RegisterCourtPrefabs();
+            RegisterActionPolicy();
 
             Mod.Log.Info($"Registered {PolicyDefinitions.All.Length} policies (mode {GameManager.instance.gameMode}, all added: {allAdded}).");
             Enabled = false;
@@ -178,6 +183,8 @@ namespace RealisticPolicies
                         icon.m_PulsateAmplitude = reference.m_PulsateAmplitude;
                         CourtPrefabs.Icon = m_PrefabSystem.AddPrefab(icon) ? m_PrefabSystem.GetEntity(icon) : Entity.Null;
                     }
+                    ProtestPrefabs.ProtestIcon = AddIcon(reference, ProtestPrefabs.kProtestIconName, ProtestIcons.DrawProtest);
+                    ProtestPrefabs.RiotIcon = AddIcon(reference, ProtestPrefabs.kRiotIconName, ProtestIcons.DrawRiot);
                 }
             }
 
@@ -195,7 +202,59 @@ namespace RealisticPolicies
                     CourtPrefabs.Chirps[id] = m_PrefabSystem.AddPrefab(chirp) ? m_PrefabSystem.GetEntity(chirp) : Entity.Null;
                 }
             }
-            Mod.Log.Info($"Court prefabs: icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps.");
+            ProtestPrefabs.ProtestChirp = AddChirp(ProtestPrefabs.kProtestChirpId);
+            ProtestPrefabs.RiotChirp = AddChirp(ProtestPrefabs.kRiotChirpId);
+
+            // Protesters' gathering spot: the game's own spawn location marker (as parks have), set so that people who
+            // reach it stand around on the sidewalk next to it instead of going in.
+            MarkerObjectPrefab spot = PrefabBase.Create<MarkerObjectPrefab>(ProtestPrefabs.kSpotName);
+            Game.Prefabs.SpawnLocation location = spot.AddComponent<Game.Prefabs.SpawnLocation>();
+            location.m_ConnectionType = RouteConnectionType.Pedestrian;
+            location.m_HangaroundOnLane = true;
+            ProtestPrefabs.Spot = m_PrefabSystem.AddPrefab(spot) ? m_PrefabSystem.GetEntity(spot) : Entity.Null;
+            Mod.Log.Info($"Court prefabs: icon {(CourtPrefabs.Icon != Entity.Null ? "on" : "off")}, {CourtPrefabs.Chirps.Count} chirps; " +
+                $"protest icons {(ProtestPrefabs.ProtestIcon != Entity.Null && ProtestPrefabs.RiotIcon != Entity.Null ? "on" : "off")}.");
+        }
+
+        /// <summary>
+        /// Strikes and closures (§12 "파업"): a toggle kept out of the policy list whose industrial and office efficiency the
+        /// game applies like any policy's; ProtestSystem writes the values and switches it on and off.
+        /// </summary>
+        private void RegisterActionPolicy()
+        {
+            PolicyTogglePrefab prefab = PrefabBase.Create<PolicyTogglePrefab>(Engine.ProtestSystem.kActionPolicyName);
+            prefab.m_Category = PolicyCategory.Services;
+            prefab.m_Visibility = PolicyVisibility.HideFromPolicyList;
+            prefab.AddComponent<CityModifiers>().m_Modifiers = new[]
+            {
+                new CityModifierInfo { m_Type = Game.City.CityModifierType.IndustrialEfficiency, m_Mode = ModifierValueMode.Relative, m_Range = new Bounds1(0f, 0f) },
+                new CityModifierInfo { m_Type = Game.City.CityModifierType.OfficeEfficiency, m_Mode = ModifierValueMode.Relative, m_Range = new Bounds1(0f, 0f) },
+            };
+            prefab.AddComponent<UIObject>().m_Icon = PolicyCatalog.kDefaultIcon;
+            Engine.ProtestSystem.ActionPolicy = m_PrefabSystem.AddPrefab(prefab) ? m_PrefabSystem.GetEntity(prefab) : Entity.Null;
+            Mod.Log.Info($"Strike and closure policy (hidden from the list): {(Engine.ProtestSystem.ActionPolicy != Entity.Null ? "on" : "off")}.");
+        }
+
+        private Entity AddIcon(NotificationIconPrefab reference, string name, System.Func<int, UnityEngine.Color32[]> draw)
+        {
+            UnityEngine.Texture2D texture = LawsuitIcon.Create(reference.m_Icon, draw, name, out string problem);
+            if (texture == null)
+            {
+                Mod.Log.Warn($"{name} not made: {problem}.");
+                return Entity.Null;
+            }
+            NotificationIconPrefab icon = PrefabBase.Create<NotificationIconPrefab>(name);
+            icon.m_Icon = texture;
+            icon.m_DisplaySize = reference.m_DisplaySize;
+            icon.m_PulsateAmplitude = reference.m_PulsateAmplitude;
+            return m_PrefabSystem.AddPrefab(icon) ? m_PrefabSystem.GetEntity(icon) : Entity.Null;
+        }
+
+        private Entity AddChirp(string id)
+        {
+            ChirpPrefab chirp = PrefabBase.Create<ChirpPrefab>(id);
+            chirp.AddComponent<RandomLocalization>().m_LocalizationID = id;
+            return m_PrefabSystem.AddPrefab(chirp) ? m_PrefabSystem.GetEntity(chirp) : Entity.Null;
         }
 
         private bool HideReplaced(PolicyDefinition definition)

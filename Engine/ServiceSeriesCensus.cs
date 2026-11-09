@@ -155,6 +155,16 @@ namespace RealisticPolicies.Engine
                         All = new[] { ComponentType.ReadOnly<Criminal>() },
                         None = new[] { ComponentType.ReadOnly<Temp>(), ComponentType.ReadOnly<Deleted>() },
                     };
+                case TargetGroup.TertiaryStudents:
+                    // Levels are summed in Count(): college and university only.
+                    return new EntityQueryDesc
+                    {
+                        All = new[] { ComponentType.ReadOnly<Citizen>(), ComponentType.ReadOnly<Game.Citizens.Student>() },
+                        None = new[] { ComponentType.ReadOnly<Temp>(), ComponentType.ReadOnly<Deleted>() },
+                    };
+                case TargetGroup.PoorHouseholds:
+                    // Wealth is checked in Count(); homeless households count too (they rent nothing).
+                    return PoorHouseholdQueryDesc;
                 default:
                     // MonthlyCrimes comes from the city statistics, not from a query.
                     return null;
@@ -171,6 +181,29 @@ namespace RealisticPolicies.Engine
             };
         }
 
+        /// <summary>Households that live in the city, with or without a home (wealth is checked separately).</summary>
+        public static EntityQueryDesc PoorHouseholdQueryDesc => new EntityQueryDesc
+        {
+            All = new[] { ComponentType.ReadOnly<Household>(), ComponentType.ReadOnly<HouseholdCitizen>(), ComponentType.ReadOnly<Game.Economy.Resources>() },
+            None = new[]
+            {
+                ComponentType.ReadOnly<TouristHousehold>(),
+                ComponentType.ReadOnly<CommuterHousehold>(),
+                ComponentType.ReadOnly<Game.Agents.MovingAway>(),
+                ComponentType.ReadOnly<Temp>(),
+                ComponentType.ReadOnly<Deleted>(),
+            },
+        };
+
+        /// <summary>Wealth below which a household is poor: the game's "modest" threshold (wretched and poor below it).</summary>
+        public static int PoorWealthLimit(EntityManager entityManager)
+        {
+            using (EntityQuery query = entityManager.CreateEntityQuery(ComponentType.ReadOnly<CitizenHappinessParameterData>()))
+            {
+                return query.IsEmptyIgnoreFilter ? 1000 : query.GetSingleton<CitizenHappinessParameterData>().m_WealthyMoneyAmount.y;
+            }
+        }
+
         /// <summary>A random member of a group (for the representative plaintiff); Entity.Null when the group is empty.</summary>
         public Entity RandomMember(TargetGroup group, ref Unity.Mathematics.Random random)
         {
@@ -178,10 +211,28 @@ namespace RealisticPolicies.Engine
             {
                 return Entity.Null;
             }
-            using (NativeArray<Entity> members = m_GroupQueries[(int)group].ToEntityArray(Allocator.Temp))
+            // One member at a random place, found by walking the chunks (no copy of the whole group).
+            EntityQuery query = m_GroupQueries[(int)group];
+            int count = query.CalculateEntityCount();
+            if (count == 0)
             {
-                return members.Length == 0 ? Entity.Null : members[random.NextInt(members.Length)];
+                return Entity.Null;
             }
+            int pick = random.NextInt(count);
+            query.CompleteDependency();
+            EntityTypeHandle entityType = m_EntityManager.GetEntityTypeHandle();
+            using (NativeArray<ArchetypeChunk> chunks = query.ToArchetypeChunkArray(Allocator.Temp))
+            {
+                foreach (ArchetypeChunk chunk in chunks)
+                {
+                    if (pick < chunk.Count)
+                    {
+                        return chunk.GetNativeArray(entityType)[pick];
+                    }
+                    pick -= chunk.Count;
+                }
+            }
+            return Entity.Null;
         }
 
         /// <summary>Size of a group at the last count; 0 for <see cref="TargetGroup.None"/>.</summary>
@@ -198,34 +249,49 @@ namespace RealisticPolicies.Engine
             m_ServiceBudget.Clear();
             int welfareOffices = 0;
 
-            using (NativeArray<Entity> buildings = m_BuildingQuery.ToEntityArray(Allocator.Temp))
+            // Read chunk by chunk: far cheaper than one EntityManager call per building (performance review 2026-11-09).
+            m_BuildingQuery.CompleteDependency();
+            ComponentTypeHandle<PrefabRef> prefabType = m_EntityManager.GetComponentTypeHandle<PrefabRef>(true);
+            ComponentTypeHandle<WorkProvider> providerType = m_EntityManager.GetComponentTypeHandle<WorkProvider>(true);
+            BufferTypeHandle<Employee> employeeType = m_EntityManager.GetBufferTypeHandle<Employee>(true);
+            ComponentTypeHandle<RealisticPolicies.SocialWelfareDesignation> welfareType = m_EntityManager.GetComponentTypeHandle<RealisticPolicies.SocialWelfareDesignation>(true);
+            ComponentTypeHandle<RealisticPolicies.TaxDesignation> taxType = m_EntityManager.GetComponentTypeHandle<RealisticPolicies.TaxDesignation>(true);
+            using (NativeArray<ArchetypeChunk> chunks = m_BuildingQuery.ToArchetypeChunkArray(Allocator.Temp))
             {
-                for (int i = 0; i < buildings.Length; i++)
+                foreach (ArchetypeChunk chunk in chunks)
                 {
-                    Entity prefab = m_EntityManager.GetComponentData<PrefabRef>(buildings[i]).m_Prefab;
-                    ServiceSeries series = SeriesOf(prefab);
-                    if (series == ServiceSeries.None)
+                    NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref prefabType);
+                    NativeArray<WorkProvider> providers = chunk.GetNativeArray(ref providerType);
+                    BufferAccessor<Employee> employees = chunk.GetBufferAccessor(ref employeeType);
+                    bool welfareDesignated = chunk.Has(ref welfareType);
+                    bool taxDesignated = chunk.Has(ref taxType);
+                    for (int i = 0; i < chunk.Count; i++)
                     {
-                        continue;
-                    }
-                    if (m_WelfarePrefabs.Contains(prefab))
-                    {
-                        welfareOffices++;
-                        // The player can assign a welfare office to social welfare or tax staff.
-                        if (m_EntityManager.HasComponent<RealisticPolicies.SocialWelfareDesignation>(buildings[i]))
+                        Entity prefab = prefabs[i].m_Prefab;
+                        ServiceSeries series = SeriesOf(prefab);
+                        if (series == ServiceSeries.None)
                         {
-                            series = ServiceSeries.SocialWelfare;
+                            continue;
                         }
-                        else if (m_EntityManager.HasComponent<RealisticPolicies.TaxDesignation>(buildings[i]))
+                        if (m_WelfarePrefabs.Contains(prefab))
                         {
-                            series = ServiceSeries.Tax;
+                            welfareOffices++;
+                            // The player can assign a welfare office to social welfare or tax staff.
+                            if (welfareDesignated)
+                            {
+                                series = ServiceSeries.SocialWelfare;
+                            }
+                            else if (taxDesignated)
+                            {
+                                series = ServiceSeries.Tax;
+                            }
                         }
+                        int max = providers[i].m_MaxWorkers;
+                        int s = (int)series;
+                        m_Workers[s] += employees[i].Length;
+                        m_MaxWorkers[s] += max;
+                        m_BudgetWeighted[s] += max * BudgetOf(prefab);
                     }
-                    int max = m_EntityManager.GetComponentData<WorkProvider>(buildings[i]).m_MaxWorkers;
-                    int s = (int)series;
-                    m_Workers[s] += m_EntityManager.GetBuffer<Employee>(buildings[i], true).Length;
-                    m_MaxWorkers[s] += max;
-                    m_BudgetWeighted[s] += max * BudgetOf(prefab);
                 }
             }
             WelfareOffices = welfareOffices;
@@ -254,6 +320,12 @@ namespace RealisticPolicies.Engine
                     case TargetGroup.MonthlyCrimes:
                         m_GroupCounts[g] = m_StatisticsSystem != null ? m_StatisticsSystem.GetStatisticValue(Game.City.StatisticType.CrimeCount) : 0f;
                         break;
+                    case TargetGroup.TertiaryStudents:
+                        m_GroupCounts[g] = TertiaryStudents(m_GroupQueries[g]);
+                        break;
+                    case TargetGroup.PoorHouseholds:
+                        m_GroupCounts[g] = PoorHouseholds(m_GroupQueries[g]);
+                        break;
                     default:
                         m_GroupCounts[g] = m_GroupQueries[g].CalculateEntityCount();
                         break;
@@ -261,14 +333,61 @@ namespace RealisticPolicies.Engine
             }
         }
 
+        private int TertiaryStudents(EntityQuery students)
+        {
+            int count = 0;
+            using (NativeArray<Game.Citizens.Student> all = students.ToComponentDataArray<Game.Citizens.Student>(Allocator.Temp))
+            {
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i].m_Level >= (byte)SchoolLevel.College && all[i].m_Level <= (byte)SchoolLevel.University)
+                    {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        private int PoorHouseholds(EntityQuery households)
+        {
+            int limit = PoorWealthLimit(m_EntityManager);
+            int count = 0;
+            households.CompleteDependency();
+            ComponentTypeHandle<Household> householdType = m_EntityManager.GetComponentTypeHandle<Household>(true);
+            BufferTypeHandle<Game.Economy.Resources> resourcesType = m_EntityManager.GetBufferTypeHandle<Game.Economy.Resources>(true);
+            using (NativeArray<ArchetypeChunk> chunks = households.ToArchetypeChunkArray(Allocator.Temp))
+            {
+                foreach (ArchetypeChunk chunk in chunks)
+                {
+                    NativeArray<Household> data = chunk.GetNativeArray(ref householdType);
+                    BufferAccessor<Game.Economy.Resources> resources = chunk.GetBufferAccessor(ref resourcesType);
+                    for (int i = 0; i < chunk.Count; i++)
+                    {
+                        if (Game.Economy.EconomyUtils.GetHouseholdTotalWealth(data[i], resources[i]) < limit)
+                        {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
         private int HomelessCitizens(EntityQuery households)
         {
             int citizens = 0;
-            using (NativeArray<Entity> entities = households.ToEntityArray(Allocator.Temp))
+            households.CompleteDependency();
+            BufferTypeHandle<HouseholdCitizen> citizenType = m_EntityManager.GetBufferTypeHandle<HouseholdCitizen>(true);
+            using (NativeArray<ArchetypeChunk> chunks = households.ToArchetypeChunkArray(Allocator.Temp))
             {
-                for (int i = 0; i < entities.Length; i++)
+                foreach (ArchetypeChunk chunk in chunks)
                 {
-                    citizens += m_EntityManager.GetBuffer<HouseholdCitizen>(entities[i], true).Length;
+                    BufferAccessor<HouseholdCitizen> members = chunk.GetBufferAccessor(ref citizenType);
+                    for (int i = 0; i < chunk.Count; i++)
+                    {
+                        citizens += members[i].Length;
+                    }
                 }
             }
             return citizens;

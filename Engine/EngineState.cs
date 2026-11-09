@@ -50,7 +50,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct PolicyRuntime : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 3;
+        private const byte kVersion = 4;
 
         /// <summary>Policy prefab (remapped by the serializer like vanilla policy references).</summary>
         public Entity m_Policy;
@@ -77,6 +77,12 @@ namespace RealisticPolicies.Engine
         /// <summary>Actual burden people are used to, for policies whose burden follows a market price (emission trading).</summary>
         public float m_BurdenReference;
 
+        /// <summary>
+        /// Simulation frame the policy was last switched on: staff go to the policies in this order (2026-11-09 user
+        /// decision). 0 for policies already on in older saves, which then come first in definition order.
+        /// </summary>
+        public uint m_EnactedFrame;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -89,6 +95,7 @@ namespace RealisticPolicies.Engine
             writer.Write(m_BaselineAir);
             writer.Write(m_HasBaseline);
             writer.Write(m_BurdenReference);
+            writer.Write(m_EnactedFrame);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -108,6 +115,10 @@ namespace RealisticPolicies.Engine
             if (version >= 3)
             {
                 reader.Read(out m_BurdenReference);
+            }
+            if (version >= 4)
+            {
+                reader.Read(out m_EnactedFrame);
             }
         }
     }

@@ -1,56 +1,84 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Code-only Cities: Skylines II mod, built without the official modding toolchain:
-    it compiles directly against the game's own managed assemblies and has no Burst jobs,
-    so no post-processing step is needed. Build output is copied into the local Mods folder.
+    Built with the game's official modding toolchain (installed from the game's Options > Modding, 2026-11-09):
+    Mod.props and Mod.targets come from the toolchain folder (CSII_TOOLPATH). They compile against the game's
+    managed assemblies, run the Mod Post Processor (Burst compilation of the mod's jobs) and copy the result into
+    the local Mods folder. The hand-written UI module is copied next to it by DeployUI below.
   -->
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <LangVersion>9.0</LangVersion>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <Configurations>Debug;Release</Configurations>
     <AssemblyName>RealisticPolicies</AssemblyName>
     <RootNamespace>RealisticPolicies</RootNamespace>
     <Version>0.0.1</Version>
     <Authors>Boing787(kanghyeon01)</Authors>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>portable</DebugType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Only the game's own base libraries (its mscorlib has Span, which game APIs such as BuildingUtils use);
+         the .NET Framework 4.8 reference assemblies would clash with it. Mod.props adds the game's mscorlib. -->
     <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
     <NoStdLib>true</NoStdLib>
-    <GenerateDependencyFile>false</GenerateDependencyFile>
-    <DebugType>none</DebugType>
-    <!--
-      The game's managed assemblies. Point this at your install with -p:CS2ManagedPath=...
-      or in RealisticPolicies.csproj.user (git-ignored), which MSBuild imports automatically.
-    -->
-    <CS2ManagedPath Condition="'$(CS2ManagedPath)' == '' and '$(CSII_MANAGEDPATH)' != ''">$(CSII_MANAGEDPATH)</CS2ManagedPath>
-    <CS2ManagedPath Condition="'$(CS2ManagedPath)' == ''">$(MSBuildProgramFiles32)\Steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed</CS2ManagedPath>
-    <CS2LocalModsPath Condition="'$(CS2LocalModsPath)' == ''">$(USERPROFILE)\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods</CS2LocalModsPath>
+  </PropertyGroup>
+
+  <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.User'))\Mod.props" />
+  <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.User'))\Mod.targets" />
+
+  <!-- The "framework" is the game's own Managed folder, not the .NET Framework 4.8 reference package. -->
+  <PropertyGroup>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride>$(ManagedPath)</FrameworkPathOverride>
   </PropertyGroup>
 
   <ItemGroup>
-    <GameReference Include="mscorlib;netstandard;System;System.Core" />
-    <GameReference Include="Game" />
-    <GameReference Include="Colossal.AssetPipeline;Colossal.Core;Colossal.Collections;Colossal.IO.AssetDatabase;Colossal.Localization;Colossal.Logging;Colossal.Mathematics;Colossal.UI.Binding" />
-    <GameReference Include="Unity.Burst;Unity.Collections;Unity.Entities;Unity.Mathematics;UnityEngine.CoreModule;UnityEngine.ScreenCaptureModule" />
-    <Reference Include="@(GameReference)">
-      <HintPath>$(CS2ManagedPath)\%(Identity).dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <Reference Include="Game"><Private>false</Private></Reference>
+    <Reference Include="Colossal.AssetPipeline"><Private>false</Private></Reference>
+    <Reference Include="Colossal.Core"><Private>false</Private></Reference>
+    <Reference Include="Colossal.Collections"><Private>false</Private></Reference>
+    <Reference Include="Colossal.IO.AssetDatabase"><Private>false</Private></Reference>
+    <Reference Include="Colossal.Localization"><Private>false</Private></Reference>
+    <Reference Include="Colossal.Logging"><Private>false</Private></Reference>
+    <Reference Include="Colossal.Mathematics"><Private>false</Private></Reference>
+    <Reference Include="Colossal.UI.Binding"><Private>false</Private></Reference>
+    <Reference Include="Unity.Burst"><Private>false</Private></Reference>
+    <Reference Include="Unity.Collections"><Private>false</Private></Reference>
+    <Reference Include="Unity.Entities"><Private>false</Private></Reference>
+    <Reference Include="Unity.Mathematics"><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule"><Private>false</Private></Reference>
   </ItemGroup>
 
-  <!-- UI module (hand-written .mjs, no bundler) and its images, deployed next to the DLL. -->
   <ItemGroup>
+    <Reference Include="netstandard"><Private>false</Private></Reference>
+    <Reference Include="System"><Private>false</Private></Reference>
+    <Reference Include="System.Core"><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(ModPropsFile)" Link="Properties\Mod.props" />
+    <None Include="$(ModTargetsFile)" Link="Properties\Mod.targets" />
     <ModUIFile Include="UI\**\*" />
   </ItemGroup>
 
-  <Target Name="CheckGamePath" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(CS2ManagedPath)\Game.dll')" Text="Cities: Skylines II not found at '$(CS2ManagedPath)'. Build with -p:CS2ManagedPath=&lt;game folder&gt;\Cities2_Data\Managed or set CS2ManagedPath in RealisticPolicies.csproj.user." />
+  <!--
+    The toolchain's Mod Post Processor targets .NET 6, which this PC does not have (only .NET 8, 2026-11-09).
+    Until .NET 6 is installed it runs on .NET 8 through the standard roll-forward switch. Same command as Mod.targets.
+  -->
+  <Target Name="RunModPostProcessor" AfterTargets="AfterBuild" Condition="'$(NeedBuild)'">
+    <Error Condition="!Exists('$(ModPostProcessorFullPath)')" Text="Post processor not found, please check the path: $(ModPostProcessorFullPath)" />
+    <Message Text="Run post processor: $(ModPostProcessorArgs)" Importance="high" />
+    <Exec Command="$(ModPostProcessorArgs)" LogStandardErrorAsError="true" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" />
   </Target>
 
-  <Target Name="DeployToLocalMods" AfterTargets="Build">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(CS2LocalModsPath)\$(AssemblyName)" SkipUnchangedFiles="false" />
-    <Copy SourceFiles="@(ModUIFile)" DestinationFiles="@(ModUIFile->'$(CS2LocalModsPath)\$(AssemblyName)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
-    <Message Importance="high" Text="Deployed $(TargetFileName) -> $(CS2LocalModsPath)\$(AssemblyName)" />
+  <!-- The UI module (hand-written .mjs, no bundler) goes next to the DLL after the toolchain's own copy. -->
+  <Target Name="DeployUI" AfterTargets="DeployWIP" Condition="'$(NeedBuild)'">
+    <Copy SourceFiles="@(ModUIFile)" DestinationFiles="@(ModUIFile->'$(DeployDir)\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Message Importance="high" Text="UI module copied to $(DeployDir)" />
   </Target>
 
 </Project>
+
