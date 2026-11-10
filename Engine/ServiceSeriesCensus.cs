@@ -195,6 +195,15 @@ namespace RealisticPolicies.Engine
             },
         };
 
+        /// <summary>The game's wealth lines (wretched, poor, modest, comfortable, wealthy start at 0, .x, .y, .z, .w); null before prefabs load.</summary>
+        public static int4? WealthLines(EntityManager entityManager)
+        {
+            using (EntityQuery query = entityManager.CreateEntityQuery(ComponentType.ReadOnly<CitizenHappinessParameterData>()))
+            {
+                return query.IsEmptyIgnoreFilter ? (int4?)null : query.GetSingleton<CitizenHappinessParameterData>().m_WealthyMoneyAmount;
+            }
+        }
+
         /// <summary>Wealth below which a household is poor: the game's "modest" threshold (wretched and poor below it).</summary>
         public static int PoorWealthLimit(EntityManager entityManager)
         {

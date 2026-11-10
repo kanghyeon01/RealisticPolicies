@@ -48,11 +48,11 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kEquipmentMandate), "Pollution Control Equipment Mandate" },
             {
                 PolicyDescription(PolicyCatalog.kEquipmentMandate),
-                "Every industrial company must install filters. Easy to inspect, but every company pays the same cost.\n\n" +
-                "- Air and ground pollution -25%\n- Garbage accumulation +15%\n- Industrial efficiency -3%"
+                "Every industrial company must install filters. Easy to inspect, but every company pays the same cost. " +
+                "Air and ground pollution fall by a quarter, but filters pile up more garbage and industry runs a little less efficiently."
             },
             { PolicyTitle(PolicyCatalog.kEmissionStandard), "Emission Standard" },
-            { PolicyDescription(PolicyCatalog.kEmissionStandard), "Sets the share of industrial pollution that companies must cut. Companies choose how to cut it." },
+            { PolicyDescription(PolicyCatalog.kEmissionStandard), "Sets the share of industrial pollution that companies must cut. Companies choose how to cut it. Slider: the share of industrial pollution to cut." },
             { BudgetItem(BudgetInjectionSystem.kIncomeRowId), "Pollution tax" },
             { BudgetItem(BudgetInjectionSystem.kExpenseRowId), "Green transition subsidy" },
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "Emission standard inspections" },
@@ -74,19 +74,19 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kPollutionTax),
                 "Industry pays for every unit of pollution it emits. Each company cuts as far as cutting is cheaper than the tax, " +
-                "so the city gets the cut at the lowest cost and earns money on what is left. Companies may under-report when inspections are weak."
+                "so the city gets the cut at the lowest cost and earns money on what is left. Companies may under-report when inspections are weak. Slider: the tax rate against the highest rate."
             },
             { PolicyTitle(PolicyCatalog.kGreenSubsidy), "Green Transition Subsidy" },
             {
                 PolicyDescription(PolicyCatalog.kGreenSubsidy),
                 "The city pays industry for every unit of pollution it cuts. Companies welcome it, but it costs money, " +
-                "is hard to take back, and attracts new industry that brings pollution of its own."
+                "is hard to take back, and attracts new industry that brings pollution of its own. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kEnvironmentalMonitoring), "Environmental Monitoring Unit" },
             {
                 PolicyDescription(PolicyCatalog.kEnvironmentalMonitoring),
                 "Inspectors check industrial emissions. On its own it changes nothing, " +
-                "but it makes the emission standard and the pollution tax far harder to dodge. Needs environment staff."
+                "but it makes the emission standard and the pollution tax far harder to dodge. Needs environment staff. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kEmissionDisclosure), "Emission Disclosure" },
             {
@@ -99,13 +99,13 @@ namespace RealisticPolicies
                 PolicyDescription(PolicyCatalog.kEmissionTrading),
                 "Caps the pollution industry may emit and lets companies trade allowances. Those who can cut cheaply cut the most, " +
                 "so the cap is met at the lowest cost. The market sets the allowance price: it falls when the cap is loose or other " +
-                "policies already cut a lot. Air pollution stands in for carbon."
+                "policies already cut a lot. In this city, air pollution is what is traded. Slider: how far the pollution cap is below today's emissions."
             },
             { PolicyTitle(PolicyCatalog.kAllowanceAuction), "Allowance Auctioning" },
             {
                 PolicyDescription(PolicyCatalog.kAllowanceAuction),
                 "Sells part of the allowances at auction instead of giving them away. The city earns revenue, but companies pay more, " +
-                "and a heavy burden drives some industry away. Works only while Emissions Trading is on."
+                "and a heavy burden drives some industry away. Works only while Emissions Trading is on. Slider: the share of allowances sold at auction."
             },
             { BudgetItem(Engine.PolicyDefinitions.kTradingOperationRow), "Emissions trading administration" },
             { BudgetItem(Engine.PolicyDefinitions.kAuctionIncomeRow), "Allowance auction revenue" },
@@ -125,19 +125,19 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kMinimumWage),
                 "Raises the wage of simple jobs above its usual level, and jobs just above it follow partly. Low-wage households earn more; " +
-                "companies, above all shops, pay more, and the city pays its own staff more. Released offenders return to crime a little less. A large jump at once stirs strong opposition."
+                "companies, above all shops, pay more, and the city pays its own staff more. Released offenders return to crime a little less. A large jump at once stirs strong opposition. Slider: the rise over the usual wage for simple jobs."
             },
             { PolicyTitle(PolicyCatalog.kTalentAttraction), "Talent Attraction" },
             {
                 PolicyDescription(PolicyCatalog.kTalentAttraction),
                 "Settlement grants for highly educated newcomers. More of the people moving in are well educated, once jobs and homes are " +
-                "there for them. The pull wears off the longer the grants run."
+                "there for them. The pull wears off the longer the grants run. Slider: how far it is carried out, against the most the city can do. Details: the months of grants each household gets."
             },
             { PolicyTitle(PolicyCatalog.kRedevelopment), "Redevelopment Support" },
             {
                 PolicyDescription(PolicyCatalog.kRedevelopment),
                 "Pays part of the cost of upgrading buildings. Neighbourhoods level up faster, rents rise with them, and poorer households " +
-                "may have to move away."
+                "may have to move away. Slider: the share of upgrade costs the city pays."
             },
             { BudgetItem(Engine.PolicyDefinitions.kMinimumWageRow), "Minimum wage inspection" },
             { BudgetItem(Engine.PolicyDefinitions.kTalentRow), "Talent settlement grants" },
@@ -146,23 +146,23 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kWelfareOutreach),
                 "Social workers visit homes to find people who need help but never ask for it. Within welfare office coverage, " +
-                "unhappy citizens are lifted more. Needs a welfare office staffed by social workers."
+                "unhappy citizens are lifted more. Needs a welfare office staffed by social workers. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kHousingFirst), "Housing First" },
             {
                 PolicyDescription(PolicyCatalog.kHousingFirst),
                 "Gives homeless people a home first, with case workers who help them keep it. Homelessness harms health and " +
-                "wellbeing less, homeless people leave less garbage and noise, and hospitals see fewer emergency visits. Some neighbours object to supported housing nearby."
+                "wellbeing less, homeless people leave less garbage and noise, and hospitals see fewer emergency visits. Some neighbours object to supported housing nearby. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kReentrySupport), "Reentry Support" },
             {
                 PolicyDescription(PolicyCatalog.kReentrySupport),
-                "Jobs, training and counselling for people released from prison. Within welfare office coverage, fewer of them offend again."
+                "Jobs, training and counselling for people released from prison. Within welfare office coverage, fewer of them offend again. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kVictimSupport), "Victim Support" },
             {
                 PolicyDescription(PolicyCatalog.kVictimSupport),
-                "Counselling, medical care and legal aid for crime victims. A crime leaves less harm on the people who live or work where it happened."
+                "Counselling, medical care and legal aid for crime victims. A crime leaves less harm on the people who live or work where it happened. Slider: how far it is carried out, against the most the city can do."
             },
             { BudgetItem(Engine.PolicyDefinitions.kOutreachRow), "Welfare outreach visits" },
             { BudgetItem(Engine.PolicyDefinitions.kHousingFirstRow), "Housing First homes" },
@@ -181,30 +181,30 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kProcedureSimplification),
                 "Cuts the steps a regulation must pass before it takes effect. Rules come into force faster and leave less room " +
-                "for favours, but courts find procedural fault more often."
+                "for favours, but courts find procedural fault more often. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kEGovernment), "E-Government" },
             {
                 PolicyDescription(PolicyCatalog.kEGovernment),
                 "Moves paperwork and approvals online. Every policy needs fewer staff and dealings become more transparent; the better " +
-                "staffed and funded the post and telecom services, the larger the effect. Switching systems holds work up at first."
+                "staffed and funded the post and telecom services, the larger the effect. Switching systems holds work up at first. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kCivilServicePay), "Civil Service Pay" },
             {
                 PolicyDescription(PolicyCatalog.kCivilServicePay),
                 "Raises the pay of city staff above the usual level. The upkeep of every service building rises with it; fewer " +
-                "staff quit, and a little less goes astray."
+                "staff quit, and a little less goes astray. Slider: the rise over the usual civil service pay."
             },
             { PolicyTitle(PolicyCatalog.kSpecialistPosts), "Specialist Posts" },
             {
                 PolicyDescription(PolicyCatalog.kSpecialistPosts),
                 "Keeps officials in one field instead of rotating them every year. They know their work better, but grow close to " +
-                "those they oversee."
+                "those they oversee. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kParticipatoryBudgeting), "Participatory Budgeting" },
             {
                 PolicyDescription(PolicyCatalog.kParticipatoryBudgeting),
-                "Residents decide part of the budget. Trust in city hall grows slowly over time, and spending decisions take longer."
+                "Residents decide part of the budget. Trust in city hall grows slowly over time, and spending decisions take longer. Slider: how far it is carried out, against the most the city can do."
             },
             { PolicyTitle(PolicyCatalog.kPublicHearings), "Mandatory Public Hearings" },
             {
@@ -224,15 +224,15 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kPublicHearings, true), "Hearing after hearing before anything moves. We have taken the city to court." },
             { Chirp(PolicyCatalog.kPublicHearings, false), "No more public hearings? Then where do we have our say? Residents have filed suit." },
             { PolicyTitle(PolicyCatalog.kPerformanceManagement), "Performance Management" },
-            { PolicyDescription(PolicyCatalog.kPerformanceManagement), "Sets targets for every department and pays bonuses for meeting them. City service buildings work up to 3% better, but staff learn to hit the numbers. Reports look better than the results, and favours creep in sooner." },
+            { PolicyDescription(PolicyCatalog.kPerformanceManagement), "Sets targets for every department and pays bonuses for meeting them. Public facilities work a little better, but staff learn to hit the numbers. Reports look better than the results, and favours creep in sooner. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kOmbudsman), "Ombudsman" },
             { PolicyDescription(PolicyCatalog.kOmbudsman), "An independent office hears complaints about the city. People take fewer grievances to court." },
             { PolicyTitle(PolicyCatalog.kInformationDisclosure), "Open Information" },
-            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "Publishes more of the city's records. Officials are watched more closely, trust grows and performance figures are gamed less. Those who sue the city can see more as well." },
+            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "Publishes more of the city's records. Officials are watched more closely, trust grows and performance figures are gamed less. Those who sue the city can see more as well. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kArrearsCollection), "Tax Arrears Collection" },
-            { PolicyDescription(PolicyCatalog.kArrearsCollection), "Tax staff chase unpaid local taxes. Tax income rises; those made to pay are not pleased. Needs a welfare office assigned to tax staff." },
+            { PolicyDescription(PolicyCatalog.kArrearsCollection), "Tax staff chase unpaid local taxes. Tax income rises; those made to pay are not pleased. Needs a welfare office assigned to tax staff. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kCompetitiveBidding), "Competitive Bidding" },
-            { PolicyDescription(PolicyCatalog.kCompetitiveBidding), "Puts the city's purchases out to open, lowest-price bidding. Service buildings cost less to run, but bidders may rig their bids." },
+            { PolicyDescription(PolicyCatalog.kCompetitiveBidding), "Puts the city's purchases out to open, lowest-price bidding. Service buildings cost less to run, but bidders may rig their bids. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kInterMunicipalAgreement), "Inter-Municipal Service Agreement" },
             { PolicyDescription(PolicyCatalog.kInterMunicipalAgreement), "Shares services with neighbouring cities, so services bought from outside cost less. Small towns gain the most." },
             { PolicyTitle(PolicyCatalog.kFiscalRule), "Fiscal Rule" },
@@ -256,35 +256,35 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Modifier.LoanInterest", "Loan interest" },
             { "RealisticPolicies.UI.Report.Modifier.HospitalEfficiency", "Hospital efficiency" },
             { PolicyTitle(PolicyCatalog.kContractingOut), "Contracting Out" },
-            { PolicyDescription(PolicyCatalog.kContractingOut), "Hands part of the city's services to private contractors. Upkeep falls a little, but quality that is hard to write into a contract slips, and officials grow close to the contractors. Taking services back later is costly. Savings are larger with Competitive Bidding." },
+            { PolicyDescription(PolicyCatalog.kContractingOut), "Hands part of the city's services to private contractors. Upkeep falls a little, but quality that is hard to write into a contract slips, and officials grow close to the contractors. Taking services back later is costly. Savings are larger with Competitive Bidding. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kContractingRow), "Contract oversight" },
             { PolicyTitle(PolicyCatalog.kIndustryCluster), "Industry Cluster Support" },
-            { PolicyDescription(PolicyCatalog.kIndustryCluster), "Grants for industries the city already concentrates in. Specialized industries become more productive; the grants come out of everyone's taxes." },
+            { PolicyDescription(PolicyCatalog.kIndustryCluster), "Grants for industries the city already concentrates in. Specialized industries become more productive; the grants come out of everyone's taxes. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kCorporateRescue), "Corporate Rescue" },
-            { PolicyDescription(PolicyCatalog.kCorporateRescue), "Lets indebted companies restructure instead of going bankrupt. Fewer firms close, but in each industry the firms kept alive drag down the others: the more of them, the lower that industry's efficiency. Fewer new firms start." },
+            { PolicyDescription(PolicyCatalog.kCorporateRescue), "Lets indebted companies restructure instead of going bankrupt. Fewer firms close, but in each industry the firms kept alive drag down the others: the more of them, the lower that industry's efficiency. Fewer new firms start. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kRegionalJobPact), "Regional Employment Pact" },
-            { PolicyDescription(PolicyCatalog.kRegionalJobPact), "Opens the city's jobs to workers from the surrounding region. Companies fill vacancies more easily; some residents see more competition for jobs." },
+            { PolicyDescription(PolicyCatalog.kRegionalJobPact), "Opens the city's jobs to workers from the surrounding region. Companies fill vacancies more easily; some residents see more competition for jobs. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kUnemploymentDuration), "Longer Unemployment Benefits" },
-            { PolicyDescription(PolicyCatalog.kUnemploymentDuration), "Pays unemployment benefits for longer. Job seekers have more time to find a good match, at the city's cost; some take longer to go back to work." },
+            { PolicyDescription(PolicyCatalog.kUnemploymentDuration), "Pays unemployment benefits for longer. Job seekers have more time to find a good match, at the city's cost; some take longer to go back to work. The slider is how many more months benefits are paid (normally 5)." },
             { PolicyTitle(PolicyCatalog.kResourceQuota), "Natural Resource Quotas" },
-            { PolicyDescription(PolicyCatalog.kResourceQuota), "Caps how much fish, timber, crops, ore and oil may be taken from the land and sea. Resources last longer, but extractors produce less now." },
+            { PolicyDescription(PolicyCatalog.kResourceQuota), "Caps how much fish, timber, crops, ore and oil may be taken from the land and sea. Resources last longer, but extractors produce less now. Slider: how much less may be taken than today." },
             { BudgetItem(Engine.PolicyDefinitions.kClusterRow), "Industry cluster grants" },
             { BudgetItem(Engine.PolicyDefinitions.kRescueRow), "Corporate rescue fund" },
             { BudgetItem(Engine.PolicyDefinitions.kJobPactRow), "Regional pact share" },
             { BudgetItem(Engine.PolicyDefinitions.kUnemploymentRow), "Extended unemployment benefits" },
             { BudgetItem(Engine.PolicyDefinitions.kQuotaRow), "Quota monitoring" },
             { PolicyTitle(PolicyCatalog.kRentCap), "Rent Cap" },
-            { PolicyDescription(PolicyCatalog.kRentCap), "Limits how much residential rents may rise. Tenants pay less and stay put, but landlords take homes off the rental market and put off upgrades. Fewer new homes are built, and households move less often." },
+            { PolicyDescription(PolicyCatalog.kRentCap), "Limits how much residential rents may rise. Tenants pay less and stay put, but landlords take homes off the rental market and put off upgrades. Fewer new homes are built, and households move less often. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kNoiseControl), "Noise Control" },
-            { PolicyDescription(PolicyCatalog.kNoiseControl), "Sets noise limits for buildings and roads. Neighbourhoods get quieter; industry pays for quieter equipment." },
+            { PolicyDescription(PolicyCatalog.kNoiseControl), "Sets noise limits for buildings and roads. Neighbourhoods get quieter; industry pays for quieter equipment. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kVehicleEmissions), "Vehicle Emission Standard" },
-            { PolicyDescription(PolicyCatalog.kVehicleEmissions), "Requires cleaner cars and trucks. Air along roads gets cleaner over time; drivers pay for newer or retrofitted vehicles." },
+            { PolicyDescription(PolicyCatalog.kVehicleEmissions), "Requires cleaner cars and trucks. Air along roads gets cleaner over time; drivers pay for newer or retrofitted vehicles. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kDrinkingWater), "Drinking Water Standard" },
-            { PolicyDescription(PolicyCatalog.kDrinkingWater), "Lowers the pollution allowed in tap water. Pumps stop sending water that is not clean enough, so supply can fall short where sources are polluted." },
+            { PolicyDescription(PolicyCatalog.kDrinkingWater), "Lowers the pollution allowed in tap water. Pumps stop sending water that is not clean enough, so supply can fall short where sources are polluted. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kGroundwaterProtection), "Groundwater Protection" },
-            { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "Meters and charges groundwater pumping. Aquifers last longer; water-hungry industry pays more." },
+            { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "Meters and charges groundwater pumping. Aquifers last longer; water-hungry industry pays more. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kParkCare), "Park Care" },
-            { PolicyDescription(PolicyCatalog.kParkCare), "Funds better upkeep and programmes in parks. Parks draw more visitors, and well-kept green space lowers crime a little." },
+            { PolicyDescription(PolicyCatalog.kParkCare), "Funds better upkeep and programmes in parks. Parks draw more visitors, and well-kept green space lowers crime a little. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kRentCapRow), "Rent dispute office" },
             { BudgetItem(Engine.PolicyDefinitions.kNoiseRow), "Noise inspection" },
             { BudgetItem(Engine.PolicyDefinitions.kVehicleRow), "Vehicle emission testing" },
@@ -292,43 +292,43 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kGroundwaterRow), "Groundwater metering" },
             { BudgetItem(Engine.PolicyDefinitions.kParkRow), "Park upkeep" },
             { PolicyTitle(PolicyCatalog.kSpeedCameras), "Speed Cameras" },
-            { PolicyDescription(PolicyCatalog.kSpeedCameras), "Puts automatic speed cameras on highways. Drivers slow down and highway crashes fall; streets are not covered." },
+            { PolicyDescription(PolicyCatalog.kSpeedCameras), "Puts automatic speed cameras on highways. Drivers slow down and highway crashes fall; streets are not covered. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kDisasterCode), "Disaster-Resistant Building Code" },
-            { PolicyDescription(PolicyCatalog.kDisasterCode), "Requires buildings to withstand storms and floods. Disasters damage buildings less; building upgrades cost more." },
+            { PolicyDescription(PolicyCatalog.kDisasterCode), "Requires buildings to withstand storms and floods. Disasters damage buildings less; building upgrades cost more. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kFireCode), "Fire Safety Code" },
-            { PolicyDescription(PolicyCatalog.kFireCode), "Requires fire-resistant materials, sprinklers and fire doors. Burning buildings hold out longer before they are lost, and storms and floods damage them a little less; building upgrades cost more." },
+            { PolicyDescription(PolicyCatalog.kFireCode), "Requires fire-resistant materials, sprinklers and fire doors. Burning buildings hold out longer before they are lost, and storms and floods damage them a little less; building upgrades cost more. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kSpeedCameraRow), "Speed camera operation" },
             { BudgetItem(Engine.PolicyDefinitions.kDisasterCodeRow), "Building code inspection" },
             { BudgetItem(Engine.PolicyDefinitions.kFireCodeRow), "Fire safety inspection" },
             { PolicyTitle(PolicyCatalog.kCommunityPolicing), "Community Policing" },
-            { PolicyDescription(PolicyCatalog.kCommunityPolicing), "Puts officers on foot patrols that know their neighbourhoods. Trust in the city grows and places feel safer; crime itself falls only a little. Takes many officers." },
+            { PolicyDescription(PolicyCatalog.kCommunityPolicing), "Puts officers on foot patrols that know their neighbourhoods. Trust in the city grows and places feel safer; crime itself falls only a little. Takes many officers. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kZeroTolerance), "Zero Tolerance Policing" },
-            { PolicyDescription(PolicyCatalog.kZeroTolerance), "Stops and fines every minor offence. Crime levels in buildings drop quickly, but citizens commit no fewer crimes. The constant stops cost the city trust, and other rules are followed less." },
+            { PolicyDescription(PolicyCatalog.kZeroTolerance), "Stops and fines every minor offence. Crime levels in buildings drop quickly, but citizens commit no fewer crimes. The constant stops cost the city trust, and other rules are followed less. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kHarsherSentencing), "Harsher Sentencing" },
-            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "Lengthens prison terms. Offenders stay off the street longer and a few are deterred, but prisons fill up and cost more. Released offenders find it harder to get work." },
+            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "Lengthens prison terms. Offenders stay off the street longer and a few are deterred, but prisons fill up and cost more. Released offenders find it harder to get work. Slider: months added to each prison term." },
             { PolicyTitle(PolicyCatalog.kEmergencyResponse), "Emergency Call Response" },
-            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "Upgrades the emergency call centre and dispatch. Police learn of crimes and arrive sooner, so more offenders are caught. The more citizens trust the city, the more they call." },
+            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "Upgrades the emergency call centre and dispatch. Police learn of crimes and arrive sooner, so more offenders are caught. The more citizens trust the city, the more they call. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kCpted), "Crime Prevention Through Design" },
-            { PolicyDescription(PolicyCatalog.kCpted), "Requires lighting, open sight lines and fewer hiding places in buildings and streets. Crime levels fall over time; building upgrades cost a little more." },
+            { PolicyDescription(PolicyCatalog.kCpted), "Requires lighting, open sight lines and fewer hiding places in buildings and streets. Crime levels fall over time; building upgrades cost a little more. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kCommunityPolicingRow), "Community patrols" },
             { BudgetItem(Engine.PolicyDefinitions.kZeroToleranceRow), "Order enforcement" },
             { BudgetItem(Engine.PolicyDefinitions.kSentencingRow), "Longer prison terms" },
             { BudgetItem(Engine.PolicyDefinitions.kEmergencyResponseRow), "Emergency dispatch" },
             { BudgetItem(Engine.PolicyDefinitions.kCptedRow), "Safety design review" },
             { PolicyTitle(PolicyCatalog.kHealthCampaign), "Public Health Campaign" },
-            { PolicyDescription(PolicyCatalog.kHealthCampaign), "Runs campaigns on hygiene, vaccination and healthy habits. Fewer citizens fall ill; the effect depends on the city's health staff." },
+            { PolicyDescription(PolicyCatalog.kHealthCampaign), "Runs campaigns on hygiene, vaccination and healthy habits. Fewer citizens fall ill; the effect depends on the city's health staff. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kEmergencyCare), "Emergency Medical System" },
-            { PolicyDescription(PolicyCatalog.kEmergencyCare), "Builds a trauma and emergency network with faster transfers. Fewer sick and injured citizens die." },
+            { PolicyDescription(PolicyCatalog.kEmergencyCare), "Builds a trauma and emergency network with faster transfers. Fewer sick and injured citizens die. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kAirQualityAlert), "Air Quality Alerts" },
-            { PolicyDescription(PolicyCatalog.kAirQualityAlert), "Warns citizens on days of bad air. Pollution harms their health less, but they spend less time enjoying the outdoors." },
+            { PolicyDescription(PolicyCatalog.kAirQualityAlert), "Warns citizens on days of bad air. Pollution harms their health less, but they spend less time enjoying the outdoors. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kPublicHealthcare), "Public Healthcare" },
-            { PolicyDescription(PolicyCatalog.kPublicHealthcare), "Funds more doctors, nurses and beds in public hospitals. Hospitals treat patients faster." },
+            { PolicyDescription(PolicyCatalog.kPublicHealthcare), "Funds more doctors, nurses and beds in public hospitals. Hospitals treat patients faster. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kScholarships), "Scholarships" },
-            { PolicyDescription(PolicyCatalog.kScholarships), "Pays university grants to students. More young people go to university and finish it; if universities are full, the money goes out and little changes." },
+            { PolicyDescription(PolicyCatalog.kScholarships), "Pays university grants to students. More young people go to university and finish it; if universities are full, the money goes out and little changes. Slider: the share of university students who get it. Details: the money each gets a month." },
             { PolicyTitle(PolicyCatalog.kFreeHighSchool), "Free High School" },
-            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "Covers high school fees for every family. More teenagers go on to high school, and crime falls a little." },
+            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "Covers high school fees for every family. More teenagers go on to high school, and crime falls a little. Slider: the share of high school fees covered." },
             { PolicyTitle(PolicyCatalog.kLifelongLearning), "Lifelong Learning" },
-            { PolicyDescription(PolicyCatalog.kLifelongLearning), "Offers evening and weekend courses for unemployed adults. Each day, up to 3% of them start looking for a school at the next level; the game places them where there is room." },
+            { PolicyDescription(PolicyCatalog.kLifelongLearning), "Offers evening and weekend courses for adults out of work. They go back to school at the next level, where schools have room. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kHealthCampaignRow), "Health campaign" },
             { BudgetItem(Engine.PolicyDefinitions.kEmergencyCareRow), "Emergency care network" },
             { BudgetItem(Engine.PolicyDefinitions.kAirAlertRow), "Air quality alerts" },
@@ -337,9 +337,9 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kFreeHighSchoolRow), "High school fees" },
             { BudgetItem(Engine.PolicyDefinitions.kLifelongRow), "Adult courses" },
             { PolicyTitle(PolicyCatalog.kDisasterWarning), "Disaster Early Warning" },
-            { PolicyDescription(PolicyCatalog.kDisasterWarning), "Sends alerts by phone, broadcast and siren before storms and floods, giving citizens more time to take shelter. The better staffed and funded the post and telecom services, the more people the alerts reach." },
+            { PolicyDescription(PolicyCatalog.kDisasterWarning), "Sends alerts by phone, broadcast and siren before storms and floods, giving citizens more time to take shelter. The better staffed and funded the post and telecom services, the more people the alerts reach. Slider: extra warning time (seconds)." },
             { PolicyTitle(PolicyCatalog.kEnergyCode), "Building Energy Efficiency Standard" },
-            { PolicyDescription(PolicyCatalog.kEnergyCode), "Requires insulation and efficient equipment in new and renovated buildings. Homes and workplaces use less electricity; building upgrades cost more." },
+            { PolicyDescription(PolicyCatalog.kEnergyCode), "Requires insulation and efficient equipment in new and renovated buildings. Homes and workplaces use less electricity; building upgrades cost more. Slider: how far it is carried out, against the most the city can do." },
             { PolicyTitle(PolicyCatalog.kWasteFee), "Volume-Based Waste Fee" },
             { PolicyDescription(PolicyCatalog.kWasteFee), "Homes and shops pay for garbage by the bag. They throw away less, and the bag sales bring in fees; the price falls on every household." },
             { BudgetItem(Engine.PolicyDefinitions.kWarningRow), "Early warning network" },
@@ -350,20 +350,20 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kWasteFee, true), "Paying by the bag for every box we throw out? We have filed suit." },
             { Chirp(PolicyCatalog.kWasteFee, false), "We pay for every bag now, and the alley fills with dumped trash. Residents have filed suit." },
             { PolicyTitle(PolicyCatalog.kUniversityIndustry), "University–Industry Support" },
-            { PolicyDescription(PolicyCatalog.kUniversityIndustry), "Grants for joint research between companies and universities. Software offices and the electronics industry become more productive. The more college and university students the city has, the larger the effect; it is full when 5% of residents study." },
+            { PolicyDescription(PolicyCatalog.kUniversityIndustry), "Grants for joint research between companies and universities. Software offices and the electronics industry become more productive. The more college and university students the city has, the larger the effect. Slider: how far it is carried out, against the most the city can do." },
             { BudgetItem(Engine.PolicyDefinitions.kUniversityIndustryRow), "University–industry grants" },
             { Chirp(PolicyCatalog.kUniversityIndustry, true), "Our joint research grants were cut halfway through the project. We have filed suit." },
             { Chirp(PolicyCatalog.kUniversityIndustry, false), "The research grants that kept our lab open were cut. We have filed suit." },
             { PolicyTitle(PolicyCatalog.kLivelihoodSupport), "Livelihood Support" },
-            { PolicyDescription(PolicyCatalog.kLivelihoodSupport), "Pays households below modest wealth a monthly allowance from the city budget, poorest first. At 100% each gets as much as the unemployment benefit. Each social welfare worker handles about 60 households, so the staff decide how many are reached. More income makes them happier, so there is less crime and fewer lose their homes." },
+            { PolicyDescription(PolicyCatalog.kLivelihoodSupport), "Pays households whose income is below a share of the city's median household income (set under Details; 32% at first) a monthly allowance from the city budget, lowest income first. The slider is what each household gets a month (the unemployment benefit is ¢800). Each social welfare worker handles about 60 households, so the staff decide how many are reached. More income makes them happier, so there is less crime and fewer lose their homes." },
             { BudgetItem(Engine.PolicyDefinitions.kLivelihoodRow), "Livelihood support payments" },
             { PolicyTitle(PolicyCatalog.kRentSupport), "Rent Support" },
-            { PolicyDescription(PolicyCatalog.kRentSupport), "Gives poor renting households part of their rent back each month, poorest first. Each social welfare worker handles about 100 households, so the staff decide how many are reached. Supported tenants can keep paying and lose their homes less often." },
+            { PolicyDescription(PolicyCatalog.kRentSupport), "Gives poor renting households a fixed sum toward their rent each month, never more than the rent itself, poorest first. The slider is the sum per household a month; Details sets how many months each household may get it. Each social welfare worker handles about 100 households, so the staff decide how many are reached. Supported tenants can keep paying and lose their homes less often." },
             { BudgetItem(Engine.PolicyDefinitions.kRentSupportRow), "Rent support payments" },
             { Chirp(PolicyCatalog.kRentSupport, true), "Our tenants could pay because of the rent support. Now it is gone and so are they. We have filed suit." },
             { Chirp(PolicyCatalog.kRentSupport, false), "They cut the rent support and we cannot make the rent. Tenants have filed suit." },
             { PolicyTitle(PolicyCatalog.kFlexibleHours), "Flexible Hours Support" },
-            { PolicyDescription(PolicyCatalog.kFlexibleHours), "Pays companies that let their staff start later. Each company decides whether to take it up; at those that do, workers start up to 90 minutes later, so fewer cars are on the road at the morning peak. The slider sets the share of workplaces reached. Output does not change." },
+            { PolicyDescription(PolicyCatalog.kFlexibleHours), "Pays companies that let their staff start later. Each company decides whether to take it up; at those that do, workers start later, up to the time set under Details (90 minutes at first), so fewer cars are on the road at the morning peak. The more support, the more workplaces take it up. Slider: the share of workplaces taking it up." },
             { BudgetItem(Engine.PolicyDefinitions.kFlexibleHoursRow), "Flexible hours grants" },
             { Chirp(PolicyCatalog.kFlexibleHours, true), "Our shop hours are planned around the old start times. We have filed suit." },
             { Chirp(PolicyCatalog.kFlexibleHours, false), "The grants for later starts are gone, our employer dropped them and the morning jams are back. Commuters have filed suit." },
@@ -416,9 +416,9 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kDrinkingWater, false), "They relaxed the tap water standard? Residents have taken the city to court." },
             { Chirp(PolicyCatalog.kGroundwaterProtection, true), "Paying for every litre we pump? We have filed suit." },
             { Chirp(PolicyCatalog.kGroundwaterProtection, false), "Free pumping again until the wells run dry? Residents have filed suit." },
-            { "RealisticPolicies.UI.Report.Lever.ResidentialLandValue", "Rent from residential land value" },
-            { "RealisticPolicies.UI.Report.Lever.FreeResidentialProportion", "Vacancy target for new housing" },
-            { "RealisticPolicies.UI.Report.Lever.LookForHomeChance", "Time between home searches" },
+            { "RealisticPolicies.UI.Report.Lever.ResidentialLandValue", "Rent from land value" },
+            { "RealisticPolicies.UI.Report.Lever.FreeResidentialProportion", "New housing supply target" },
+            { "RealisticPolicies.UI.Report.Lever.LookForHomeChance", "How often households think of moving" },
             { "RealisticPolicies.UI.Report.Lever.BuildingNoise", "Noise from buildings" },
             { "RealisticPolicies.UI.Report.Lever.RoadNoise", "Noise from roads" },
             { "RealisticPolicies.UI.Report.Lever.RoadAir", "Air pollution from roads" },
@@ -435,7 +435,7 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kResourceQuota, false), "Lifting the quotas will use up the sea, the forests and the ground. Residents have filed suit." },
             { "RealisticPolicies.UI.Report.Lever.SpecializationBonus", "Specialization bonus ceiling" },
             { "RealisticPolicies.UI.Report.Lever.BankruptcyLimit", "Debt allowed before bankruptcy" },
-            { "RealisticPolicies.UI.Report.Lever.CommuterRatioLimit", "Workers per commuter allowed" },
+            { "RealisticPolicies.UI.Report.Lever.CommuterRatioLimit", "Limit on commuters from outside" },
             { "RealisticPolicies.UI.Report.Lever.UnemploymentDays", "Days of unemployment benefit" },
             { "RealisticPolicies.UI.Report.Lever.FishConsumption", "Fish stock used per catch" },
             { "RealisticPolicies.UI.Report.Lever.ForestConsumption", "Forest used per harvest" },
@@ -450,7 +450,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Reform.RegulationClearance.Tooltip", "Fewer steps between a decision and the rule taking effect." },
             { "RealisticPolicies.UI.Report.Reform.RegulationLag", "Time until regulations take effect" },
             { "RealisticPolicies.UI.Report.Reform.RegulationLag.Tooltip", "Simplified procedures put rules into force sooner." },
-            { "RealisticPolicies.UI.Report.Reform.CaptureCeiling", "Regulatory capture ceiling" },
+            { "RealisticPolicies.UI.Report.Reform.CaptureCeiling", "Collusion ceiling" },
             { "RealisticPolicies.UI.Report.Reform.CaptureCeiling.Tooltip", "How far regulated companies can come to sway the officials who oversee them." },
             { "RealisticPolicies.UI.Report.Reform.RegulationProcedure", "Procedural fault in suits against regulations" },
             { "RealisticPolicies.UI.Report.Reform.RegulationProcedure.Tooltip", "Courts find more fault in rules passed with fewer steps, so the city loses more often." },
@@ -460,8 +460,23 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Reform.AvailableStaff.Tooltip", "Better pay, fewer quits." },
             { "RealisticPolicies.UI.Report.Reform.Effectiveness", "Delivery of every policy" },
             { "RealisticPolicies.UI.Report.Reform.Effectiveness.Tooltip", "Officials who know their work deliver more." },
-            { "RealisticPolicies.UI.Report.Reform.CaptureTime", "Time for capture to build up" },
+            { "RealisticPolicies.UI.Report.Reform.CaptureTime", "How fast collusion deepens" },
             { "RealisticPolicies.UI.Report.Reform.CaptureTime.Tooltip", "Shorter means officials grow close to those they oversee sooner." },
+            { "RealisticPolicies.UI.Second.Title", "Details" },
+            { "RealisticPolicies.UI.Second.Months", "{N} months" },
+            { "RealisticPolicies.UI.Second.Minutes", "{N} min" },
+            { "RealisticPolicies.UI.Second.RentMonths", "Longest support per household" },
+            { "RealisticPolicies.UI.Second.RentMonths.Hint", "A household that has had support this long gets no more, and the next poorest gets it. Switching the policy off starts the count again." },
+            { "RealisticPolicies.UI.Second.LivelihoodIncome", "Income limit (share of the median)" },
+            { "RealisticPolicies.UI.Second.LivelihoodIncome.Hint", "Households whose income is below this share of the city's median household income can get it. Korea's livelihood benefit uses 32%. A higher limit reaches more households and needs more social welfare workers." },
+            { "RealisticPolicies.UI.Second.TalentMonths", "Grant months per newcomer household" },
+            { "RealisticPolicies.UI.Second.TalentMonths.Hint", "Longer grants bring in more highly educated households, and cost more in the same proportion." },
+            { "RealisticPolicies.UI.Second.FlexibleDelay", "Latest later start" },
+            { "RealisticPolicies.UI.Second.FlexibleDelay.Hint", "Workers at taking-part workplaces start up to this much later. A longer window spreads the morning peak further." },
+            { "RealisticPolicies.UI.Second.ScholarshipAmount", "Scholarship per student (a month)" },
+            { "RealisticPolicies.UI.Second.ScholarshipAmount.Hint", "Students paid × this amount is the budget line. A larger amount draws more students to university; if universities are full, the money goes out and little changes." },
+            { "RealisticPolicies.UI.Report.Condition.Up", "Conditions in this city make the effect stronger than usual." },
+            { "RealisticPolicies.UI.Report.Condition.Down", "Conditions in this city make the effect weaker than usual." },
             { "RealisticPolicies.UI.Report.Inflated", "Performance management may make this figure look better than it is." },
             { "RealisticPolicies.UI.Report.Inflated.Tooltip", "Staff write their reports to the targets, so this reads higher than it is. The Outcomes rows show the real effect." },
             { "RealisticPolicies.UI.Report.Reform.ReportInflation", "Delivery reported by other policies" },
@@ -489,19 +504,19 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kRedevelopment, true), "The upgrade grants we planned on, cut without notice? We have filed suit." },
             { Chirp(PolicyCatalog.kRedevelopment, false), "Redevelopment pushes our rent up until we must leave. Residents have filed suit." },
             { "RealisticPolicies.UI.Report.Lever.Wage0", "Wage of simple jobs" },
-            { "RealisticPolicies.UI.Report.Lever.Wage1", "Wage of basic jobs (knock-on)" },
+            { "RealisticPolicies.UI.Report.Lever.Wage1", "Wage of basic jobs" },
             { "RealisticPolicies.UI.Report.Lever.NewCitizenHighEducation", "Highly educated newcomers" },
             { "RealisticPolicies.UI.Report.Modifier.BuildingLevelingCost", "Building upgrade cost" },
-            { "RealisticPolicies.UI.Report.Fading", "Remaining pull" },
-            { "RealisticPolicies.UI.Report.Fading.Tooltip", "The effect wears off the longer the policy runs (halves every 10 days, at least 50% stays)" },
+            { "RealisticPolicies.UI.Report.Fading", "Support effect (fades over time)" },
+            { "RealisticPolicies.UI.Report.Fading.Tooltip", "The longer the policy runs, the weaker the effect (half every 10 days, never below 50%)" },
             { "RealisticPolicies.Search.Placeholder", "Search policies" },
             { "RealisticPolicies.Series.Header", "Staff series" },
             { "RealisticPolicies.Series.GeneralAdministration", "General administration" },
-            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "Counts this office's staff as general administration. Most policies need them." },
+            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "This office's staff do general administration. Most policies need them." },
             { "RealisticPolicies.Series.SocialWelfare", "Social welfare" },
-            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "Counts this office's staff as social workers, whom welfare policies such as Livelihood Support need. Without them residential tax cannot go below 0%; with 0.4 per thousand residents it can go down to the game's own minimum." },
+            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "This office's staff work as social workers, whom welfare policies such as Livelihood Support need. Without them residential tax cannot go below 0%; with 0.4 per thousand residents it can go down to the usual minimum." },
             { "RealisticPolicies.Series.Tax", "Tax" },
-            { "RealisticPolicies.Series.Tax.Tooltip", "Counts this office's staff as tax officers. Without any, tax rates cannot be changed. With 0.18 per thousand residents the game's full tax range is open; with fewer, rates stay closer to 10%." },
+            { "RealisticPolicies.Series.Tax.Tooltip", "This office's staff work as tax officers. Without any, tax rates cannot be changed. With 0.18 per thousand residents the full tax range is open; with fewer, rates stay closer to 10%." },
             { "RealisticPolicies.UI.Lang", "en" },
             { "RealisticPolicies.UI.Tab.Lawsuits", "Lawsuits" },
             { "Infoviews.INFOVIEW[RealisticPolicies.Protests]", "Protests" },
@@ -526,7 +541,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Demand.Off", "Drop {POLICY}" },
             { "RealisticPolicies.UI.Protest.Demand.Tax", "Lower the residential tax back to {VALUE}" },
             { "RealisticPolicies.UI.Protest.People", "Protesters" },
-            { "RealisticPolicies.UI.Protest.People.Value", "{N} ({SHARE} of residents along the roads)" },
+            { "RealisticPolicies.UI.Protest.People.Value", "{N} ({SHARE} of nearby residents)" },
             { "RealisticPolicies.UI.Protest.Intensity", "Intensity" },
             { "RealisticPolicies.UI.Protest.Intensity.Tooltip", "Above 60% the protest becomes a riot, with fires, looting and more crime along its roads." },
             { "RealisticPolicies.UI.Protest.Trait", "Character" },
@@ -548,9 +563,10 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Action.Effect", "Effect" },
             { "RealisticPolicies.UI.Action.Effect.Industrial", "Industrial efficiency −{N}%" },
             { "RealisticPolicies.UI.Action.Effect.Office", "Office efficiency −{N}%" },
-            { "RealisticPolicies.UI.Action.Effect.Public", "Staff for policy work −{N}%" },
+            { "RealisticPolicies.UI.Action.Effect.Public", "Staff for carrying out policies −{N}%" },
             { "RealisticPolicies.UI.Action.Effect.Commercial", "Shop efficiency −{N}%" },
-            { "RealisticPolicies.UI.Action.Effect.Tooltip", "People still go to work; only output falls. It ends when the policy goes back to what they ask." },
+            { "RealisticPolicies.UI.Action.Effect.Tooltip.Strike", "Some workers down tools and output falls. It ends when their demand is met." },
+            { "RealisticPolicies.UI.Action.Effect.Tooltip.Closure", "Some businesses close their doors and the sector's output falls. It ends when their demand is met." },
             { "RealisticPolicies.UI.Protest.Closure", "Road closure" },
             { "RealisticPolicies.UI.Protest.Closure.On", "{N} segments closed" },
             { "RealisticPolicies.UI.Protest.Closure.Off", "None (under 1,000 people)" },
@@ -559,7 +575,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Crime.Tooltip", "It stays after the riot and falls as police patrols come by." },
             { "RealisticPolicies.UI.Protest.Response", "Response" },
             { "RealisticPolicies.UI.Protest.Response.None", "Not decided yet" },
-            { "RealisticPolicies.UI.Protest.Response.None.Tooltip", "Until you decide, it is left alone." },
+            { "RealisticPolicies.UI.Protest.Response.None.Tooltip", "Until you decide, it is treated as ignored." },
             { "RealisticPolicies.UI.Protest.Response.Negotiate", "Negotiation" },
             { "RealisticPolicies.UI.Protest.Response.Watch", "Repression: police presence" },
             { "RealisticPolicies.UI.Protest.Response.Disperse", "Repression: forced dispersal" },
@@ -579,10 +595,10 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Legitimacy.Tooltip", "The more violent the protest, the less repressing it costs." },
             { "RealisticPolicies.UI.Protest.Cars", "Police cars" },
             { "RealisticPolicies.UI.Protest.Cars.Value", "{IN} / {N} in place" },
-            { "RealisticPolicies.UI.Protest.Cars.Tooltip", "Sent one after another. Each stands at the next free place just outside the protest, nearest the crowd first. If the city lacks cars, only some come." },
+            { "RealisticPolicies.UI.Protest.Cars.Tooltip", "Police cars set out one after another and close off the area around the protest. If the city lacks cars, only some come." },
             { "RealisticPolicies.UI.Protest.Cars.Short", "Not enough police cars. Calls elsewhere may wait." },
             { "RealisticPolicies.UI.Protest.Effect", "Repression effect" },
-            { "RealisticPolicies.UI.Protest.Effect.Tooltip", "Rises with the share of needed cars in place; police presence goes only half as far as forced dispersal. A weak repression can make the protest grow." },
+            { "RealisticPolicies.UI.Protest.Effect.Tooltip", "The more police cars arrive, the stronger it is. Police presence is weaker than forced dispersal. A weak repression can make the protest grow." },
             { "RealisticPolicies.UI.Protest.Change", "Change response" },
             { "RealisticPolicies.UI.Protest.Apply", "Apply the offer" },
             { "RealisticPolicies.UI.Protest.Compensation", "Compensation (one-off)" },
@@ -605,8 +621,8 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.StaffShare.Tooltip", "Share of the staff this policy needs that it got. Staff go first to the policies switched on earliest, so a policy switched on later gets what is left. Below 100% the effect is cut by as much" },
             { "RealisticPolicies.UI.Report.Lag", "Time to take effect" },
             { "RealisticPolicies.UI.Report.LagValue", "about {DAYS} days" },
-            { "RealisticPolicies.UI.Report.Capture", "Regulatory capture" },
-            { "RealisticPolicies.UI.Report.Capture.Tooltip", "Enforcement grows lax the longer a rule stays unchanged" },
+            { "RealisticPolicies.UI.Report.Capture", "Collusion" },
+            { "RealisticPolicies.UI.Report.Capture.Tooltip", "The longer a rule runs, the closer officials grow to those they oversee, and enforcement grows lax" },
             { "RealisticPolicies.UI.Report.Detection", "Detection chance" },
             { "RealisticPolicies.UI.Report.Compliance", "Companies complying" },
             { "RealisticPolicies.UI.Report.Reporting", "Companies reporting honestly" },
@@ -730,11 +746,11 @@ namespace RealisticPolicies
             { PolicyTitle(PolicyCatalog.kEquipmentMandate), "오염 방지 설비 의무화" },
             {
                 PolicyDescription(PolicyCatalog.kEquipmentMandate),
-                "모든 산업체가 필터를 달아야 합니다. 단속은 쉽지만 모든 기업이 같은 비용을 냅니다.\n\n" +
-                "- 대기 및 토양 오염 -25%\n- 쓰레기 누적량 +15%\n- 산업 효율 -3%"
+                "모든 산업체가 필터를 달아야 합니다. 단속은 쉽지만 모든 기업이 같은 비용을 냅니다. " +
+                "대기와 토양 오염이 4분의 1 줄지만, 쓰레기가 더 쌓이고 산업 효율이 조금 떨어집니다."
             },
             { PolicyTitle(PolicyCatalog.kEmissionStandard), "배출 기준 규제" },
-            { PolicyDescription(PolicyCatalog.kEmissionStandard), "산업체가 줄여야 하는 오염 비율을 정합니다. 줄이는 방법은 기업이 고릅니다." },
+            { PolicyDescription(PolicyCatalog.kEmissionStandard), "산업체가 줄여야 하는 오염 비율을 정합니다. 줄이는 방법은 기업이 고릅니다. 슬라이더: 산업 오염 중 줄여야 하는 비율." },
             { BudgetItem(BudgetInjectionSystem.kIncomeRowId), "오염세" },
             { BudgetItem(BudgetInjectionSystem.kExpenseRowId), "녹색 전환 보조금" },
             { BudgetItem(Engine.PolicyDefinitions.kEmissionStandardEnforcementRow), "배출 기준 단속비" },
@@ -756,19 +772,19 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kPollutionTax),
                 "산업체가 내보내는 오염량만큼 세금을 냅니다. 기업마다 세금보다 싸게 줄일 수 있는 만큼 줄이므로, " +
-                "같은 감축을 가장 적은 비용으로 얻고 남은 오염에서는 세금을 거둡니다. 단속이 약하면 배출량을 줄여 신고하는 기업이 생깁니다."
+                "같은 감축을 가장 적은 비용으로 얻고 남은 오염에서는 세금을 거둡니다. 단속이 약하면 배출량을 줄여 신고하는 기업이 생깁니다. 슬라이더: 최고 세율 대비 세율."
             },
             { PolicyTitle(PolicyCatalog.kGreenSubsidy), "녹색 전환 보조금" },
             {
                 PolicyDescription(PolicyCatalog.kGreenSubsidy),
                 "산업체가 줄인 오염만큼 도시가 돈을 줍니다. 기업은 반기지만 예산이 들고, 한번 주기 시작하면 끊기 어렵습니다. " +
-                "새 산업체가 들어와 오염이 다시 늘 수도 있습니다."
+                "새 산업체가 들어와 오염이 다시 늘 수도 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kEnvironmentalMonitoring), "환경 감시단" },
             {
                 PolicyDescription(PolicyCatalog.kEnvironmentalMonitoring),
                 "단속반이 산업체 배출을 점검합니다. 이 정책만으로는 효과가 없지만, " +
-                "배출 기준과 오염세를 피하기 훨씬 어렵게 만듭니다. 환경직 인력이 필요합니다."
+                "배출 기준과 오염세를 피하기 훨씬 어렵게 만듭니다. 환경직 인력이 필요합니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kEmissionDisclosure), "배출 정보 공개제" },
             {
@@ -781,13 +797,13 @@ namespace RealisticPolicies
                 PolicyDescription(PolicyCatalog.kEmissionTrading),
                 "산업체가 내보낼 수 있는 오염 총량을 정하고, 배출권을 사고팔게 합니다. 줄이는 비용이 싼 기업이 많이 줄이므로 " +
                 "같은 감축을 가장 적은 비용으로 해냅니다. 배출권 가격은 시장이 정합니다. 총량이 느슨하거나 다른 정책이 이미 많이 줄였으면 " +
-                "가격이 떨어집니다. 탄소 대신 대기 오염으로 계산합니다."
+                "가격이 떨어집니다. 이 도시에서는 대기 오염 배출을 거래합니다. 슬라이더: 오늘 배출량 대비 총량을 줄이는 비율."
             },
             { PolicyTitle(PolicyCatalog.kAllowanceAuction), "배출권 유상할당" },
             {
                 PolicyDescription(PolicyCatalog.kAllowanceAuction),
                 "배출권을 공짜로 나눠 주는 대신 일부를 경매로 팝니다. 도시 수입이 생기지만 기업 부담이 커지고, 부담이 크면 일부 산업이 " +
-                "도시를 떠납니다. 탄소배출권 거래제가 켜져 있어야 작동합니다."
+                "도시를 떠납니다. 탄소배출권 거래제가 켜져 있어야 작동합니다. 슬라이더: 배출권 중 경매로 파는 비율."
             },
             { BudgetItem(Engine.PolicyDefinitions.kTradingOperationRow), "배출권 거래제 운영비" },
             { BudgetItem(Engine.PolicyDefinitions.kAuctionIncomeRow), "배출권 경매 수입" },
@@ -807,19 +823,19 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kMinimumWage),
                 "단순직 임금을 평소 수준보다 올리고, 바로 위 직급 임금도 일부 따라 오릅니다. 저임금 가구의 소득이 늘지만 기업, 특히 " +
-                "상점의 인건비와 시 공무원 인건비도 늘어납니다. 출소자의 재범이 조금 줄어듭니다. 한 번에 크게 올리면 반발이 큽니다."
+                "상점의 인건비와 시 공무원 인건비도 늘어납니다. 출소자의 재범이 조금 줄어듭니다. 한 번에 크게 올리면 반발이 큽니다. 슬라이더: 평소 단순직 임금 대비 인상률."
             },
             { PolicyTitle(PolicyCatalog.kTalentAttraction), "인재 유치" },
             {
                 PolicyDescription(PolicyCatalog.kTalentAttraction),
                 "고학력 전입자에게 정착 지원금을 줍니다. 일자리와 집이 있으면 들어오는 시민 가운데 고학력자가 늘어납니다. " +
-                "지원이 오래 이어질수록 효과는 줄어듭니다."
+                "지원이 오래 이어질수록 효과는 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도. 세부 설정: 가구당 지원 기간."
             },
             { PolicyTitle(PolicyCatalog.kRedevelopment), "재개발 촉진" },
             {
                 PolicyDescription(PolicyCatalog.kRedevelopment),
                 "건물 개선 비용의 일부를 지원합니다. 동네가 더 빨리 좋아지지만 임대료도 함께 올라, 형편이 어려운 가구가 " +
-                "떠나야 할 수 있습니다."
+                "떠나야 할 수 있습니다. 슬라이더: 건물 개선 비용 중 시가 지원하는 비율."
             },
             { BudgetItem(Engine.PolicyDefinitions.kMinimumWageRow), "최저임금 근로감독비" },
             { BudgetItem(Engine.PolicyDefinitions.kTalentRow), "인재 정착 지원금" },
@@ -828,23 +844,23 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kWelfareOutreach),
                 "사회복지 공무원이 집집마다 찾아가 도움을 청하지 못한 사람을 찾아냅니다. 복지 사무소가 닿는 곳에서 행복도가 낮은 " +
-                "시민이 더 많이 나아집니다. 사회복지직으로 지정한 복지 사무소가 있어야 합니다."
+                "시민이 더 많이 나아집니다. 사회복지직으로 지정한 복지 사무소가 있어야 합니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kHousingFirst), "노숙인 지원" },
             {
                 PolicyDescription(PolicyCatalog.kHousingFirst),
                 "주거우선 방식으로 노숙인에게 먼저 집을 주고, 사례관리자가 그 집에서 계속 살 수 있게 돕습니다. 노숙으로 잃는 건강과 " +
-                "행복도가 줄고, 노숙인이 만드는 쓰레기와 소음, 응급실 방문도 줄어듭니다. 지원주택이 들어서는 것을 반대하는 이웃도 있습니다."
+                "행복도가 줄고, 노숙인이 만드는 쓰레기와 소음, 응급실 방문도 줄어듭니다. 지원주택이 들어서는 것을 반대하는 이웃도 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kReentrySupport), "출소자 사회복귀 지원" },
             {
                 PolicyDescription(PolicyCatalog.kReentrySupport),
-                "출소자에게 일자리, 직업훈련, 상담을 지원합니다. 복지 사무소가 닿는 곳에서 다시 범죄를 저지르는 사람이 줄어듭니다."
+                "출소자에게 일자리, 직업훈련, 상담을 지원합니다. 복지 사무소가 닿는 곳에서 다시 범죄를 저지르는 사람이 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kVictimSupport), "범죄 피해자 지원" },
             {
                 PolicyDescription(PolicyCatalog.kVictimSupport),
-                "범죄 피해자에게 상담, 의료, 법률 지원을 합니다. 범죄가 일어난 건물에 사는 사람과 일하는 사람이 입는 피해가 줄어듭니다."
+                "범죄 피해자에게 상담, 의료, 법률 지원을 합니다. 범죄가 일어난 건물에 사는 사람과 일하는 사람이 입는 피해가 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { BudgetItem(Engine.PolicyDefinitions.kOutreachRow), "찾아가는 복지 방문비" },
             { BudgetItem(Engine.PolicyDefinitions.kHousingFirstRow), "노숙인 주거 지원비" },
@@ -863,30 +879,30 @@ namespace RealisticPolicies
             {
                 PolicyDescription(PolicyCatalog.kProcedureSimplification),
                 "규제가 시행되기 전에 거쳐야 하는 절차를 줄입니다. 규제가 더 빨리 시행되고 청탁이 끼어들 틈도 줄지만, " +
-                "법원에서 절차상 하자를 지적받는 일이 늘어납니다."
+                "법원에서 절차상 하자를 지적받는 일이 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kEGovernment), "전자정부" },
             {
                 PolicyDescription(PolicyCatalog.kEGovernment),
                 "서류와 결재를 온라인으로 옮깁니다. 모든 정책에 필요한 인원이 줄고 행정이 투명해집니다. 우정·통신 시설의 인원과 " +
-                "예산이 넉넉할수록 효과가 큽니다. 시스템을 바꾸는 동안에는 업무가 잠시 밀립니다."
+                "예산이 넉넉할수록 효과가 큽니다. 시스템을 바꾸는 동안에는 업무가 잠시 밀립니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kCivilServicePay), "공무원 보수 인상" },
             {
                 PolicyDescription(PolicyCatalog.kCivilServicePay),
                 "시 공무원 보수를 평소 수준보다 올립니다. 모든 공공시설의 유지비가 함께 오르지만, 그만두는 공무원이 줄고 " +
-                "부패도 조금 줄어듭니다."
+                "부패도 조금 줄어듭니다. 슬라이더: 평소 공무원 보수 대비 인상률."
             },
             { PolicyTitle(PolicyCatalog.kSpecialistPosts), "전문직위제" },
             {
                 PolicyDescription(PolicyCatalog.kSpecialistPosts),
                 "공무원을 해마다 다른 자리로 돌리지 않고 한 분야에 오래 둡니다. 업무를 더 잘 알게 되지만, 감독 대상과 " +
-                "가까워질 위험도 커집니다."
+                "가까워질 위험도 커집니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kParticipatoryBudgeting), "주민참여예산제" },
             {
                 PolicyDescription(PolicyCatalog.kParticipatoryBudgeting),
-                "예산의 일부를 주민이 직접 정합니다. 시정에 대한 신뢰가 시간이 지나며 천천히 오르고, 돈이 드는 정책은 결정이 늦어집니다."
+                "예산의 일부를 주민이 직접 정합니다. 시정에 대한 신뢰가 시간이 지나며 천천히 오르고, 돈이 드는 정책은 결정이 늦어집니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도."
             },
             { PolicyTitle(PolicyCatalog.kPublicHearings), "공청회 의무화" },
             {
@@ -906,15 +922,15 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kPublicHearings, true), "공청회를 몇 번이나 거쳐야 하나요. 결국 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kPublicHearings, false), "공청회를 없애면 우리 목소리는 어디서 냅니까. 주민들이 행정소송을 냈습니다." },
             { PolicyTitle(PolicyCatalog.kPerformanceManagement), "성과관리제" },
-            { PolicyDescription(PolicyCatalog.kPerformanceManagement), "부서마다 목표를 정하고 달성하면 성과급을 줍니다. 시 서비스 건물의 효율이 최대 3% 오르지만 공무원이 숫자 맞추기를 배웁니다. 보고서가 실제 결과보다 좋아 보이고, 유착도 더 빨리 생깁니다." },
+            { PolicyDescription(PolicyCatalog.kPerformanceManagement), "부서마다 목표를 정하고 달성하면 성과급을 줍니다. 공공시설의 효율이 조금 오르지만 공무원이 숫자 맞추기를 배웁니다. 보고서가 실제 결과보다 좋아 보이고, 유착도 더 빨리 생깁니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kOmbudsman), "옴부즈만" },
             { PolicyDescription(PolicyCatalog.kOmbudsman), "독립 기구가 시정에 대한 고충을 듣습니다. 불만을 법원으로 가져가는 사람이 줄어듭니다." },
             { PolicyTitle(PolicyCatalog.kInformationDisclosure), "정보공개 확대" },
-            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "시의 기록을 더 많이 공개합니다. 공무원을 지켜보는 눈이 많아져 신뢰가 오르고 성과 지표 조작도 줄어듭니다. 다만 시를 상대로 소송하는 쪽도 더 많은 자료를 볼 수 있습니다." },
+            { PolicyDescription(PolicyCatalog.kInformationDisclosure), "시의 기록을 더 많이 공개합니다. 공무원을 지켜보는 눈이 많아져 신뢰가 오르고 성과 지표 조작도 줄어듭니다. 다만 시를 상대로 소송하는 쪽도 더 많은 자료를 볼 수 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kArrearsCollection), "지방세 체납 징수 강화" },
-            { PolicyDescription(PolicyCatalog.kArrearsCollection), "세무 공무원이 밀린 지방세를 거둬들입니다. 세수가 늘지만 징수 대상은 반발합니다. 세무직으로 지정한 복지 사무소가 있어야 합니다." },
+            { PolicyDescription(PolicyCatalog.kArrearsCollection), "세무 공무원이 밀린 지방세를 거둬들입니다. 세수가 늘지만 징수 대상은 반발합니다. 세무직으로 지정한 복지 사무소가 있어야 합니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kCompetitiveBidding), "공공조달 경쟁입찰" },
-            { PolicyDescription(PolicyCatalog.kCompetitiveBidding), "시의 구매를 공개 최저가 입찰에 부칩니다. 공공시설 운영비가 줄지만 입찰 담합이 생길 수 있습니다." },
+            { PolicyDescription(PolicyCatalog.kCompetitiveBidding), "시의 구매를 공개 최저가 입찰에 부칩니다. 공공시설 운영비가 줄지만 입찰 담합이 생길 수 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kInterMunicipalAgreement), "인접 도시 서비스 협약" },
             { PolicyDescription(PolicyCatalog.kInterMunicipalAgreement), "이웃 도시와 서비스를 함께 씁니다. 바깥에서 사 오는 서비스가 싸지고, 작은 도시일수록 이득이 큽니다." },
             { PolicyTitle(PolicyCatalog.kFiscalRule), "재정준칙" },
@@ -938,35 +954,35 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Modifier.LoanInterest", "대출 이자" },
             { "RealisticPolicies.UI.Report.Modifier.HospitalEfficiency", "병원 효율" },
             { PolicyTitle(PolicyCatalog.kContractingOut), "민간위탁" },
-            { PolicyDescription(PolicyCatalog.kContractingOut), "시 서비스의 일부를 민간 업체에 맡깁니다. 운영비가 조금 줄지만, 계약서에 적기 어려운 부분에서 서비스 질이 떨어지고 공무원과 업체 사이에 유착이 생깁니다. 나중에 직영으로 되돌리려면 비용이 많이 듭니다. 공공조달 경쟁입찰과 함께 시행하면 더 많이 아낄 수 있습니다." },
+            { PolicyDescription(PolicyCatalog.kContractingOut), "시 서비스의 일부를 민간 업체에 맡깁니다. 운영비가 조금 줄지만, 계약서에 적기 어려운 부분에서 서비스 질이 떨어지고 공무원과 업체 사이에 유착이 생깁니다. 나중에 직영으로 되돌리려면 비용이 많이 듭니다. 공공조달 경쟁입찰과 함께 시행하면 더 많이 아낄 수 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kContractingRow), "위탁 감독비" },
             { PolicyTitle(PolicyCatalog.kIndustryCluster), "산업 특화 지원" },
-            { PolicyDescription(PolicyCatalog.kIndustryCluster), "도시에 이미 모여 있는 산업에 보조금을 줍니다. 특화 산업의 생산성이 오르지만, 보조금은 모든 납세자의 세금에서 나갑니다." },
+            { PolicyDescription(PolicyCatalog.kIndustryCluster), "도시에 이미 모여 있는 산업에 보조금을 줍니다. 특화 산업의 생산성이 오르지만, 보조금은 모든 납세자의 세금에서 나갑니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kCorporateRescue), "기업 회생 제도" },
-            { PolicyDescription(PolicyCatalog.kCorporateRescue), "빚이 많은 기업이 파산하지 않고 회생 절차를 밟게 합니다. 문 닫는 기업은 줄지만, 업종마다 살아남은 부실기업이 많을수록 그 업종의 효율이 떨어집니다. 새 기업도 덜 생깁니다." },
+            { PolicyDescription(PolicyCatalog.kCorporateRescue), "빚이 많은 기업이 파산하지 않고 회생 절차를 밟게 합니다. 문 닫는 기업은 줄지만, 업종마다 살아남은 부실기업이 많을수록 그 업종의 효율이 떨어집니다. 새 기업도 덜 생깁니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kRegionalJobPact), "광역 고용 협약" },
-            { PolicyDescription(PolicyCatalog.kRegionalJobPact), "도시의 일자리를 주변 지역 노동자에게 엽니다. 기업은 빈자리를 쉽게 채우고, 일부 주민은 일자리를 두고 경쟁이 심해집니다." },
+            { PolicyDescription(PolicyCatalog.kRegionalJobPact), "도시의 일자리를 주변 지역 노동자에게 엽니다. 기업은 빈자리를 쉽게 채우고, 일부 주민은 일자리를 두고 경쟁이 심해집니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kUnemploymentDuration), "실업급여 기간 연장" },
-            { PolicyDescription(PolicyCatalog.kUnemploymentDuration), "실업급여를 더 오래 줍니다. 구직자가 맞는 일자리를 찾을 시간이 늘어납니다. 비용은 시가 내고, 일부는 재취업이 늦어집니다." },
+            { PolicyDescription(PolicyCatalog.kUnemploymentDuration), "실업급여를 더 오래 줍니다. 구직자가 맞는 일자리를 찾을 시간이 늘어납니다. 비용은 시가 내고, 일부는 재취업이 늦어집니다. 슬라이더는 늘어나는 지급 기간(개월)입니다 (기본 5개월)." },
             { PolicyTitle(PolicyCatalog.kResourceQuota), "천연자원 할당제" },
-            { PolicyDescription(PolicyCatalog.kResourceQuota), "물고기, 목재, 농산물, 광물, 석유를 얻을 수 있는 양을 제한합니다. 자원이 오래가지만 지금 생산량은 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kResourceQuota), "물고기, 목재, 농산물, 광물, 석유를 얻을 수 있는 양을 제한합니다. 자원이 오래가지만 지금 생산량은 줄어듭니다. 슬라이더: 지금 대비 줄이는 채취량 비율." },
             { BudgetItem(Engine.PolicyDefinitions.kClusterRow), "산업 특화 보조금" },
             { BudgetItem(Engine.PolicyDefinitions.kRescueRow), "기업 회생 지원금" },
             { BudgetItem(Engine.PolicyDefinitions.kJobPactRow), "광역 협약 분담금" },
             { BudgetItem(Engine.PolicyDefinitions.kUnemploymentRow), "실업급여 연장분" },
             { BudgetItem(Engine.PolicyDefinitions.kQuotaRow), "할당량 감시비" },
             { PolicyTitle(PolicyCatalog.kRentCap), "임대료 상한" },
-            { PolicyDescription(PolicyCatalog.kRentCap), "주거 임대료를 올릴 수 있는 폭을 제한합니다. 세입자는 덜 내고 오래 살지만, 집주인은 임대를 거둬들이고 건물 개선을 미룹니다. 새 주택이 덜 지어지고 이사도 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kRentCap), "주거 임대료를 올릴 수 있는 폭을 제한합니다. 세입자는 덜 내고 오래 살지만, 집주인은 임대를 거둬들이고 건물 개선을 미룹니다. 새 주택이 덜 지어지고 이사도 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kNoiseControl), "소음·진동 관리" },
-            { PolicyDescription(PolicyCatalog.kNoiseControl), "건물과 도로의 소음 기준을 정합니다. 동네가 조용해지고, 산업체는 저소음 설비 비용을 냅니다." },
+            { PolicyDescription(PolicyCatalog.kNoiseControl), "건물과 도로의 소음 기준을 정합니다. 동네가 조용해지고, 산업체는 저소음 설비 비용을 냅니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kVehicleEmissions), "자동차 배출가스 기준" },
-            { PolicyDescription(PolicyCatalog.kVehicleEmissions), "더 깨끗한 차량을 의무화합니다. 시간이 지나며 도로변 공기가 깨끗해지고, 차주는 새 차나 저감 장치 비용을 냅니다." },
+            { PolicyDescription(PolicyCatalog.kVehicleEmissions), "더 깨끗한 차량을 의무화합니다. 시간이 지나며 도로변 공기가 깨끗해지고, 차주는 새 차나 저감 장치 비용을 냅니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kDrinkingWater), "수돗물 수질 기준" },
-            { PolicyDescription(PolicyCatalog.kDrinkingWater), "수돗물에 허용하는 오염을 낮춥니다. 기준을 넘는 물은 보내지 않으므로, 수원이 오염된 곳에서는 공급이 모자랄 수 있습니다." },
+            { PolicyDescription(PolicyCatalog.kDrinkingWater), "수돗물에 허용하는 오염을 낮춥니다. 기준을 넘는 물은 보내지 않으므로, 수원이 오염된 곳에서는 공급이 모자랄 수 있습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kGroundwaterProtection), "지하수 보전" },
-            { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "퍼 올리는 지하수 양을 재고 요금을 매깁니다. 대수층이 오래가고, 물을 많이 쓰는 산업은 비용이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kGroundwaterProtection), "퍼 올리는 지하수 양을 재고 요금을 매깁니다. 대수층이 오래가고, 물을 많이 쓰는 산업은 비용이 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kParkCare), "공원 관리 강화" },
-            { PolicyDescription(PolicyCatalog.kParkCare), "공원 관리와 프로그램에 예산을 더 씁니다. 공원을 찾는 사람이 늘고, 잘 가꾼 녹지가 범죄를 조금 줄입니다." },
+            { PolicyDescription(PolicyCatalog.kParkCare), "공원 관리와 프로그램에 예산을 더 씁니다. 공원을 찾는 사람이 늘고, 잘 가꾼 녹지가 범죄를 조금 줄입니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kRentCapRow), "임대차 분쟁조정비" },
             { BudgetItem(Engine.PolicyDefinitions.kNoiseRow), "소음 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kVehicleRow), "배출가스 검사비" },
@@ -974,43 +990,43 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kGroundwaterRow), "지하수 계량비" },
             { BudgetItem(Engine.PolicyDefinitions.kParkRow), "공원 관리비" },
             { PolicyTitle(PolicyCatalog.kSpeedCameras), "과속 단속 카메라" },
-            { PolicyDescription(PolicyCatalog.kSpeedCameras), "고속도로에 무인 과속 단속 카메라를 설치합니다. 운전자가 속도를 줄여 고속도로 사고가 줄어듭니다. 일반 도로는 해당하지 않습니다." },
+            { PolicyDescription(PolicyCatalog.kSpeedCameras), "고속도로에 무인 과속 단속 카메라를 설치합니다. 운전자가 속도를 줄여 고속도로 사고가 줄어듭니다. 일반 도로는 해당하지 않습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kDisasterCode), "방재 건축 기준" },
-            { PolicyDescription(PolicyCatalog.kDisasterCode), "건물이 폭풍과 홍수를 견디도록 기준을 정합니다. 재난 피해가 줄고, 건물 개선 비용이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kDisasterCode), "건물이 폭풍과 홍수를 견디도록 기준을 정합니다. 재난 피해가 줄고, 건물 개선 비용이 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kFireCode), "화재안전 기준" },
-            { PolicyDescription(PolicyCatalog.kFireCode), "불연 자재, 스프링클러, 방화문을 의무화합니다. 불이 난 건물이 무너지기 전까지 더 오래 버티고, 폭풍·홍수 피해도 조금 줄어듭니다. 건물 개선 비용이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kFireCode), "불연 자재, 스프링클러, 방화문을 의무화합니다. 불이 난 건물이 무너지기 전까지 더 오래 버티고, 폭풍·홍수 피해도 조금 줄어듭니다. 건물 개선 비용이 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kSpeedCameraRow), "과속 단속 운영비" },
             { BudgetItem(Engine.PolicyDefinitions.kDisasterCodeRow), "건축 기준 검사비" },
             { BudgetItem(Engine.PolicyDefinitions.kFireCodeRow), "소방 안전 점검비" },
             { PolicyTitle(PolicyCatalog.kCommunityPolicing), "지역사회 경찰" },
-            { PolicyDescription(PolicyCatalog.kCommunityPolicing), "동네를 잘 아는 경찰이 걸어서 순찰합니다. 시정에 대한 신뢰가 오르고 동네가 안전하게 느껴지지만, 범죄 자체는 조금만 줄어듭니다. 경찰 인력이 많이 듭니다." },
+            { PolicyDescription(PolicyCatalog.kCommunityPolicing), "동네를 잘 아는 경찰이 걸어서 순찰합니다. 시정에 대한 신뢰가 오르고 동네가 안전하게 느껴지지만, 범죄 자체는 조금만 줄어듭니다. 경찰 인력이 많이 듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kZeroTolerance), "무관용 단속" },
-            { PolicyDescription(PolicyCatalog.kZeroTolerance), "경미한 위반까지 모두 단속하고 과태료를 매깁니다. 건물의 범죄 수준은 빨리 내려가지만 시민이 저지르는 범죄는 줄지 않습니다. 잦은 단속으로 시에 대한 신뢰가 떨어져 다른 규제도 잘 지켜지지 않습니다." },
+            { PolicyDescription(PolicyCatalog.kZeroTolerance), "경미한 위반까지 모두 단속하고 과태료를 매깁니다. 건물의 범죄 수준은 빨리 내려가지만 시민이 저지르는 범죄는 줄지 않습니다. 잦은 단속으로 시에 대한 신뢰가 떨어져 다른 규제도 잘 지켜지지 않습니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kHarsherSentencing), "양형 강화" },
-            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "형기를 늘립니다. 범죄자가 더 오래 갇히고 범죄를 단념하는 사람도 조금 생기지만, 교도소가 붐비고 비용이 늘어납니다. 출소자는 일자리를 구하기 더 어려워집니다." },
+            { PolicyDescription(PolicyCatalog.kHarsherSentencing), "형기를 늘립니다. 범죄자가 더 오래 갇히고 범죄를 단념하는 사람도 조금 생기지만, 교도소가 붐비고 비용이 늘어납니다. 출소자는 일자리를 구하기 더 어려워집니다. 슬라이더: 늘어나는 형기(개월)." },
             { PolicyTitle(PolicyCatalog.kEmergencyResponse), "긴급신고 대응 체계" },
-            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "긴급신고 상황실과 경찰 출동 체계를 개선합니다. 범죄를 더 빨리 알아채고 출동해 더 많은 범죄자를 붙잡습니다. 시민이 시를 믿을수록 신고도 많아집니다." },
+            { PolicyDescription(PolicyCatalog.kEmergencyResponse), "긴급신고 상황실과 경찰 출동 체계를 개선합니다. 범죄를 더 빨리 알아채고 출동해 더 많은 범죄자를 붙잡습니다. 시민이 시를 믿을수록 신고도 많아집니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kCpted), "범죄예방 환경설계(CPTED)" },
-            { PolicyDescription(PolicyCatalog.kCpted), "건물과 거리에 조명, 트인 시야, 숨을 곳이 적은 설계를 의무화합니다. 범죄 수준이 서서히 내려가고, 건물 개선 비용이 조금 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kCpted), "건물과 거리에 조명, 트인 시야, 숨을 곳이 적은 설계를 의무화합니다. 범죄 수준이 서서히 내려가고, 건물 개선 비용이 조금 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kCommunityPolicingRow), "지역 순찰비" },
             { BudgetItem(Engine.PolicyDefinitions.kZeroToleranceRow), "질서 단속비" },
             { BudgetItem(Engine.PolicyDefinitions.kSentencingRow), "수감 기간 연장 비용" },
             { BudgetItem(Engine.PolicyDefinitions.kEmergencyResponseRow), "긴급신고 출동 운영비" },
             { BudgetItem(Engine.PolicyDefinitions.kCptedRow), "안전 설계 심사비" },
             { PolicyTitle(PolicyCatalog.kHealthCampaign), "공중보건 캠페인" },
-            { PolicyDescription(PolicyCatalog.kHealthCampaign), "위생, 예방접종, 건강 습관 캠페인을 합니다. 병에 걸리는 시민이 줄어듭니다. 효과는 보건의료직 인원에 따라 달라집니다." },
+            { PolicyDescription(PolicyCatalog.kHealthCampaign), "위생, 예방접종, 건강 습관 캠페인을 합니다. 병에 걸리는 시민이 줄어듭니다. 효과는 보건의료직 인원에 따라 달라집니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kEmergencyCare), "응급의료 체계" },
-            { PolicyDescription(PolicyCatalog.kEmergencyCare), "외상·응급 의료망과 빠른 이송 체계를 갖춥니다. 아프거나 다친 시민의 사망이 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kEmergencyCare), "외상·응급 의료망과 빠른 이송 체계를 갖춥니다. 아프거나 다친 시민의 사망이 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kAirQualityAlert), "대기질 경보제" },
-            { PolicyDescription(PolicyCatalog.kAirQualityAlert), "공기가 나쁜 날 시민에게 알립니다. 오염이 건강에 주는 피해가 줄지만, 야외에서 즐기는 시간도 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kAirQualityAlert), "공기가 나쁜 날 시민에게 알립니다. 오염이 건강에 주는 피해가 줄지만, 야외에서 즐기는 시간도 줄어듭니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kPublicHealthcare), "공공의료 강화" },
-            { PolicyDescription(PolicyCatalog.kPublicHealthcare), "공공병원의 의사, 간호사, 병상을 늘립니다. 병원이 환자를 더 빨리 치료합니다." },
+            { PolicyDescription(PolicyCatalog.kPublicHealthcare), "공공병원의 의사, 간호사, 병상을 늘립니다. 병원이 환자를 더 빨리 치료합니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kScholarships), "장학금" },
-            { PolicyDescription(PolicyCatalog.kScholarships), "대학생에게 장학금을 줍니다. 대학에 가고 졸업하는 젊은이가 늘어납니다. 대학이 꽉 차 있으면 돈만 나가고 달라지는 것이 적습니다." },
+            { PolicyDescription(PolicyCatalog.kScholarships), "대학생에게 장학금을 줍니다. 대학에 가고 졸업하는 젊은이가 늘어납니다. 대학이 꽉 차 있으면 돈만 나가고 달라지는 것이 적습니다. 슬라이더: 장학금을 받는 대학생 비율. 세부 설정: 1인당 한 달 장학금." },
             { PolicyTitle(PolicyCatalog.kFreeHighSchool), "고교 무상교육" },
-            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "모든 가정의 고등학교 학비를 지원합니다. 고등학교에 진학하는 청소년이 늘고, 범죄가 조금 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kFreeHighSchool), "모든 가정의 고등학교 학비를 지원합니다. 고등학교에 진학하는 청소년이 늘고, 범죄가 조금 줄어듭니다. 슬라이더: 고등학교 학비 중 지원하는 비율." },
             { PolicyTitle(PolicyCatalog.kLifelongLearning), "평생교육" },
-            { PolicyDescription(PolicyCatalog.kLifelongLearning), "실업 상태인 성인을 위한 야간·주말 강좌를 엽니다. 하루에 최대 3%가 다음 단계 학교를 찾기 시작하고, 자리가 있는 학교에 들어갑니다." },
+            { PolicyDescription(PolicyCatalog.kLifelongLearning), "일자리를 잃은 성인을 위한 야간·주말 강좌를 엽니다. 이들이 다음 단계 학교에 다시 다닙니다. 학교에 자리가 있어야 합니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kHealthCampaignRow), "보건 캠페인비" },
             { BudgetItem(Engine.PolicyDefinitions.kEmergencyCareRow), "응급의료망 운영비" },
             { BudgetItem(Engine.PolicyDefinitions.kAirAlertRow), "대기질 경보 운영비" },
@@ -1019,9 +1035,9 @@ namespace RealisticPolicies
             { BudgetItem(Engine.PolicyDefinitions.kFreeHighSchoolRow), "고교 학비 지원" },
             { BudgetItem(Engine.PolicyDefinitions.kLifelongRow), "성인 강좌 운영비" },
             { PolicyTitle(PolicyCatalog.kDisasterWarning), "재난 조기경보" },
-            { PolicyDescription(PolicyCatalog.kDisasterWarning), "폭풍과 홍수 전에 문자, 방송, 사이렌으로 경보를 보냅니다. 시민이 대피할 시간이 늘어납니다. 우정·통신 시설의 인원과 예산이 넉넉할수록 경보가 더 많은 시민에게 닿습니다." },
+            { PolicyDescription(PolicyCatalog.kDisasterWarning), "폭풍과 홍수 전에 문자, 방송, 사이렌으로 경보를 보냅니다. 시민이 대피할 시간이 늘어납니다. 우정·통신 시설의 인원과 예산이 넉넉할수록 경보가 더 많은 시민에게 닿습니다. 슬라이더: 늘어나는 경보 시간(초)." },
             { PolicyTitle(PolicyCatalog.kEnergyCode), "건물 에너지 효율 기준" },
-            { PolicyDescription(PolicyCatalog.kEnergyCode), "새로 짓거나 고치는 건물에 단열과 효율 설비를 의무화합니다. 집과 일터가 전기를 덜 쓰고, 건물 개선 비용이 늘어납니다." },
+            { PolicyDescription(PolicyCatalog.kEnergyCode), "새로 짓거나 고치는 건물에 단열과 효율 설비를 의무화합니다. 집과 일터가 전기를 덜 쓰고, 건물 개선 비용이 늘어납니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { PolicyTitle(PolicyCatalog.kWasteFee), "쓰레기 종량제" },
             { PolicyDescription(PolicyCatalog.kWasteFee), "집과 가게가 쓰레기를 봉투 단위로 돈을 내고 버립니다. 쓰레기를 덜 버리고 봉투 판매 수입이 생기지만, 모든 가구가 값을 냅니다." },
             { BudgetItem(Engine.PolicyDefinitions.kWarningRow), "조기경보망 운영비" },
@@ -1032,20 +1048,20 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kWasteFee, true), "버리는 상자마다 봉투값을 내라니요. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kWasteFee, false), "봉투마다 돈을 내게 하더니 골목에 무단 투기 쓰레기가 쌓입니다. 주민들이 행정소송을 냈습니다." },
             { PolicyTitle(PolicyCatalog.kUniversityIndustry), "산학 연계 지원" },
-            { PolicyDescription(PolicyCatalog.kUniversityIndustry), "기업과 대학의 공동 연구에 보조금을 줍니다. 소프트웨어 사무 기업과 전자 산업의 생산성이 오릅니다. 효과는 대학생이 많을수록 커지며, 주민의 5%가 대학에 다니면 효과가 모두 납니다." },
+            { PolicyDescription(PolicyCatalog.kUniversityIndustry), "기업과 대학의 공동 연구에 보조금을 줍니다. 소프트웨어 사무 기업과 전자 산업의 생산성이 오릅니다. 대학생이 많은 도시일수록 효과가 큽니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도." },
             { BudgetItem(Engine.PolicyDefinitions.kUniversityIndustryRow), "산학 연계 보조금" },
             { Chirp(PolicyCatalog.kUniversityIndustry, true), "공동 연구 과제가 한창인데 보조금이 끊겼습니다. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kUniversityIndustry, false), "연구실을 지탱하던 연구 보조금이 끊겼습니다. 행정소송을 냈습니다." },
             { PolicyTitle(PolicyCatalog.kLivelihoodSupport), "생계 지원" },
-            { PolicyDescription(PolicyCatalog.kLivelihoodSupport), "재산이 '보통'보다 적은 가구에 도시 예산으로 매달 생계비를 줍니다. 가장 어려운 가구부터 받습니다. 100%면 가구마다 실업급여와 같은 금액을 받습니다. 사회복지직 1명이 약 60가구를 맡으므로 인원에 따라 받는 가구 수가 정해집니다. 소득이 늘면 행복도가 올라 범죄와 집을 잃는 일이 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kLivelihoodSupport), "소득이 도시 중위소득의 일정 비율(세부 설정, 처음에는 32%)보다 적은 가구에 도시 예산으로 매달 생계비를 줍니다. 소득이 가장 적은 가구부터 받습니다. 슬라이더는 가구당 한 달 지급액입니다 (실업급여는 ¢800). 사회복지직 1명이 약 60가구를 맡으므로 인원에 따라 받는 가구 수가 정해집니다. 소득이 늘면 행복도가 올라 범죄와 집을 잃는 일이 줄어듭니다." },
             { BudgetItem(Engine.PolicyDefinitions.kLivelihoodRow), "생계 지원 지급" },
             { PolicyTitle(PolicyCatalog.kRentSupport), "임대료 지원" },
-            { PolicyDescription(PolicyCatalog.kRentSupport), "가난한 세입자 가구에 매달 월세의 일부를 돌려줍니다. 가장 어려운 가구부터 받습니다. 사회복지직 1명이 약 100가구를 맡으므로 인원에 따라 받는 가구 수가 정해집니다. 지원받는 세입자는 월세를 계속 내고 집을 잃는 일이 줄어듭니다." },
+            { PolicyDescription(PolicyCatalog.kRentSupport), "가난한 세입자 가구에 매달 정해진 금액을 월세로 지원합니다. 월세보다 많이 주지는 않습니다. 가장 어려운 가구부터 받습니다. 슬라이더는 가구당 한 달 지원액이고, 세부 설정은 가구당 최대 지원 기간입니다. 사회복지직 1명이 약 100가구를 맡으므로 인원에 따라 받는 가구 수가 정해집니다. 지원받는 세입자는 월세를 계속 내고 집을 잃는 일이 줄어듭니다." },
             { BudgetItem(Engine.PolicyDefinitions.kRentSupportRow), "임대료 지원 지급" },
             { Chirp(PolicyCatalog.kRentSupport, true), "세입자들이 임대료 지원 덕에 월세를 냈는데, 지원이 끊기자 다 나갔습니다. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kRentSupport, false), "임대료 지원이 줄어 월세를 낼 수 없습니다. 세입자들이 행정소송을 냈습니다." },
             { PolicyTitle(PolicyCatalog.kFlexibleHours), "시차출퇴근 지원제도" },
-            { PolicyDescription(PolicyCatalog.kFlexibleHours), "시차출퇴근을 도입하는 기업에 지원금을 줍니다. 도입 여부는 기업마다 정합니다. 도입한 기업의 근로자는 최대 90분 늦게 출근하므로 아침 첨두 시간의 차량이 줄어듭니다. 슬라이더는 도입하는 사업장 비율입니다. 생산량은 그대로입니다." },
+            { PolicyDescription(PolicyCatalog.kFlexibleHours), "시차출퇴근을 도입하는 기업에 지원금을 줍니다. 도입 여부는 기업마다 정합니다. 도입한 기업의 근로자는 세부 설정의 시간(처음에는 90분)까지 늦게 출근하므로 아침 첨두 시간의 차량이 줄어듭니다. 지원을 늘릴수록 더 많은 사업장이 도입합니다. 슬라이더: 시차출퇴근을 도입하는 사업장 비율." },
             { BudgetItem(Engine.PolicyDefinitions.kFlexibleHoursRow), "시차출퇴근 도입 지원금" },
             { Chirp(PolicyCatalog.kFlexibleHours, true), "가게 영업시간을 원래 출근 시각에 맞춰 짰습니다. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kFlexibleHours, false), "지원금이 끊기자 회사가 시차출퇴근을 없앴고 아침 정체가 돌아왔습니다. 통근자들이 행정소송을 냈습니다." },
@@ -1098,9 +1114,9 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kDrinkingWater, false), "수돗물 기준을 낮춘다고요? 주민들이 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kGroundwaterProtection, true), "퍼 올리는 물마다 요금을 내라니요. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kGroundwaterProtection, false), "우물이 마를 때까지 다시 마음대로 퍼 쓰게 둔다고요? 주민들이 행정소송을 냈습니다." },
-            { "RealisticPolicies.UI.Report.Lever.ResidentialLandValue", "땅값에서 나오는 주거 임대료" },
-            { "RealisticPolicies.UI.Report.Lever.FreeResidentialProportion", "새 주택 건설의 빈집 목표" },
-            { "RealisticPolicies.UI.Report.Lever.LookForHomeChance", "집을 다시 찾는 간격" },
+            { "RealisticPolicies.UI.Report.Lever.ResidentialLandValue", "땅값에 따른 임대료" },
+            { "RealisticPolicies.UI.Report.Lever.FreeResidentialProportion", "새 주택 공급 목표" },
+            { "RealisticPolicies.UI.Report.Lever.LookForHomeChance", "이사를 고민하는 빈도" },
             { "RealisticPolicies.UI.Report.Lever.BuildingNoise", "건물 소음" },
             { "RealisticPolicies.UI.Report.Lever.RoadNoise", "도로 소음" },
             { "RealisticPolicies.UI.Report.Lever.RoadAir", "도로 대기오염" },
@@ -1117,7 +1133,7 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kResourceQuota, false), "할당제를 풀면 바다와 숲과 땅이 바닥납니다. 주민들이 행정소송을 냈습니다." },
             { "RealisticPolicies.UI.Report.Lever.SpecializationBonus", "특화 보너스 상한" },
             { "RealisticPolicies.UI.Report.Lever.BankruptcyLimit", "파산 전까지 버틸 수 있는 빚" },
-            { "RealisticPolicies.UI.Report.Lever.CommuterRatioLimit", "통근자 한 명당 노동자 수 한도" },
+            { "RealisticPolicies.UI.Report.Lever.CommuterRatioLimit", "외부 통근자 비율 한도" },
             { "RealisticPolicies.UI.Report.Lever.UnemploymentDays", "실업급여 지급 일수" },
             { "RealisticPolicies.UI.Report.Lever.FishConsumption", "어획량당 줄어드는 어족 자원" },
             { "RealisticPolicies.UI.Report.Lever.ForestConsumption", "벌채량당 줄어드는 숲" },
@@ -1132,7 +1148,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Reform.RegulationClearance.Tooltip", "결정부터 시행까지 거치는 단계가 줄어듭니다." },
             { "RealisticPolicies.UI.Report.Reform.RegulationLag", "규제가 시행되기까지" },
             { "RealisticPolicies.UI.Report.Reform.RegulationLag.Tooltip", "절차가 줄어 규제가 더 빨리 시행됩니다." },
-            { "RealisticPolicies.UI.Report.Reform.CaptureCeiling", "규제 포획 상한" },
+            { "RealisticPolicies.UI.Report.Reform.CaptureCeiling", "유착 상한" },
             { "RealisticPolicies.UI.Report.Reform.CaptureCeiling.Tooltip", "규제 대상 기업이 감독 공무원을 움직일 수 있는 최대 정도입니다." },
             { "RealisticPolicies.UI.Report.Reform.RegulationProcedure", "규제 소송의 절차 하자" },
             { "RealisticPolicies.UI.Report.Reform.RegulationProcedure.Tooltip", "절차를 줄여 만든 규제는 법원이 흠을 더 찾아내 시가 더 자주 집니다." },
@@ -1142,8 +1158,23 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.Reform.AvailableStaff.Tooltip", "보수가 오르면 그만두는 공무원이 줄어듭니다." },
             { "RealisticPolicies.UI.Report.Reform.Effectiveness", "모든 정책의 집행 효과" },
             { "RealisticPolicies.UI.Report.Reform.Effectiveness.Tooltip", "업무를 잘 아는 공무원이 더 많이 해냅니다." },
-            { "RealisticPolicies.UI.Report.Reform.CaptureTime", "규제 포획이 커지는 데 걸리는 시간" },
+            { "RealisticPolicies.UI.Report.Reform.CaptureTime", "유착이 깊어지는 속도" },
             { "RealisticPolicies.UI.Report.Reform.CaptureTime.Tooltip", "짧을수록 공무원이 감독 대상과 더 빨리 가까워집니다." },
+            { "RealisticPolicies.UI.Second.Title", "세부 설정" },
+            { "RealisticPolicies.UI.Second.Months", "{N}개월" },
+            { "RealisticPolicies.UI.Second.Minutes", "{N}분" },
+            { "RealisticPolicies.UI.Second.RentMonths", "가구당 최대 지원 기간" },
+            { "RealisticPolicies.UI.Second.RentMonths.Hint", "이 기간을 다 받은 가구는 지원이 끝나고, 다음으로 어려운 가구가 받습니다. 정책을 끄면 기간을 처음부터 다시 셉니다." },
+            { "RealisticPolicies.UI.Second.LivelihoodIncome", "받을 수 있는 소득 상한 (중위소득 대비)" },
+            { "RealisticPolicies.UI.Second.LivelihoodIncome.Hint", "가구 소득이 도시 중위소득의 이 비율보다 적으면 받을 수 있습니다. 한국 생계급여는 32%입니다. 올리면 받는 가구가 늘고, 필요한 사회복지직도 늘어납니다." },
+            { "RealisticPolicies.UI.Second.TalentMonths", "전입 가구당 지원 기간" },
+            { "RealisticPolicies.UI.Second.TalentMonths.Hint", "길수록 들어오는 고학력 가구가 늘고, 드는 돈도 그만큼 늘어납니다." },
+            { "RealisticPolicies.UI.Second.FlexibleDelay", "출근을 늦출 수 있는 최대 시간" },
+            { "RealisticPolicies.UI.Second.FlexibleDelay.Hint", "도입한 사업장의 근로자는 이 시간 안에서 늦게 출근합니다. 길수록 아침 첨두 차량이 더 넓게 퍼집니다." },
+            { "RealisticPolicies.UI.Second.ScholarshipAmount", "1인당 장학금 (한 달)" },
+            { "RealisticPolicies.UI.Second.ScholarshipAmount.Hint", "받는 학생 수 × 1인당 금액이 예산 줄에 잡힙니다. 금액이 클수록 대학에 가는 학생이 늘어납니다. 대학이 꽉 차 있으면 돈만 나가고 달라지는 것이 적습니다." },
+            { "RealisticPolicies.UI.Report.Condition.Up", "다른 요인으로 인해 효과가 커졌습니다." },
+            { "RealisticPolicies.UI.Report.Condition.Down", "다른 요인으로 인해 효과가 작아졌습니다." },
             { "RealisticPolicies.UI.Report.Inflated", "성과관리제 때문에 보고 수치가 실제보다 높을 수 있습니다." },
             { "RealisticPolicies.UI.Report.Inflated.Tooltip", "성과관리제의 지표에 맞추느라 보고서가 실제보다 좋게 나옵니다. 실제 효과는 '결과' 항목에서 볼 수 있습니다." },
             { "RealisticPolicies.UI.Report.Reform.ReportInflation", "다른 정책의 보고 수치" },
@@ -1171,19 +1202,19 @@ namespace RealisticPolicies
             { Chirp(PolicyCatalog.kRedevelopment, true), "믿고 계획한 개선 지원금을 예고 없이 줄이다니요. 행정소송을 냈습니다." },
             { Chirp(PolicyCatalog.kRedevelopment, false), "재개발로 월세가 올라 이 동네를 떠나게 생겼습니다. 주민들이 행정소송을 냈습니다." },
             { "RealisticPolicies.UI.Report.Lever.Wage0", "단순직 임금" },
-            { "RealisticPolicies.UI.Report.Lever.Wage1", "기초직 임금 (덩달아 오름)" },
+            { "RealisticPolicies.UI.Report.Lever.Wage1", "기초직 임금" },
             { "RealisticPolicies.UI.Report.Lever.NewCitizenHighEducation", "고학력 전입자" },
             { "RealisticPolicies.UI.Report.Modifier.BuildingLevelingCost", "건물 개선 비용" },
-            { "RealisticPolicies.UI.Report.Fading", "남은 유인 효과" },
+            { "RealisticPolicies.UI.Report.Fading", "지원 효과 (시간이 지나며 줄어듦)" },
             { "RealisticPolicies.UI.Report.Fading.Tooltip", "시행 기간이 길수록 효과가 줄어듭니다 (10일마다 절반, 최소 50%)" },
             { "RealisticPolicies.Search.Placeholder", "정책 검색" },
             { "RealisticPolicies.Series.Header", "공무원 직렬" },
             { "RealisticPolicies.Series.GeneralAdministration", "일반행정직" },
-            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "이 사무소 직원을 일반행정직으로 셉니다. 대부분의 정책에 일반행정직이 필요합니다." },
+            { "RealisticPolicies.Series.GeneralAdministration.Tooltip", "이 사무소 직원이 일반행정 업무를 맡습니다. 대부분의 정책에 일반행정직이 필요합니다." },
             { "RealisticPolicies.Series.SocialWelfare", "사회복지직" },
-            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "이 사무소 직원을 사회복지직으로 셉니다. 생계 지원 같은 복지 정책에 필요합니다. 없으면 주거세를 0% 아래로 내릴 수 없고, 주민 1,000명당 0.4명이 있으면 게임 기본 하한까지 내릴 수 있습니다." },
+            { "RealisticPolicies.Series.SocialWelfare.Tooltip", "이 사무소 직원이 사회복지 업무를 맡습니다. 생계 지원 같은 복지 정책에 필요합니다. 없으면 주거세를 0% 아래로 내릴 수 없고, 주민 1,000명당 0.4명이 있으면 기본 하한까지 내릴 수 있습니다." },
             { "RealisticPolicies.Series.Tax", "세무직" },
-            { "RealisticPolicies.Series.Tax.Tooltip", "이 사무소 직원을 세무직으로 셉니다. 한 명도 없으면 세율을 바꿀 수 없습니다. 주민 1,000명당 0.18명이 있어야 게임의 세율 범위를 모두 쓸 수 있고, 모자라면 10% 가까이에서만 조정할 수 있습니다." },
+            { "RealisticPolicies.Series.Tax.Tooltip", "이 사무소 직원이 세무 업무를 맡습니다. 한 명도 없으면 세율을 바꿀 수 없습니다. 주민 1,000명당 0.18명이 있어야 세율 범위 전체를 쓸 수 있고, 모자라면 10% 가까이에서만 조정할 수 있습니다." },
             { "RealisticPolicies.UI.Lang", "ko" },
             { "RealisticPolicies.UI.Tab.Lawsuits", "행정소송" },
             { "Infoviews.INFOVIEW[RealisticPolicies.Protests]", "시위" },
@@ -1208,7 +1239,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Demand.Off", "{POLICY_OBJECT} 그만둘 것" },
             { "RealisticPolicies.UI.Protest.Demand.Tax", "주거세를 {VALUE}로 되돌릴 것" },
             { "RealisticPolicies.UI.Protest.People", "참가자" },
-            { "RealisticPolicies.UI.Protest.People.Value", "{N}명 (구간 주민의 {SHARE})" },
+            { "RealisticPolicies.UI.Protest.People.Value", "{N}명 (인근 주민의 {SHARE})" },
             { "RealisticPolicies.UI.Protest.Intensity", "강도" },
             { "RealisticPolicies.UI.Protest.Intensity.Tooltip", "60%를 넘으면 폭동이 됩니다. 폭동이 난 도로에서는 불이 나고 약탈이 일어나며 범죄가 늘어납니다." },
             { "RealisticPolicies.UI.Protest.Trait", "성격" },
@@ -1230,9 +1261,10 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Action.Effect", "효과" },
             { "RealisticPolicies.UI.Action.Effect.Industrial", "산업 효율 −{N}%" },
             { "RealisticPolicies.UI.Action.Effect.Office", "사무 효율 −{N}%" },
-            { "RealisticPolicies.UI.Action.Effect.Public", "정책 업무 인원 −{N}%" },
+            { "RealisticPolicies.UI.Action.Effect.Public", "정책 집행 인원 −{N}%" },
             { "RealisticPolicies.UI.Action.Effect.Commercial", "상업 효율 −{N}%" },
-            { "RealisticPolicies.UI.Action.Effect.Tooltip", "출근은 그대로 하고 효율만 떨어집니다. 정책을 요구대로 되돌리면 끝납니다." },
+            { "RealisticPolicies.UI.Action.Effect.Tooltip.Strike", "노동자 일부가 일손을 놓아 생산이 줄어듭니다. 요구를 들어주면 끝납니다." },
+            { "RealisticPolicies.UI.Action.Effect.Tooltip.Closure", "사업장 일부가 문을 닫아 그 업종의 생산이 줄어듭니다. 요구를 들어주면 끝납니다." },
             { "RealisticPolicies.UI.Protest.Closure", "도로 폐쇄" },
             { "RealisticPolicies.UI.Protest.Closure.On", "{N}개 구간 통제 중" },
             { "RealisticPolicies.UI.Protest.Closure.Off", "없음 (참가자 1,000명 미만)" },
@@ -1241,7 +1273,7 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Crime.Tooltip", "폭동이 끝나도 남고, 순찰이 들를 때마다 줄어듭니다." },
             { "RealisticPolicies.UI.Protest.Response", "대응" },
             { "RealisticPolicies.UI.Protest.Response.None", "아직 정하지 않음" },
-            { "RealisticPolicies.UI.Protest.Response.None.Tooltip", "고르지 않으면 무시와 같습니다." },
+            { "RealisticPolicies.UI.Protest.Response.None.Tooltip", "정하지 않으면 무시한 것과 같습니다." },
             { "RealisticPolicies.UI.Protest.Response.Negotiate", "협상" },
             { "RealisticPolicies.UI.Protest.Response.Watch", "진압: 경찰 배치" },
             { "RealisticPolicies.UI.Protest.Response.Disperse", "진압: 강제 해산" },
@@ -1261,10 +1293,10 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Protest.Legitimacy.Tooltip", "폭력적인 시위일수록 진압해도 정당성이 덜 깎입니다." },
             { "RealisticPolicies.UI.Protest.Cars", "경찰차" },
             { "RealisticPolicies.UI.Protest.Cars.Value", "{IN} / {N}대 도착" },
-            { "RealisticPolicies.UI.Protest.Cars.Tooltip", "한 대씩 차례로 출동해, 시위 구간 바깥에서 시위대와 가까운 빈 자리부터 섭니다. 도시에 경찰차가 모자라면 일부만 옵니다." },
+            { "RealisticPolicies.UI.Protest.Cars.Tooltip", "경찰차가 차례로 출동해 시위 현장 둘레를 막습니다. 도시에 경찰차가 모자라면 일부만 옵니다." },
             { "RealisticPolicies.UI.Protest.Cars.Short", "경찰차가 모자랍니다. 다른 지역의 출동이 늦어질 수 있습니다." },
             { "RealisticPolicies.UI.Protest.Effect", "진압 효과" },
-            { "RealisticPolicies.UI.Protest.Effect.Tooltip", "필요한 경찰차 가운데 도착한 만큼 커지고, 경찰 배치는 강제 해산의 절반까지만 오릅니다. 진압이 약하면 시위가 오히려 커질 수 있습니다." },
+            { "RealisticPolicies.UI.Protest.Effect.Tooltip", "경찰차가 많이 도착할수록 커집니다. 경찰 배치는 강제 해산보다 약합니다. 진압이 약하면 시위가 오히려 커질 수 있습니다." },
             { "RealisticPolicies.UI.Protest.Change", "대응 바꾸기" },
             { "RealisticPolicies.UI.Protest.Apply", "조정안 적용" },
             { "RealisticPolicies.UI.Protest.Compensation", "보상금 (일시 지급)" },
@@ -1287,8 +1319,8 @@ namespace RealisticPolicies
             { "RealisticPolicies.UI.Report.StaffShare.Tooltip", "이 정책에 필요한 인원 가운데 받은 비율입니다. 인원은 먼저 켠 정책부터 받으므로 나중에 켠 정책은 남은 인원만 받습니다. 100%보다 적으면 그만큼 효과가 줄어듭니다" },
             { "RealisticPolicies.UI.Report.Lag", "효과가 나타나기까지" },
             { "RealisticPolicies.UI.Report.LagValue", "약 {DAYS}일" },
-            { "RealisticPolicies.UI.Report.Capture", "규제 포획" },
-            { "RealisticPolicies.UI.Report.Capture.Tooltip", "오래 시행할수록 단속이 느슨해집니다" },
+            { "RealisticPolicies.UI.Report.Capture", "유착" },
+            { "RealisticPolicies.UI.Report.Capture.Tooltip", "오래 시행할수록 공무원과 감독 대상이 가까워져 단속이 느슨해집니다" },
             { "RealisticPolicies.UI.Report.Detection", "적발 확률" },
             { "RealisticPolicies.UI.Report.Compliance", "기준을 지키는 기업" },
             { "RealisticPolicies.UI.Report.Reporting", "배출량을 제대로 신고한 기업" },

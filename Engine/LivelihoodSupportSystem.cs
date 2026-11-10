@@ -13,9 +13,10 @@ using UnityEngine.Scripting;
 namespace RealisticPolicies.Engine
 {
     /// <summary>
-    /// §14.21 livelihood support: pays households below "modest" wealth a monthly amount from the city budget, poorest
-    /// first, as many as the social welfare staff can handle (the engine's delivered share). 100% of the slider pays the
-    /// game's unemployment benefit per household per month.
+    /// §14.21 livelihood support: pays households whose income is below a share of the city's median household income
+    /// (the detail setting, 32% as Korea's livelihood benefit) a monthly amount from the city budget, lowest income first,
+    /// as many as the social welfare staff can handle (the engine's delivered share). The slider is the money each
+    /// household gets a month (0-1,600; the game's unemployment benefit is 800).
     /// The game rates wellbeing on household income (<c>CitizenHappinessSystem.GetWealthWellbeing</c>), which
     /// <c>HouseholdBehaviorSystem</c> recomputes from wages and benefits every time it updates a household; so right
     /// after it updates a slice of households, this adds the support to the income of the supported ones in that slice.
@@ -41,8 +42,15 @@ namespace RealisticPolicies.Engine
         private bool m_HasPaid;
         private int m_MonthlyEach;
 
-        /// <summary>Households below "modest" wealth at the last selection.</summary>
+        /// <summary>Households who qualify (income below the detail setting's share of the median) at the last selection.</summary>
         public int LastPoor { get; private set; }
+
+        /// <summary>At the last selection: households counted, their median income and the income limit (without this support).</summary>
+        public int LastHouseholds { get; private set; }
+
+        public int LastMedianIncome { get; private set; }
+
+        public int LastIncomeLimit { get; private set; }
 
         /// <summary>Households paid at the last selection.</summary>
         public int LastSupported { get; private set; }
@@ -121,45 +129,82 @@ namespace RealisticPolicies.Engine
             LastSupported = 0;
         }
 
-        /// <summary>The poorest households first, as many as the delivered share of the poor allows.</summary>
+        /// <summary>
+        /// The lowest incomes first, as many as the delivered share of those who qualify allows. Who qualifies: income
+        /// without this support below the detail setting's share of the city's median household income (also without
+        /// it), as Korea's livelihood benefit takes households under 32% of the standard median income (2026-11-10 user
+        /// decision; it was wealth, which in the test city was about the same for almost every household).
+        /// </summary>
         private void Select(PolicyDefinition definition, float intensity)
         {
+            // The support added to last selection's households' income (AddIncome) is taken off again, or they would
+            // drop out of the next selection and come back the one after.
+            var previous = new HashSet<Entity>(m_Supported);
+            int previousEach = m_MonthlyEach;
             Clear();
             int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
             float delivered = index >= 0 ? math.saturate(m_Engine.LastResults[index].Progress / intensity) : 0f;
-            int benefit = m_EconomyQuery.GetSingleton<EconomyParameterData>().m_UnemploymentBenefit;
-            m_MonthlyEach = (int)math.round(benefit * intensity);
-            int limit = ServiceSeriesCensus.PoorWealthLimit(EntityManager);
+            // The slider is money per household per month (2026-11-10 user decision; was a share of the unemployment benefit).
+            m_MonthlyEach = (int)math.round(definition.SliderRange.min + intensity * (definition.SliderRange.max - definition.SliderRange.min));
+            float share = m_Engine.SecondValue(definition) / 100f;
 
-            // Chunk by chunk (no EntityManager call per household), and only the poorest `count` are picked out, not the
-            // whole list sorted (performance review 2026-11-09): key = wealth in the high bits, the household's slot below.
+            // Chunk by chunk (no EntityManager call per household), and only the `count` lowest are picked out, not the
+            // whole list sorted (performance review 2026-11-09): key = income in the high bits, the household's slot below.
             m_HouseholdQuery.CompleteDependency();
             int total = m_HouseholdQuery.CalculateEntityCount();
             long[] keys = new long[total];
             Entity[] entities = new Entity[total];
-            int poorCount = 0;
+            int households = 0;
             EntityTypeHandle entityType = GetEntityTypeHandle();
             ComponentTypeHandle<Household> householdType = GetComponentTypeHandle<Household>(true);
-            BufferTypeHandle<Resources> resourcesType = GetBufferTypeHandle<Resources>(true);
             using (NativeArray<ArchetypeChunk> chunks = m_HouseholdQuery.ToArchetypeChunkArray(Allocator.Temp))
             {
                 foreach (ArchetypeChunk chunk in chunks)
                 {
                     NativeArray<Entity> ids = chunk.GetNativeArray(entityType);
                     NativeArray<Household> data = chunk.GetNativeArray(ref householdType);
-                    BufferAccessor<Resources> resources = chunk.GetBufferAccessor(ref resourcesType);
-                    for (int i = 0; i < chunk.Count && poorCount < total; i++)
+                    for (int i = 0; i < chunk.Count && households < total; i++)
                     {
-                        int wealth = EconomyUtils.GetHouseholdTotalWealth(data[i], resources[i]);
-                        if (wealth < limit)
+                        int income = data[i].m_Income;
+                        if (previousEach > 0 && previous.Contains(ids[i]))
                         {
-                            keys[poorCount] = ((long)wealth << 32) | (uint)poorCount;
-                            entities[poorCount] = ids[i];
-                            poorCount++;
+                            income -= previousEach;
                         }
+                        keys[households] = ((long)math.max(0, income) << 32) | (uint)households;
+                        entities[households] = ids[i];
+                        households++;
                     }
                 }
             }
+
+            // The median: the largest of the lower half (picked out, not sorted).
+            int median = 0;
+            if (households > 0)
+            {
+                int half = (households + 1) / 2;
+                if (half < households)
+                {
+                    SelectSmallest(keys, households, half);
+                }
+                long largest = 0;
+                for (int i = 0; i < half; i++)
+                {
+                    largest = math.max(largest, keys[i]);
+                }
+                median = (int)(largest >> 32);
+            }
+            long limit = (long)math.round(median * share);
+            int poorCount = 0;
+            for (int i = 0; i < households; i++)
+            {
+                if ((keys[i] >> 32) < limit)
+                {
+                    keys[poorCount++] = keys[i];
+                }
+            }
+            LastMedianIncome = median;
+            LastIncomeLimit = (int)limit;
+            LastHouseholds = households;
             LastPoor = poorCount;
             int count = (int)math.round(poorCount * delivered);
             if (count > 0 && count < poorCount)

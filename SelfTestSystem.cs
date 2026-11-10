@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Colossal.Entities;
 using Colossal.IO.AssetDatabase;
@@ -16,6 +17,7 @@ using Game.UI;
 using RealisticPolicies.Engine;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Scripting;
 
@@ -193,11 +195,14 @@ namespace RealisticPolicies
                 SetStage(Stage.Finish);
             }
 
-            bool protestStage = m_Stage >= Stage.ProtestStart && m_Stage <= Stage.RiotEnd && m_Stage != Stage.RiotSave && m_Stage != Stage.RiotReloading;
-            bool laterStage = m_ChangedOnly && (m_Stage == Stage.LaterBundles || m_Stage == Stage.LaterBundlesOff);
-            if (((m_Stage >= Stage.Activate && m_Stage <= Stage.WaitLock) || protestStage || laterStage || m_Stage == Stage.MoneyWatch || m_Stage == Stage.Measure) && m_SimulationSystem.selectedSpeed != kTestSpeed)
+            // Top speed in every stage that runs the city (2026-11-10 user: "배속은 무조건 걸어야 해"; the simulation is slow,
+            // and the stages between the policy batches used to run at whatever speed the city had). Only the menu, loading,
+            // saving and quitting are left alone.
+            bool idle = m_Stage == Stage.Off || m_Stage == Stage.WaitMenu || m_Stage == Stage.Loading || m_Stage == Stage.SaveGame
+                || m_Stage == Stage.Reloading || m_Stage == Stage.RiotSave || m_Stage == Stage.RiotReloading || m_Stage == Stage.Finish
+                || m_Stage == Stage.Quit;
+            if (!idle && m_SimulationSystem.selectedSpeed != kTestSpeed)
             {
-                // The test needs simulation frames: run at top speed whatever speed the city was loaded with.
                 m_SimulationSystem.selectedSpeed = kTestSpeed;
             }
 
@@ -559,7 +564,7 @@ namespace RealisticPolicies
                     {
                         // Switched on after the other welfare policies: it gets only the social workers they leave.
                         m_LivelihoodOn = true;
-                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport), true, 50f);
+                        SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport), true, PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport).SliderDefault);
                         // Rent support after livelihood support: it gets only the social workers left.
                         SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRentSupport), true, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).SliderDefault);
                         Line("Livelihood support, then rent support, switched on after the other batches.");
@@ -636,6 +641,29 @@ namespace RealisticPolicies
                     else if (m_ShotStep == 1 && StageSeconds() >= 4f)
                     {
                         Shot("protest-crowd-close");
+                        // Where a walker stopped short of its spot, close and from higher up (2026-11-10 user: "어디에
+                        // 멈췄는지 알면 좋겠는데").
+                        if (m_StoppedWalker != Entity.Null && EntityManager.Exists(m_StoppedWalker))
+                        {
+                            Follow(m_StoppedWalker, 60f, 45f);
+                            m_ShotStep = 2;
+                            m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+                        }
+                        else
+                        {
+                            StartPartialNegotiation();
+                        }
+                    }
+                    else if (m_ShotStep == 2 && StageSeconds() >= 4f)
+                    {
+                        Shot("protest-crowd-stopped");
+                        Follow(m_StoppedWalker, 300f, 60f);
+                        m_ShotStep = 3;
+                        m_StageStart = UnityEngine.Time.realtimeSinceStartup;
+                    }
+                    else if (m_ShotStep == 3 && StageSeconds() >= 4f)
+                    {
+                        Shot("protest-crowd-stopped-wide");
                         StartPartialNegotiation();
                     }
                     break;
@@ -1539,7 +1567,7 @@ namespace RealisticPolicies
             PolicyCatalog.kEmergencyResponse, PolicyCatalog.kCpted,
             PolicyCatalog.kHealthCampaign, PolicyCatalog.kEmergencyCare, PolicyCatalog.kAirQualityAlert,
             PolicyCatalog.kPublicHealthcare, PolicyCatalog.kScholarships, PolicyCatalog.kFreeHighSchool, PolicyCatalog.kLifelongLearning,
-            PolicyCatalog.kDisasterWarning, PolicyCatalog.kEnergyCode, PolicyCatalog.kWasteFee,
+            PolicyCatalog.kDisasterWarning, PolicyCatalog.kEnergyCode,
             PolicyCatalog.kUniversityIndustry, PolicyCatalog.kLivelihoodSupport,
             PolicyCatalog.kRentSupport, PolicyCatalog.kFlexibleHours,
         };
@@ -1611,6 +1639,14 @@ namespace RealisticPolicies
                 SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), true, value);
             }
             Line($"Batches 3-10 on: {kLaterBundles.Length} policies at their default strength (random suits off).");
+            // Detail settings (2026-11-10): changed from their defaults, checked with the later results.
+            // Building codes reach only buildings built or levelled up since (option 1): within a test few are, so the
+            // checks of their effects run at full coverage, and the count is checked on its own.
+            PolicyEngineSystem.TestCodeCoverage = 1f;
+            m_Engine.SetSecond(PolicyCatalog.kScholarships, 600f);
+            m_Engine.SetSecond(PolicyCatalog.kFlexibleHours, 60f);
+            m_Engine.SetSecond(PolicyCatalog.kRentSupport, 2f);
+            Line("Details: scholarships ¢600 a student, flexible hours up to 60 min, rent support at most 2 months a household.");
             LogDisasterWarning("before");
             SetStage(Stage.LaterBundles);
         }
@@ -1746,11 +1782,11 @@ namespace RealisticPolicies
             float livelihoodNeed = m_Engine.PolicyStaff(livelihoodIndex, ServiceSeries.SocialWelfare);
             float livelihoodShare = m_Engine.PolicyStaffShare(livelihoodIndex, ServiceSeries.SocialWelfare);
             float livelihoodStaff = livelihoodNeed * livelihoodShare;
-            Check("Livelihood support pays the poorest households (benefit x slider each), at most 60 per social worker it got, as one budget row",
+            Check("Livelihood support pays the lowest-income households (the slider's amount each), at most 60 per social worker it got, as one budget row",
                 livelihood.LastPoor > 0 && livelihood.LastSupported <= livelihood.LastPoor
                 && livelihood.LastSupported <= Mathf.CeilToInt(livelihoodStaff * LivelihoodSupportSystem.kHouseholdsPerWorker) + 1
-                && livelihood.LastMonthlyEach == Mathf.RoundToInt(benefit * livelihoodIntensity) && livelihoodRow == livelihood.LastSupported * livelihood.LastMonthlyEach,
-                $"poor {livelihood.LastPoor}, supported {livelihood.LastSupported}, staff got {livelihoodStaff:0.0} of {livelihoodNeed:0.0} needed, each {livelihood.LastMonthlyEach} (benefit {benefit} x {livelihoodIntensity:0.00}), row {livelihoodRow}, social welfare staff {m_Engine.Census.Workers(ServiceSeries.SocialWelfare)}");
+                && livelihood.LastMonthlyEach == Mathf.RoundToInt(livelihoodIntensity * PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport).SliderRange.max) && livelihoodRow == livelihood.LastSupported * livelihood.LastMonthlyEach,
+                $"poor {livelihood.LastPoor}, supported {livelihood.LastSupported}, staff got {livelihoodStaff:0.0} of {livelihoodNeed:0.0} needed, each {livelihood.LastMonthlyEach} (slider {livelihoodIntensity:0.00} of 1,600; benefit {benefit}), row {livelihoodRow}, social welfare staff {m_Engine.Census.Workers(ServiceSeries.SocialWelfare)}");
             // The other welfare policies came first, so they keep their staff: none gets a smaller share than livelihood support.
             var earlier = new StringBuilder();
             bool keep = true;
@@ -1767,6 +1803,8 @@ namespace RealisticPolicies
             float lag = m_Engine.LastResults[livelihoodIndex].LagDays;
             Check("Households livelihood support cannot take do not slow it down (only the work ahead of it counts)",
                 lag <= 2f * baseLag + 1e-3f, $"lag {lag:0.00} days, base {baseLag:0.00}");
+            CheckSecondSettings(livelihood, livelihoodNeed);
+            CheckCodeCoverage();
             CheckNewItems();
             CheckStaffOrder();
             int universityIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kUniversityIndustry));
@@ -1793,16 +1831,20 @@ namespace RealisticPolicies
                 && education.m_WorkerContinueEducationProbability == m_EducationParamsBefore.m_WorkerContinueEducationProbability,
                 $"teen {m_EducationParamsBefore.m_EnterHighSchoolProbability} -> {education.m_EnterHighSchoolProbability}, adult {m_EducationParamsBefore.m_AdultEnterHighSchoolProbability} -> {education.m_AdultEnterHighSchoolProbability}, worker {m_EducationParamsBefore.m_WorkerContinueEducationProbability} -> {education.m_WorkerContinueEducationProbability}");
             Unity.Mathematics.float2 consumption = ZonedConsumption();
-            Check("Energy code and waste fee lower the electricity and garbage of zoned building prefabs",
-                consumption.x < m_ConsumptionBefore.x && consumption.y < m_ConsumptionBefore.y,
+            Check("Energy code lowers the electricity of zoned building prefabs (the waste fee left the city policies)",
+                consumption.x < m_ConsumptionBefore.x,
                 $"electricity {m_ConsumptionBefore.x:0} -> {consumption.x:0}, garbage {m_ConsumptionBefore.y:0} -> {consumption.y:0}");
             long eligible = ExtendedBenefitSearchSystem.EligibleSeen - m_EligibleBefore;
             long delayed = ExtendedBenefitSearchSystem.Delayed - m_DelayedBefore;
             if (eligible >= 50)
             {
                 float share = delayed / (float)eligible;
-                Check("Longer benefits delay the job search of about 10% of those paid in the extension per run",
-                    share > 0.05f && share < 0.15f, $"{delayed} of {eligible} checks ({share:P1})");
+                // 10% in a city at the reference unemployment (6.2%), fewer where jobs are scarce (Kroft & Notowidigdo 2016).
+                float factor = m_Engine.Conditions != null ? m_Engine.Conditions.SearchDelayFactor : 1f;
+                float expected = ExtendedBenefitSearchSystem.kDelayChance * factor;
+                Check("Longer benefits delay the job search of 10% x the unemployment factor of those paid in the extension per run",
+                    share > 0.5f * expected && share < 1.5f * expected,
+                    $"{delayed} of {eligible} checks ({share:P1}), expected {expected:P1} (unemployment {(m_Engine.Conditions != null ? m_Engine.Conditions.Unemployment : 0f):P1}, factor {factor:0.00})");
             }
             else
             {
@@ -1878,6 +1920,8 @@ namespace RealisticPolicies
 
         private void StopLaterBundles()
         {
+            // As if the batches had run for weeks: switching them off is then a real cut (the protest check after it).
+            Protests.TestSettleReferences();
             foreach (string id in kLaterBundles)
             {
                 SetPolicy(m_CitySystem.City, PolicyCatalog.Find(id), false, 0f);
@@ -1961,6 +2005,12 @@ namespace RealisticPolicies
                 rent.LastRenters > 0 && reached && rent.LastSupported <= Mathf.CeilToInt(rentStaff * RentSupportSystem.kHouseholdsPerWorker) + 1
                 && rentRow == rent.LastMonthly,
                 $"poor renters {rent.LastRenters}, supported {rent.LastSupported}, staff got {rentStaff:0.0}, monthly {rent.LastMonthly}, row {rentRow}");
+            // Detail setting: at most 2 months a household (set when batches 3-10 came on); one engine step may run over.
+            float rentLimit = m_Engine.SecondValue(PolicyCatalog.Definition(PolicyCatalog.kRentSupport));
+            Check("Rent support pays no household for longer than the months set in details (2)",
+                Mathf.Approximately(rentLimit, 2f) && rent.LastMaxMonths <= rentLimit + 0.1f,
+                $"limit {rentLimit:0}, most months had {rent.LastMaxMonths:0.00}, households that have had their months {rent.LastExhausted}");
+            m_Engine.SetSecond(PolicyCatalog.kRentSupport, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).Second.Default);
 
             FlexibleHoursSystem flexible = World.GetOrCreateSystemManaged<FlexibleHoursSystem>();
             int workers = 0, taking = 0;
@@ -1974,12 +2024,12 @@ namespace RealisticPolicies
                 {
                     workers++;
                     firms.Add(jobs[i].m_Workplace);
-                    bool part = FlexibleHoursSystem.Participates(citizens[i], jobs[i], flexible.LastShare, out float delay);
+                    bool part = FlexibleHoursSystem.Participates(citizens[i], jobs[i], flexible.LastShare, flexible.LastMaxDelayDays, out float delay);
                     if (part)
                     {
                         adopting.Add(jobs[i].m_Workplace);
                     }
-                    if (part && delay <= FlexibleHoursSystem.kMaxDelayDays)
+                    if (part && delay <= flexible.LastMaxDelayDays)
                     {
                         taking++;
                     }
@@ -2139,14 +2189,68 @@ namespace RealisticPolicies
             Line($"Screenshot {file}");
         }
 
+        /// <summary>
+        /// Household wealth and income across the city, to set the livelihood support wealth limit's default (2026-11-10
+        /// user: change the default; Korea pays livelihood benefit below 32% of the median income, and 4.9% of people get
+        /// basic livelihood security, 7.5% in the poorest province).
+        /// </summary>
+        private void LogHouseholdDistribution()
+        {
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ServiceSeriesCensus.PoorHouseholdQueryDesc))
+            using (NativeArray<Entity> households = query.ToEntityArray(Allocator.Temp))
+            {
+                int n = households.Length;
+                if (n == 0)
+                {
+                    return;
+                }
+                var wealth = new int[n];
+                var income = new int[n];
+                for (int i = 0; i < n; i++)
+                {
+                    Game.Citizens.Household household = EntityManager.GetComponentData<Game.Citizens.Household>(households[i]);
+                    wealth[i] = Game.Economy.EconomyUtils.GetHouseholdTotalWealth(household, EntityManager.GetBuffer<Game.Economy.Resources>(households[i], true));
+                    income[i] = household.m_Income;
+                }
+                System.Array.Sort(wealth);
+                System.Array.Sort(income);
+                string Quantiles(int[] sorted) =>
+                    string.Join(", ", new[] { 0.03f, 0.05f, 0.075f, 0.1f, 0.25f, 0.5f, 0.75f, 0.9f }.Select(q => $"{q:P1} {sorted[Mathf.Min(n - 1, (int)(q * n))]}"));
+                float Below(int[] sorted, float line) => sorted.Count(v => v < line) / (float)n;
+                int medianWealth = wealth[n / 2];
+                int medianIncome = income[n / 2];
+                int4? lines = ServiceSeriesCensus.WealthLines(EntityManager);
+                Line($"Households {n}. Wealth: {Quantiles(wealth)}; game lines {lines}. Income a month: {Quantiles(income)}.");
+                Line($"Below 32% of the median income ({0.32f * medianIncome:0}): {Below(income, 0.32f * medianIncome):P1}; below 32% of the median wealth ({0.32f * medianWealth:0}): {Below(wealth, 0.32f * medianWealth):P1}; "
+                    + $"below the game's modest line ({(lines.HasValue ? lines.Value.y : 0)}): {Below(wealth, lines.HasValue ? lines.Value.y : 0):P1}; below its poor line ({(lines.HasValue ? lines.Value.x : 0)}): {Below(wealth, lines.HasValue ? lines.Value.x : 0):P1}.");
+            }
+        }
+
         private void StartProtests()
         {
+            LogHouseholdDistribution();
             LitigationSystem.TestDisableRandomFiling = true;
             RememberProtests();
-            Line($"Protests before the stage: {m_KnownProtests.Count}; pressure {Protests.LastPressure:0.000}% of monthly income, {Protests.LastYearlyRate:0.000} new protests a year.");
+            Line($"Protests before the stage: {m_KnownProtests.Count}; pressure {Protests.LastPressure:0.000}% of the affected households' income, {Protests.LastHourlyRate:0.000} new protests an hour.");
+            // Batches 3-10 were just switched off: their benefits were cut, so people would come out within hours (the
+            // test keeps chance starts off so they do not get in the way).
+            // The protests-only run skips the batches, so there is no cut to judge (2026-11-10).
+            if (m_ProtestsOnly)
+            {
+                Line("Benefit-cut pressure not checked: the protests-only run has no batches switched off.");
+            }
+            else
+            {
+                Check("Cutting benefits makes people ready to protest within hours (pressure against the affected households' income)",
+                    Protests.LastPressure > 1f && Protests.LastHourlyRate > 0f,
+                    $"pressure {Protests.LastPressure:0.00}%, {Protests.LastHourlyRate:0.000} an hour (mean wait {(Protests.LastHourlyRate > 0f ? 1f / Protests.LastHourlyRate : 0f):0.0} h)");
+            }
             ProtestSystem.TestProtestPolicy = PolicyCatalog.Find(PolicyCatalog.kScholarships);
             ProtestSystem.TestStartProtest = true;
-            Line("Forcing a protest over the scholarships.");
+            // In a park over a subway station when the city has one (2026-11-10 user decision: the crowd stands on its
+            // ground-level paths).
+            ProtestSystem.TestStationPark = true;
+            Line("Forcing a protest over the scholarships, in a station park if there is one.");
             SetStage(Stage.ProtestStart);
         }
 
@@ -2160,7 +2264,16 @@ namespace RealisticPolicies
                 Check("A forced protest starts over the scholarships on a lived-in road segment, with a character and a representative",
                     EntityManager.Exists(protest.m_StartEdge) && EntityManager.Exists(protest.m_Representative) && protest.m_Residents >= 1 && protest.m_Trait <= 3 && protest.m_Size > 0f,
                     $"edge {protest.m_StartEdge.Index}, residents {protest.m_Residents}, trait {(ProtestTrait)protest.m_Trait}, size {protest.m_Size:0.000}, intensity {protest.m_Intensity:0.00}, demand {protest.m_DemandIntensity:0.00} from {protest.m_StartIntensity:0.00}");
-                CheckPlace("It gathers in a park with its own lot beside a road within 256 m of where the aggrieved live (Huff), or on their road when none is in reach", protest, false);
+                if (ProtestSystem.TestStationParkUsed != Entity.Null)
+                {
+                    // Chosen by the test, anywhere in the city: what matters is that the crowd can stand there (checked below).
+                    Check("The forced protest gathers in a park with something underground (station park, chosen by the test)",
+                        protest.m_Place == ProtestSystem.TestStationParkUsed, $"park {protest.m_Place.Index}");
+                }
+                else
+                {
+                    CheckPlace("It gathers in a park with its own lot beside a road within 256 m of where the aggrieved live (Huff), or on their road when none is in reach", protest, false);
+                }
                 Follow(protest.m_IconOwner, 300f);
                 SetStage(Stage.ProtestIcon);
             }
@@ -2291,7 +2404,9 @@ namespace RealisticPolicies
         private bool CrowdArrived(int protestId)
         {
             uint frames = SimFrames();
-            if (frames >= 20480)
+            // Up to about 4 game hours: a park across water or a highway can be a 400 m+ walk with transit on the way
+            // (2026-11-10 run: all 68 still walking after 20480 frames, a third of the way along 100-step paths).
+            if (frames >= 40960)
             {
                 return true;
             }
@@ -2308,10 +2423,20 @@ namespace RealisticPolicies
         private int StandingAt(int protestId, Entity place)
         {
             int count = 0;
+            // A park over a station: the crowd stands on its ground-level paths, at spots listed with the park as their edge.
+            var placeSpots = new System.Collections.Generic.HashSet<Entity> { place };
+            DynamicBuffer<ProtestSpot> spots = EntityManager.GetBuffer<ProtestSpot>(m_CitySystem.City, true);
+            for (int i = 0; i < spots.Length; i++)
+            {
+                if (spots[i].m_Protest == protestId && spots[i].m_Edge == place)
+                {
+                    placeSpots.Add(spots[i].m_Spot);
+                }
+            }
             DynamicBuffer<ProtestMarcher> sent = EntityManager.GetBuffer<ProtestMarcher>(m_CitySystem.City, true);
             for (int i = 0; i < sent.Length; i++)
             {
-                if (sent[i].m_Protest == protestId && sent[i].m_Spot == place
+                if (sent[i].m_Protest == protestId && placeSpots.Contains(sent[i].m_Spot)
                     && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport transport) && IsStanding(transport.m_CurrentTransport))
                 {
                     count++;
@@ -2340,6 +2465,23 @@ namespace RealisticPolicies
             return Entity.Null;
         }
 
+        /// <summary>What a lane belongs to: the owner chain's prefab names (a building's pedestrian area, a road, ...).</summary>
+        private string LaneOwner(Entity lane)
+        {
+            var names = new StringBuilder();
+            Entity at = lane;
+            for (int depth = 0; depth < 4 && at != Entity.Null; depth++)
+            {
+                string name = EntityManager.TryGetComponent(at, out PrefabRef prefab) && m_PrefabSystem.TryGetPrefab(prefab.m_Prefab, out PrefabBase prefabBase) ? prefabBase.name : "?";
+                names.Append(depth == 0 ? "" : " < ").Append($"{name} {at.Index}");
+                at = EntityManager.TryGetComponent(at, out Owner owner) ? owner.m_Owner : Entity.Null;
+            }
+            return names.ToString();
+        }
+
+        /// <summary>A walker that stopped short of its spot at the last crowd check (for a picture of where).</summary>
+        private Entity m_StoppedWalker;
+
         /// <param name="parkCheck">Check that someone stands in the park: only right after they arrive, as a small park
         /// (16 people in one cell) can be empty a moment later while its stays end and the next walkers come.</param>
         private void CheckCrowd(string name, int protestId, string shot, bool parkCheck = true)
@@ -2360,17 +2502,33 @@ namespace RealisticPolicies
             }
             (int heading, int standing) = CountCrowd(protestId);
             Protest of = index >= 0 ? GetProtest(protestId) : default;
-            // In the park: those standing there; from home: marchers living on the road the aggrieved live on.
+            // In the park: those standing there, or standing within its lot (a station park's crowd stands on spots on its
+            // ground-level paths, not in the park building: 2026-11-10); from home: marchers living on the road the
+            // aggrieved live on.
             int inPark = 0;
             int fromHome = 0;
+            Unity.Mathematics.float3 parkCentre = default;
+            float lotReach = 0f;
+            if (of.m_Place != Entity.Null && EntityManager.TryGetComponent(of.m_Place, out Game.Objects.Transform parkAt)
+                && EntityManager.TryGetComponent(of.m_Place, out PrefabRef parkPrefab) && EntityManager.TryGetComponent(parkPrefab.m_Prefab, out BuildingData parkLot))
+            {
+                parkCentre = parkAt.m_Position;
+                // Half the lot's diagonal, in metres (8 m cells). A crowd sent to the sidewalks in front of the park (its paths
+                // could not be reached, option ㄱ) stands just beyond the lot: the road's width more.
+                lotReach = 0.5f * 8f * Unity.Mathematics.math.length(new Unity.Mathematics.float2(parkLot.m_LotSize))
+                    + (Protests.GathersInFrontOfPark(protestId) ? 40f : 0f);
+            }
+            m_StoppedWalker = Entity.Null;
             for (int i = 0; i < sent.Length; i++)
             {
                 if (sent[i].m_Protest != protestId)
                 {
                     continue;
                 }
-                if (of.m_Place != Entity.Null && sent[i].m_Spot == of.m_Place && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport walkerInPark)
-                    && IsStanding(walkerInPark.m_CurrentTransport))
+                if (of.m_Place != Entity.Null && EntityManager.TryGetComponent(sent[i].m_Citizen, out Game.Citizens.CurrentTransport walkerInPark)
+                    && IsStanding(walkerInPark.m_CurrentTransport)
+                    && (sent[i].m_Spot == of.m_Place || (lotReach > 0f && EntityManager.TryGetComponent(walkerInPark.m_CurrentTransport, out Game.Objects.Transform standingAt)
+                        && Unity.Mathematics.math.distance(standingAt.m_Position.xz, parkCentre.xz) <= lotReach)))
                 {
                     inPark++;
                 }
@@ -2437,11 +2595,29 @@ namespace RealisticPolicies
                     Entity spotLane = EntityManager.TryGetComponent(spot, out Game.Objects.SpawnLocation location) ? location.m_ConnectedLane1 : Entity.Null;
                     lane = $"{(current.m_Lane == spotLane ? "spot lane" : current.m_Lane == spot ? "spot" : "other")} {current.m_CurvePosition.x:0.00}->{current.m_CurvePosition.y:0.00} {current.m_Flags}";
                 }
-                if (EntityManager.TryGetComponent(creature, out Game.Objects.Transform here) && EntityManager.TryGetComponent(spot, out Game.Objects.Transform there))
+                string where = "";
+                if (EntityManager.TryGetComponent(creature, out Game.Objects.Transform here))
                 {
-                    distance = Unity.Mathematics.math.distance(here.m_Position, there.m_Position);
+                    if (EntityManager.TryGetComponent(spot, out Game.Objects.Transform there))
+                    {
+                        distance = Unity.Mathematics.math.distance(here.m_Position, there.m_Position);
+                    }
+                    if (lotReach > 0f)
+                    {
+                        float fromCentre = Unity.Mathematics.math.distance(here.m_Position.xz, parkCentre.xz);
+                        where = $", {fromCentre:0} m from the park's centre (its lot reaches {lotReach:0} m), height {here.m_Position.y - parkCentre.y:0.0} m against the park";
+                    }
+                    if (distance > 30f && current.m_Flags.ToString().Contains("EndReached"))
+                    {
+                        // The citizen, not the walking body, which the game may replace before the picture.
+                        if (m_StoppedWalker == Entity.Null)
+                        {
+                            m_StoppedWalker = sent[i].m_Citizen;
+                        }
+                        where += $", at ({here.m_Position.x:0}, {here.m_Position.y:0}, {here.m_Position.z:0}) on {LaneOwner(current.m_Lane)}";
+                    }
                 }
-                Line($"  walker {creature.Index}: flags {walkerData.m_Flags}, divert {divert}, path {path}, lane {lane}, {distance:0} m from its spot");
+                Line($"  walker {creature.Index}: flags {walkerData.m_Flags}, divert {divert}, path {path}, lane {lane}, {distance:0} m from its spot{where}");
             }
             Line($"Crowd of protest {protestId}: {pending} trip not started, {waiting} waiting for a path, {walking} walking, {still} standing, {inside} gone into the spot, {other} elsewhere; "
                 + $"last update moved on {Protests.LastMovedOn}, left {Protests.LastLeft}, sent {Protests.LastSent}.");
@@ -2449,8 +2625,8 @@ namespace RealisticPolicies
                 $"{participants} participants, {(of.m_Place != Entity.Null ? "a park and " : "")}{spots} spots, {marchers} sent, {heading} on the way or there, {standing} standing");
             if (of.m_Place != Entity.Null && parkCheck)
             {
-                Check("Protesters stand in the park, and they come from the road the aggrieved live on", inPark > 0 && fromHome > 0,
-                    $"{inPark} standing in the park, {fromHome} from the residents' road");
+                Check("Protesters stand in the park (or in front of it when its paths cannot be reached), and they come from the road the aggrieved live on", inPark > 0 && fromHome > 0,
+                    $"{inPark} standing in the park{(Protests.GathersInFrontOfPark(protestId) ? " or in front of it (its paths could not be reached)" : "")}, {fromHome} from the residents' road");
             }
             if (shot != null)
             {
@@ -2885,9 +3061,9 @@ namespace RealisticPolicies
             }
             m_HeldCar = StandingCar();
 
-            float income = Mathf.Max(1f, m_BudgetSystem.GetTotalIncome());
+            float loss = Mathf.Max(1f, Protests.DemandMoney(Entity.Null));
             float pressure = Protests.DemandPressure(Entity.Null);
-            int compensation = Mathf.CeilToInt(12f * income * Mathf.Max(0.001f, pressure / 100f) * 1.1f) + 1;
+            int compensation = Mathf.CeilToInt(12f * loss * 1.1f) + 1;
             int rate = World.GetOrCreateSystemManaged<TaxSystem>().GetTaxRate(TaxAreaType.Residential);
             int before = Money();
             Protests.Negotiate(m_RiotId, rate, compensation);
@@ -2898,7 +3074,7 @@ namespace RealisticPolicies
                 postsGone &= !EntityManager.Exists(entity);
             }
             Check("A year of the protesters' loss as compensation is paid at once and the police posts go",
-                paid == compensation && postsGone, $"paid {paid} of {compensation} (income {income:0}/month, pressure {pressure:0.000}%), posts {PostCount(m_RiotId)}");
+                paid == compensation && postsGone, $"paid {paid} of {compensation} (loss {loss:0}/month, pressure {pressure:0.000}%), posts {PostCount(m_RiotId)}");
             m_EndSeenAt = 0;
             SetStage(Stage.RiotEnd);
         }
@@ -3060,52 +3236,125 @@ namespace RealisticPolicies
         private Entity m_CleanupOwner;
 
         /// <summary>
-        /// Distance from the scene of a rioter's crime (the game's crime site whose event is that rioter's) to the nearest of
-        /// the riot's roads; -1 while none of their crimes has reached its scene.
+        /// Distance from the scene of a rioter's crime (the game's crime site whose event is that rioter's) to the building
+        /// chosen for it on its own riot's roads; the nearest such scene, -1 while none has opened. Each crime is measured
+        /// against its own riot (2026-11-10: a crime of the riot carried over the save, at its own building, was measured
+        /// against the clean-up riot's roads 5 km away and failed the check).
         /// </summary>
-        private float RiotCrimeSceneDistance(Protest riot)
+        private float RiotCrimeSceneDistance()
         {
-            var events = new System.Collections.Generic.HashSet<Entity>();
-            foreach (Entity citizen in Protests.RiotCriminals)
+            var sites = new System.Collections.Generic.Dictionary<Entity, Unity.Mathematics.float3>();
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> found = query.ToEntityArray(Allocator.Temp))
             {
-                if (EntityManager.TryGetComponent(citizen, out Game.Citizens.Criminal criminal) && criminal.m_Event != Entity.Null)
+                foreach (Entity site in found)
                 {
-                    events.Add(criminal.m_Event);
+                    Entity e = EntityManager.GetComponentData<Game.Events.AccidentSite>(site).m_Event;
+                    if (e != Entity.Null && !sites.ContainsKey(e))
+                    {
+                        sites[e] = EntityManager.GetComponentData<Game.Objects.Transform>(site).m_Position;
+                    }
                 }
             }
-            if (events.Count == 0)
+            float best = -1f;
+            foreach (ProtestSystem.RiotCrimeRecord record in Protests.RiotCrimeRecords)
             {
-                return -1f;
+                if (!EntityManager.TryGetComponent(record.Citizen, out Game.Citizens.Criminal criminal) || criminal.m_Event == Entity.Null
+                    || !sites.TryGetValue(criminal.m_Event, out Unity.Mathematics.float3 scene)
+                    || !EntityManager.TryGetComponent(record.Target, out Game.Objects.Transform chosen))
+                {
+                    continue;
+                }
+                float d = Unity.Mathematics.math.distance(scene, chosen.m_Position);
+                best = best < 0f ? d : Unity.Mathematics.math.min(best, d);
             }
+            return best;
+        }
+
+        /// <summary>Middles of a protest's road segments.</summary>
+        private System.Collections.Generic.List<Unity.Mathematics.float3> ProtestRoadMiddles(int protestId)
+        {
             var roads = new System.Collections.Generic.List<Unity.Mathematics.float3>();
             DynamicBuffer<ProtestEdge> edges = EntityManager.GetBuffer<ProtestEdge>(m_CitySystem.City, true);
             for (int i = 0; i < edges.Length; i++)
             {
-                if (edges[i].m_Protest == riot.m_Id && EntityManager.TryGetComponent(edges[i].m_Edge, out Game.Net.Curve curve))
+                if (edges[i].m_Protest == protestId && EntityManager.TryGetComponent(edges[i].m_Edge, out Game.Net.Curve curve))
                 {
                     roads.Add(Colossal.Mathematics.MathUtils.Position(curve.m_Bezier, 0.5f));
                 }
             }
+            return roads;
+        }
+
+        private static float Nearest(System.Collections.Generic.List<Unity.Mathematics.float3> points, Unity.Mathematics.float3 at)
+        {
             float best = -1f;
-            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>()))
-            using (NativeArray<Entity> sites = query.ToEntityArray(Allocator.Temp))
+            foreach (Unity.Mathematics.float3 point in points)
             {
-                foreach (Entity site in sites)
+                float d = Unity.Mathematics.math.distance(at, point);
+                best = best < 0f ? d : Unity.Mathematics.math.min(best, d);
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Each riot crime since loading (diagnosis 2026-11-10: scenes 2.7-6.2 km from the riot in three runs): its riot,
+        /// start frame, the building chosen for it, what became of that target, the criminal's event and its crime scene,
+        /// and how far the scene is from the chosen building, from this riot's roads and from its own riot's roads.
+        /// </summary>
+        private void LogRiotCrimes(Protest riot)
+        {
+            var sites = new System.Collections.Generic.Dictionary<Entity, Unity.Mathematics.float3>();
+            using (EntityQuery query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Game.Events.AccidentSite>(), ComponentType.ReadOnly<Game.Objects.Transform>(), ComponentType.Exclude<Deleted>()))
+            using (NativeArray<Entity> found = query.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity site in found)
                 {
-                    Game.Events.AccidentSite data = EntityManager.GetComponentData<Game.Events.AccidentSite>(site);
-                    if (!events.Contains(data.m_Event))
+                    Entity e = EntityManager.GetComponentData<Game.Events.AccidentSite>(site).m_Event;
+                    if (e != Entity.Null && !sites.ContainsKey(e))
                     {
-                        continue;
-                    }
-                    Unity.Mathematics.float3 at = EntityManager.GetComponentData<Game.Objects.Transform>(site).m_Position;
-                    foreach (Unity.Mathematics.float3 road in roads)
-                    {
-                        float d = Unity.Mathematics.math.distance(at, road);
-                        best = best < 0f ? d : Unity.Mathematics.math.min(best, d);
+                        sites[e] = EntityManager.GetComponentData<Game.Objects.Transform>(site).m_Position;
                     }
                 }
             }
-            return best;
+            var roads = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<Unity.Mathematics.float3>>();
+            var text = new StringBuilder($"Riot crimes since loading: {Protests.RiotCrimeRecords.Count} (this riot is {riot.m_Id}, now frame {m_SimulationSystem.frameIndex}).");
+            foreach (ProtestSystem.RiotCrimeRecord record in Protests.RiotCrimeRecords)
+            {
+                if (!roads.TryGetValue(record.Protest, out System.Collections.Generic.List<Unity.Mathematics.float3> own))
+                {
+                    own = ProtestRoadMiddles(record.Protest);
+                    roads[record.Protest] = own;
+                }
+                text.Append($"\n  riot {record.Protest}{(record.Protest == riot.m_Id ? " (this)" : "")}, frame {record.Frame}, citizen {record.Citizen.Index}");
+                bool hasTarget = EntityManager.TryGetComponent(record.Target, out Game.Objects.Transform targetAt);
+                text.Append(hasTarget ? $", chosen building {record.Target.Index} {Nearest(own, targetAt.m_Position):0} m from its riot's roads" : ", no building chosen");
+                text.Append($", target {(RiotCrimeTargetSystem.Outcomes.TryGetValue(record.Citizen, out string outcome) ? outcome : "not tracked")}");
+                if (!EntityManager.TryGetComponent(record.Citizen, out Game.Citizens.Criminal criminal))
+                {
+                    text.Append(", no longer a criminal");
+                    continue;
+                }
+                text.Append($", criminal flags {criminal.m_Flags}, event {criminal.m_Event.Index}");
+                if (criminal.m_Event != Entity.Null && sites.TryGetValue(criminal.m_Event, out Unity.Mathematics.float3 scene))
+                {
+                    text.Append($", scene at ({scene.x:0}, {scene.z:0}): {(hasTarget ? Unity.Mathematics.math.distance(scene, targetAt.m_Position) : -1f):0} m from the chosen building, "
+                        + $"{Nearest(ProtestRoadMiddles(riot.m_Id), scene):0} m from this riot's roads, {Nearest(own, scene):0} m from its own riot's roads");
+                }
+                else
+                {
+                    text.Append(", no crime scene yet");
+                }
+                if (EntityManager.TryGetComponent(record.Citizen, out Game.Citizens.TravelPurpose purpose))
+                {
+                    text.Append($", travelling for {purpose.m_Purpose}");
+                }
+                if (EntityManager.TryGetComponent(record.Citizen, out Target target) && target.m_Target != Entity.Null)
+                {
+                    text.Append($", heading to {target.m_Target.Index}{(target.m_Target == record.Target ? " (the chosen building)" : "")}");
+                }
+            }
+            Line(text.ToString());
         }
 
         /// <summary>Crime scenes the game has open now, and how many lie within 300 m of the riot's start (log only).</summary>
@@ -3162,7 +3411,7 @@ namespace RealisticPolicies
             // The crime check waits here, on a riot held at 0.8: about 0.16 crimes per segment and protest update, so a short
             // riot often has none yet (the first run checked after about 6 updates on one segment and saw 0).
             int crimes = m_CrimesBeforeSave + Protests.RiotCrimes;
-            float sceneDistance = RiotCrimeSceneDistance(GetProtest(m_RiotId));
+            float sceneDistance = RiotCrimeSceneDistance();
             if (SimFrames() < 6144 || ((crimes == 0 || sceneDistance < 0f) && SimFrames() < 98304))
             {
                 return;
@@ -3173,8 +3422,10 @@ namespace RealisticPolicies
                 $"{crimes} crimes started ({m_CrimesBeforeSave} before saving, {Protests.RiotCrimes} since loading), {SimFrames()} frames into this riot");
             // The game sends a criminal to the building with the most crime; the riot holds its buildings' crime at the
             // intensity, so the crime should happen at the riot (2026-11-09 user: "당연히 폭동 현장 근처로").
-            Check("A rioter's crime happens near the riot (within 300 m of its roads)", sceneDistance >= 0f && sceneDistance <= 300f,
-                sceneDistance >= 0f ? $"{sceneDistance:0} m from the nearest riot road" : "no crime scene of a rioter yet");
+            Check("A rioter's crime happens near its riot (within 300 m of the building chosen for it on that riot's roads)", sceneDistance >= 0f && sceneDistance <= 300f,
+                (sceneDistance >= 0f ? $"{sceneDistance:0} m from the chosen building" : "no crime scene of a rioter yet")
+                + $", crime trips pointed at riot buildings {RiotCrimeTargetSystem.Pointed}");
+            LogRiotCrimes(riot);
             DynamicBuffer<ClosedLane> closed = EntityManager.GetBuffer<ClosedLane>(m_CitySystem.City, true);
             m_CleanupLanes = new Entity[closed.Length];
             for (int i = 0; i < closed.Length; i++)
@@ -3471,6 +3722,67 @@ namespace RealisticPolicies
             Line($"Mod policy prefabs with an UnlockRequirement buffer (UnlockSystem only touches those): {withRequirement} of {PolicyDefinitions.All.Length}");
         }
 
+        /// <summary>Building codes count the buildings built or levelled up since they started (2026-11-10, option 1).</summary>
+        private void CheckCodeCoverage()
+        {
+            PolicyEngineSystem.TestCodeCoverage = -1f;
+            BuildingWorksSystem works = World.GetOrCreateSystemManaged<BuildingWorksSystem>();
+            Entity city = m_CitySystem.City;
+            int recorded = EntityManager.HasBuffer<BuildingWorks>(city) ? EntityManager.GetBuffer<BuildingWorks>(city, true).Length : 0;
+            int buildings = m_Engine.Conditions != null ? m_Engine.Conditions.Buildings : 0;
+            var text = new StringBuilder();
+            bool ok = recorded > 0 && buildings > 0;
+            foreach (string id in new[] { PolicyCatalog.kEnergyCode, PolicyCatalog.kDisasterCode, PolicyCatalog.kFireCode, PolicyCatalog.kCpted })
+            {
+                PolicyDefinition definition = PolicyCatalog.Definition(id);
+                DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city, true);
+                uint enacted = 0;
+                float age = 0f;
+                for (int r = 0; r < runtimes.Length; r++)
+                {
+                    if (runtimes[r].m_Policy == definition.Prefab)
+                    {
+                        enacted = runtimes[r].m_EnactedFrame;
+                        age = runtimes[r].m_AgeDays;
+                    }
+                }
+                int built = works.BuiltSince(enacted);
+                ok &= enacted > 0 && built <= recorded;
+                text.Append($"{Short(id)} built since {built}, age {age:0.00} d, last coverage {m_Engine.Covered(definition):0.0000}; ");
+            }
+            Check("Building codes count the buildings built or levelled up since they started (the game's construction)", ok,
+                $"buildings under construction or placed recorded {recorded}, buildings {buildings}; " + text);
+        }
+
+        /// <summary>Detail settings (second sliders, 2026-11-10) as set when batches 3-10 came on.</summary>
+        private void CheckSecondSettings(LivelihoodSupportSystem livelihood, float livelihoodNeed)
+        {
+            PolicyDefinition scholarships = PolicyCatalog.Definition(PolicyCatalog.kScholarships);
+            float level = m_Engine.LastIntensity(scholarships);
+            float students = m_Engine.Census.TargetCount(TargetGroup.TertiaryStudents);
+            int row = m_Injection.GetRow(PolicyDefinitions.kScholarshipRow);
+            float expected = 300f * students * level * 2f;
+            Check("Scholarships pay students x share x the amount set in details (¢600 = twice the default)",
+                Mathf.Approximately(m_Engine.SecondValue(scholarships), 600f) && Mathf.Abs(row - expected) <= 1f + 0.01f * expected,
+                $"detail {m_Engine.SecondValue(scholarships):0}, students {students:0}, share {level:0.00}, row {row}, expected {expected:0}");
+            Check("A detail setting counts in the level people feel (scholarships: slider x 600/300)",
+                Mathf.Abs(m_Engine.FeltIntensity(scholarships) - 2f * level) < 1e-4f
+                && Mathf.Abs(m_Engine.LastResults[System.Array.IndexOf(PolicyDefinitions.All, scholarships)].Felt - 2f * level) < 1e-4f,
+                $"felt {m_Engine.FeltIntensity(scholarships):0.000}, slider {level:0.000}");
+            FlexibleHoursSystem flexible = World.GetOrCreateSystemManaged<FlexibleHoursSystem>();
+            Check("Flexible hours delay at most the minutes set in details (60)",
+                Mathf.Abs(flexible.LastMaxDelayDays - 60f / 1440f) < 1e-6f, $"{flexible.LastMaxDelayDays * 1440f:0.0} min");
+            PolicyDefinition livelihoodDefinition = PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport);
+            float qualifying = livelihood.LastHouseholds > 0 ? livelihood.LastPoor / (float)livelihood.LastHouseholds : 0f;
+            Check("Livelihood support picks households with income under 32% of the median (the default in details), about 5-25% of households here",
+                Mathf.Approximately(m_Engine.SecondValue(livelihoodDefinition), 32f) && qualifying >= 0.05f && qualifying <= 0.25f
+                && livelihood.LastIncomeLimit == Mathf.RoundToInt(0.32f * livelihood.LastMedianIncome),
+                $"limit {m_Engine.SecondValue(livelihoodDefinition):0}% of median {livelihood.LastMedianIncome} = {livelihood.LastIncomeLimit}, qualifying {livelihood.LastPoor} of {livelihood.LastHouseholds} ({qualifying:P1}), supported {livelihood.LastSupported}, staff needed {livelihoodNeed:0.0}");
+            // Back to the defaults for the later stages (random suits and protests are off in the test).
+            m_Engine.SetSecond(PolicyCatalog.kScholarships, scholarships.Second.Default);
+            m_Engine.SetSecond(PolicyCatalog.kFlexibleHours, PolicyCatalog.Definition(PolicyCatalog.kFlexibleHours).Second.Default);
+        }
+
         private float AirModifierOf(Entity prefab, Game.City.CityModifierType type)
         {
             if (!EntityManager.TryGetBuffer(prefab, true, out DynamicBuffer<CityModifierData> modifiers))
@@ -3726,6 +4038,7 @@ namespace RealisticPolicies
 
         private void Finish()
         {
+            PolicyEngineSystem.TestCodeCoverage = -1f;
             ReleaseEdgeScrolling();
             LitigationSystem.TestTimeScale = 1f;
             LitigationSystem.TestDisableRandomFiling = false;

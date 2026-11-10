@@ -129,8 +129,24 @@ function extendCityPolicy(Row) {
                 props.onSelect(policy);
             }
         });
-        return shown ? React.createElement(Row, props) : null;
+        return shown ? React.createElement(Row, sliderFloor(props)) : null;
     };
+}
+
+// The game's policy row draws its slider only while the slider value is not 0 (`value && slider`): a mod slider pushed to
+// 0% vanished and left a bare "0" by the checkbox, on or off (2026-11-10 user report). Its own sliders never reach 0.
+// So the mod's sliders stop one step above 0 on screen; switching the policy off stays with the checkbox. The engine's
+// range is not changed.
+function sliderFloor(props) {
+    const policy = props.policy;
+    const data = policy && policy.data;
+    if (!data || !data.range || data.range.min !== 0 || !(policy.id || "").startsWith("RealisticPolicies.")) {
+        return props;
+    }
+    const floor = data.step > 0 ? data.step : 1;
+    const range = Object.assign({}, data.range, { min: floor });
+    const value = Math.max(data.value || 0, floor);
+    return Object.assign({}, props, { policy: Object.assign({}, policy, { data: Object.assign({}, data, { range, value }) }) });
 }
 
 function SearchBox() {
@@ -153,11 +169,14 @@ function extendPoliciesPage(Page) {
         // Clear the filter when the page closes so the next visit starts with the full list.
         React.useEffect(() => () => search.set(""), []);
         // The policy detail column below reads this to add the policy report (stage 7).
+        // The game's page fills the whole tab height; with the search box above it, it ran one box-height below the panel
+        // (2026-11-10 user report). It gets only the height left under the search box.
         const column = React.createElement(
             "div",
-            { style: { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 } },
+            { style: { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, height: "100%" } },
             React.createElement(SearchBox),
-            React.createElement(Page, props),
+            React.createElement("div", { className: "rp-policy-list", style: { display: "flex", flexDirection: "column", flex: "1 1 0", minHeight: 0, overflow: "hidden" } },
+                React.createElement(Page, props)),
         );
         // The tab content hosts a single focus child: the search box and the page share one navigation scope.
         const scoped = AutoNavigationScope && NavigationDirection
@@ -214,12 +233,14 @@ function WelfareSeriesSection(props) {
     const { translate } = l10n.useLocalization();
     const label = (name) => translate(`RealisticPolicies.Series.${name}`, name);
     const tooltip = (name) => translate(`RealisticPolicies.Series.${name}.Tooltip`, "");
+    // The game's dropdown item takes a localized string (plain text showed "<INVALID TYPE>", 2026-11-10 user report).
+    const localized = (name) => ({ __Type: "Game.UI.Localization.LocalizedString", id: `RealisticPolicies.Series.${name}.Tooltip`, value: null, args: null });
     const current = SERIES_CHOICES[props.series] || SERIES_CHOICES[0];
     const items = SERIES_CHOICES.map((name, index) => React.createElement(DropdownItem, {
         key: name,
         value: index,
         selected: props.series === index,
-        tooltip: tooltip(name),
+        tooltip: localized(name),
         onChange: (value) => api.trigger(GROUP, "SetWelfareSeries", value),
     }, label(name)));
     const dropdown = React.createElement(Dropdown, { theme: gameDropdownTheme, content: items },
@@ -356,7 +377,14 @@ function defendants(text, korean, cityName, government) {
     return { holder: text(`Defendant.${kind}.Holder`, { NAME: name }), body: text(`Defendant.${kind}.Body`, { NAME: name }) };
 }
 
+// A tooltip on the whole row sat in its middle, the middle of the screen in the wide protests and lawsuits tabs
+// (2026-11-10 user report): it goes on the row's name instead, as close to the pointer as the text.
 function Row(props) {
+    if (props.tooltip && ui && ui.Tooltip) {
+        const left = React.createElement(ui.Tooltip, { tooltip: props.tooltip, direction: "up", alignment: "start" },
+            React.createElement("span", null, props.left));
+        return React.createElement(InfoRow, Object.assign({ disableFocus: true }, props, { left, tooltip: undefined }));
+    }
     return React.createElement(InfoRow, Object.assign({ disableFocus: true }, props));
 }
 
@@ -444,6 +472,8 @@ function PolicyReport({ id }) {
     const caseNo = (year, number) => text("Suit.CaseNumber", { YEAR: year, N: number });
 
     const ban = suits && suits.bans ? suits.bans.find((b) => b.policyId === id) : null;
+    // Detail setting (second slider), also while the policy is off so it can be set first.
+    const second = report.second ? React.createElement(SecondSection, { key: "second", id, second: report.second }) : null;
     if (ban) {
         sections.push(React.createElement(InfoSection, { key: "ban", disableFocus: true },
             Row({ left: text("Report.Banned"), right: text("Report.DaysLeft", { DAYS: ban.daysLeft.toFixed(1) }) }),
@@ -453,7 +483,11 @@ function PolicyReport({ id }) {
     if (!report.on) {
         const off = report.mechanism === "AllowanceAuction" ? "Report.NeedsTrading" : "Report.Off";
         return React.createElement("div", { className: "rp-policy-report" },
-            React.createElement(InfoSection, { disableFocus: true }, Row({ left: text(off) })));
+            second,
+            React.createElement(InfoSection, { key: "off", disableFocus: true }, Row({ left: text(off) })));
+    }
+    if (second) {
+        sections.push(second);
     }
 
     const seriesName = (series) => translate(`RealisticPolicies.SeriesName.${series}`, series);
@@ -511,6 +545,11 @@ function PolicyReport({ id }) {
     if (report.inflated) {
         output.push(React.createElement("div", { key: "inflated", style: { color: "var(--warningColor)", padding: "4rem 10rem" } }, text("Report.Inflated")));
     }
+    // City conditions (docs/POLICY-REVIEW.md): a plain sentence, no factor (2026-11-10 user decision).
+    if (report.condition !== undefined && Math.abs(report.condition - 1) >= 0.1 && report.progress > 0) {
+        output.push(React.createElement("div", { key: "condition", style: { color: "var(--normalTextColorDim, inherit)", padding: "4rem 10rem" } },
+            text(report.condition > 1 ? "Report.Condition.Up" : "Report.Condition.Down")));
+    }
 
     // Outcome: air and ground pollution of the same size read as one row.
     const outcome = [];
@@ -526,7 +565,9 @@ function PolicyReport({ id }) {
         const higherIsGood = /(Efficiency|Entertainment|Safety|Interest|Graduation|WarningTime)$/.test(m.type);
         const good = higherIsGood ? m.value > 0 : m.value < 0;
         // Absolute modifiers are amounts (the early warning adds seconds), not percentages.
-        const shown = m.absolute ? (m.value >= 0 ? "+" : "") + text("Report.Seconds", { SECONDS: Math.round(m.value) }) : signedPercent(m.value);
+        const shown = m.absolute
+            ? (m.value >= 0 ? "+" : "") + (m.type === "PrisonTime" ? text("Second.Months", { N: m.value.toFixed(1) }) : text("Report.Seconds", { SECONDS: Math.round(m.value) }))
+            : signedPercent(m.value);
         outcome.push(Row({ key: `mod-${m.type}`, left: text(`Report.Modifier.${m.type}`), right: React.createElement("span", { style: { color: m.value === 0 ? undefined : good ? "var(--positiveColor)" : "var(--negativeColor)" } }, shown), subRow: true }));
     }
     for (const m of report.money.filter((r) => r.income)) {
@@ -580,6 +621,31 @@ function PolicyReport({ id }) {
     return React.createElement("div", { className: "rp-policy-report" }, sections);
 }
 
+// The detail setting under "세부 설정": the game's policy row draws one slider only (2026-11-10 user decision).
+function SecondSection({ id, second }) {
+    const text = useText();
+    const [value, setValue] = React.useState(second.value);
+    // Follow the saved value when it changes from elsewhere (a court ruling, a load).
+    React.useEffect(() => setValue(second.value), [second.value]);
+    const transformer = useStepTransformer ? useStepTransformer(second.step) : undefined;
+    const shown = second.unit === "money" ? `¢${groupDigits(value)}`
+        : second.unit === "months" ? text("Second.Months", { N: Math.round(value) })
+        : second.unit === "minutes" ? text("Second.Minutes", { N: Math.round(value) })
+        : second.unit === "percent" ? `${Math.round(value)}%`
+        : `${Math.round(value)}`;
+    const change = (v) => {
+        const stepped = Math.min(second.max, Math.max(second.min, Math.round(v / second.step) * second.step));
+        setValue(stepped);
+        api.trigger(GROUP, "setPolicySecond", id, stepped);
+    };
+    return React.createElement(InfoSection, { disableFocus: true },
+        Row({ left: text("Second.Title"), uppercase: true }),
+        Row({ left: text(`Second.${second.key}`), right: shown, subRow: true }),
+        Slider ? React.createElement("div", { style: { padding: "4rem 10rem" } },
+            React.createElement(Slider, { value, start: second.min, end: second.max, valueTransformer: transformer, onChange: change })) : null,
+        React.createElement("div", { style: { padding: "2rem 10rem 6rem", fontSize: "12rem", opacity: 0.7 } }, text(`Second.${second.key}.Hint`)));
+}
+
 // ---- Lawsuits tab
 
 function LawsuitsPage() {
@@ -609,8 +675,7 @@ function SuitSection({ suit, data }) {
     const [open, setOpen] = React.useState(testOpenClaims);
     const korean = text("Lang") === "ko";
     const policy = translate(`Policy.TITLE[${suit.policyId}]`, suit.policyId);
-    const unit = suit.slider ? "%" : "";
-    const value = (v) => `${Math.round(v)}${unit}`;
+    const value = (v) => suit.slider ? policyValue(suit.policyId, v, false) : `${Math.round(v)}`;
     const names = defendants(text, korean, data.cityName, data.government);
     const caseNo = text("Suit.CaseNumber", { YEAR: suit.year, N: suit.number });
     const titleKey = `Suit.Title${suit.againstCut ? ".Cut" : ""}${suit.claim > 0 ? "" : ".NoClaim"}`;
@@ -703,7 +768,7 @@ function SettlementRows({ suit, data }) {
     let control;
     if (suit.slider && Slider) {
         control = React.createElement("div", { style: { display: "flex", alignItems: "center" } },
-            React.createElement("div", { style: { width: "60rem", textAlign: "right", marginRight: "12rem" } }, `${Math.round(level)}%`),
+            React.createElement("div", { style: { width: "60rem", textAlign: "right", marginRight: "12rem" } }, policyValue(suit.policyId, level, false)),
             React.createElement("div", { style: { width: "200rem" } },
                 React.createElement(Slider, { value: level, start: lo, end: hi, valueTransformer: transformer, onChange: setLevel })));
     } else if (Checkbox) {
@@ -769,11 +834,33 @@ function ProtestsPage() {
 }
 
 // The policy's value as the policy tab shows it (percent for percentage sliders), or the residential tax rate.
+// Sliders not in percent (2026-11-10 user decision; same units as in PolicyDefinitions): money a household gets a month,
+// and the months benefits are paid longer.
+const POLICY_UNITS = {
+    "RealisticPolicies.LivelihoodSupport": "money",
+    "RealisticPolicies.RentSupport": "money",
+    "RealisticPolicies.UnemploymentDuration": "integer",
+    "RealisticPolicies.HarsherSentencing": "integer",
+    "RealisticPolicies.DisasterWarning": "integer",
+};
+
+// A policy level as its slider shows it: ¢ for money, a plain number, or percent.
+function policyValue(policyId, value, toggle) {
+    if (toggle) {
+        return `${Math.round(value)}`;
+    }
+    const unit = POLICY_UNITS[policyId];
+    if (unit === "money") {
+        return `¢${groupDigits(value)}`;
+    }
+    return unit === "integer" ? `${Math.round(value)}` : `${Math.round(value)}%`;
+}
+
 function protestValue(protest, value) {
     if (!protest.policyId) {
         return `${Math.round(value)}%`;
     }
-    return `${Math.round(value)}${protest.toggle ? "" : "%"}`;
+    return policyValue(protest.policyId, value, protest.toggle);
 }
 
 // Legitimacy cost of repression scales with (1 - intensity)^2: a word, as the lawsuit hint.
@@ -801,7 +888,7 @@ function ActionSection({ action }) {
         Row({ key: "share", left: text("Action.Share"), right: percent(action.share) }),
         Row({ key: "effect", left: text("Action.Effect"),
             right: React.createElement("span", { style: { color: "var(--negativeColor)" } }, text(`Action.Effect.${sector}`, { N: Math.max(1, Math.round(action.loss * 100)) })),
-            tooltip: text("Action.Effect.Tooltip") }),
+            tooltip: text(action.kind === 0 ? "Action.Effect.Tooltip.Strike" : "Action.Effect.Tooltip.Closure") }),
         Row({ key: "hours", left: text("Protest.Hours"), right: text("Protest.Hours.Value", { HOURS: Math.max(1, Math.round(action.hours)) }) }),
     ];
     return React.createElement(InfoSection, { disableFocus: true },
@@ -964,6 +1051,15 @@ async function runSelfTest(translate) {
         api.trigger("game", "showCityInfoPanel", 1);
         await sleep(3000);
         check("Search box is rendered on the policy page", !!document.querySelector(".rp-policy-search"));
+        const list = document.querySelector(".rp-policy-list");
+        const column = list && list.parentElement;
+        const page = list && list.firstElementChild;
+        const listRect = list ? list.getBoundingClientRect() : null;
+        const columnRect = column ? column.getBoundingClientRect() : null;
+        const pageRect = page ? page.getBoundingClientRect() : null;
+        check("The policy list ends inside the panel under the search box (not below it)",
+            !!listRect && !!columnRect && !!pageRect && pageRect.bottom <= listRect.bottom + 1 && listRect.bottom <= columnRect.bottom + 1,
+            listRect && columnRect && pageRect ? `page bottom ${Math.round(pageRect.bottom)}, list bottom ${Math.round(listRect.bottom)}, column bottom ${Math.round(columnRect.bottom)}` : "elements missing");
         const allRows = visibleRows.size;
         report(`Rows rendered without a filter: ${allRows}`);
         report("shot:policies-all");

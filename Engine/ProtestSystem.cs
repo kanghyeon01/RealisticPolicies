@@ -22,10 +22,11 @@ namespace RealisticPolicies.Engine
     /// <summary>
     /// Protests and riots (docs/PLAN.md §12). Every update:
     /// 1. protest pressure: benefit spending cut and residents' burden raised, in money against a slow reference point
-    ///    (τ = 12 days), as a share of the city's income; burden and residential tax rises count 0.3;
-    /// 2. a new protest starts with yearly rate 1.4 × (e^(0.21 P) − 1) × legitimacy factor, in a park near where the
-    ///    aggrieved live (on their own road when none is near), with a character (peaceful, general, hardline, extreme)
-    ///    fixed for its life;
+    ///    (τ = 12 days), as a share of the monthly income of the households the policy reaches (the poor for policies
+    ///    aimed at them, everyone otherwise); burden and residential tax rises count 0.3;
+    /// 2. people react at once (2026-11-10 user decision): above 1% of their income a protest over that policy starts
+    ///    at 0.05 × (pressure − 1) an hour × legitimacy factor, in a park near where the aggrieved live (on their own road
+    ///    when none is near), with a character (peaceful, general, hardline, extreme) fixed for its life;
     /// 3. each protest's size and intensity move hour by hour (early escalation, base decay, the threshold-model target,
     ///    concession and repression), it spreads along roads at 10% of residents and becomes a riot at intensity 0.6;
     /// 4. riots raise building crime to the intensity, start fires, and cost legitimacy when left alone; repression costs
@@ -39,8 +40,15 @@ namespace RealisticPolicies.Engine
         // Pressure and start (§12 "첫 시위", 2026-11-08/09 user decisions).
         private const float kReferenceDays = 12f;
         private const float kBurdenWeight = 0.3f;
-        private const float kBaseRate = 1.4f;
-        private const float kRateSlope = 0.21f;
+        // Quick reaction (2026-11-10 user decision, starting values): threshold in % of the affected households' income,
+        // and starts per hour per point above it. Strikes and closures: per hour per unit of change above their minimum.
+        private const float kQuickThreshold = 1f;
+        private const float kQuickPerPoint = 0.05f;
+        private const float kActionPerHour = 1f;
+        // The grievance map is full at this pressure.
+        private const float kMapFullPressure = 5f;
+        // Households' incomes are counted again this often.
+        private const uint kIncomeRecountFrames = 16384;
         private const float kSurpriseB = 2f;
         private const float kMixedFactor = 1.5f;
 
@@ -105,6 +113,18 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Rioters made criminals since the city was loaded (self-test: where their crime happens).</summary>
         internal readonly List<Entity> RiotCriminals = new List<Entity>();
+
+        /// <summary>A riot crime as started (self-test diagnosis 2026-11-10: crime scenes far from the riot).</summary>
+        internal struct RiotCrimeRecord
+        {
+            public Entity Citizen;
+            public int Protest;
+            public Entity Target;
+            public uint Frame;
+        }
+
+        /// <summary>Riot crimes started since the city was loaded, with their riot and chosen building (self-test).</summary>
+        internal readonly List<RiotCrimeRecord> RiotCrimeRecords = new List<RiotCrimeRecord>();
         private EntityQuery m_PoliceConfigQuery;
         private EntityQuery m_ParkQuery;
         private ProtestNotifications m_Notifications;
@@ -116,7 +136,32 @@ namespace RealisticPolicies.Engine
         private float[] m_PolicyPressure;
         private float m_TaxPressure;
 
-        /// <summary>Total pressure that drives new protests (policies already protested left out), % of monthly income.</summary>
+        /// <summary>Money lost per month per policy (cut + 0.3 × burden raised) and for the residential tax: compensation.</summary>
+        private float[] m_PolicyMoney;
+        private float m_TaxMoney;
+
+        /// <summary>Starts per hour per policy and for the residential tax at the last update (0 while one is going on).</summary>
+        private float[] m_PolicyHazard;
+        private float m_TaxHazard;
+
+        /// <summary>Monthly income of all households and of the poor ones, counted every <see cref="kIncomeRecountFrames"/>.</summary>
+        private float m_AllIncome;
+        private float m_PoorIncome;
+        private int m_PoorCount;
+
+        /// <summary>
+        /// Households paid by livelihood and rent support that people are used to (same 12-day pace as the money); kept
+        /// for the session only, so after loading it starts from those paid now.
+        /// </summary>
+        private float[] m_RecipientRef;
+        private float m_RecipientAdapt;
+        private uint m_IncomeFrame;
+        private bool m_HasIncome;
+
+        /// <summary>Expected new protests per hour at the last update.</summary>
+        public float LastHourlyRate { get; private set; }
+
+        /// <summary>Total pressure that drives new protests (policies already protested left out), % of the affected households' income.</summary>
         public float LastPressure { get; private set; }
 
         /// <summary>Expected new protests per game year at the last update.</summary>
@@ -128,6 +173,12 @@ namespace RealisticPolicies.Engine
         /// <summary>Force a protest at the next update (self-test and debugging) over the largest pressure.</summary>
         public static bool TestStartProtest;
 
+        /// <summary>
+        /// Self-test: no protest, strike or closure starts by chance (people now react within hours, and one started by
+        /// the test's own policy changes would get in the way of the stages); the forced ones still start.
+        /// </summary>
+        public static bool TestDisableRandomStart;
+
         /// <summary>Self-test: the forced protest's demand is this policy instead of the largest pressure.</summary>
         internal static Entity TestProtestPolicy = Entity.Null;
 
@@ -136,6 +187,15 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Self-test: the next protest finds no park (starts on the residents' road).</summary>
         internal static bool TestNoPark;
+
+        /// <summary>
+        /// Self-test: the next protest gathers in a park with something underground (a subway station park), anywhere in
+        /// the city, starting from that park's road; false when the city has none (logged).
+        /// </summary>
+        internal static bool TestStationPark;
+
+        /// <summary>Self-test: the station park the last forced protest used (Entity.Null when none was found).</summary>
+        internal static Entity TestStationParkUsed;
 
         public override int GetUpdateInterval(SystemUpdatePhase phase) => kIntervalFrames;
 
@@ -174,6 +234,13 @@ namespace RealisticPolicies.Engine
                 World.GetOrCreateSystemManaged<Game.Notifications.IconCommandSystem>(),
                 World.GetOrCreateSystemManaged<Game.Triggers.CreateChirpSystem>());
             m_PolicyPressure = new float[PolicyDefinitions.All.Length];
+            m_PolicyMoney = new float[PolicyDefinitions.All.Length];
+            m_PolicyHazard = new float[PolicyDefinitions.All.Length];
+            m_RecipientRef = new float[PolicyDefinitions.All.Length];
+            for (int i = 0; i < m_RecipientRef.Length; i++)
+            {
+                m_RecipientRef[i] = -1f;
+            }
             CreateRoadQueries();
             CreateGatheringQueries();
         }
@@ -188,7 +255,13 @@ namespace RealisticPolicies.Engine
             ModCleanup.Reset();
             RiotCrimes = 0;
             RiotCriminals.Clear();
+            RiotCrimeRecords.Clear();
             PublicStaffLoss = 0f;
+            m_HasIncome = false;
+            for (int i = 0; i < m_RecipientRef.Length; i++)
+            {
+                m_RecipientRef[i] = -1f;
+            }
         }
 
         [Preserve]
@@ -232,7 +305,7 @@ namespace RealisticPolicies.Engine
             UpdatePressure(city, frame, dtDays);
             Perf.Stop("Protests.Pressure", part);
             part = Perf.Start();
-            ConsiderStart(city, frame, dtDays);
+            ConsiderStart(city, frame, dtHours);
             Perf.Stop("Protests.Start", part);
             part = Perf.Start();
             UpdateProtests(city, frame, dtHours);
@@ -347,14 +420,17 @@ namespace RealisticPolicies.Engine
             PolicyDefinition[] all = PolicyDefinitions.All;
             DynamicBuffer<ProtestPressure> pressures = EntityManager.GetBuffer<ProtestPressure>(city);
             DynamicBuffer<Protest> protests = EntityManager.GetBuffer<Protest>(city, true);
-            float income = MonthlyIncome();
+            CountHouseholdIncome(frame);
             float adapt = 1f - math.exp(-dtDays / kReferenceDays);
+            m_RecipientAdapt = adapt;
             float total = 0f;
-            float grievance = 0f;
+            float hazard = 0f;
             for (int i = 0; i < all.Length; i++)
             {
                 PolicyDefinition definition = all[i];
                 m_PolicyPressure[i] = 0f;
+                m_PolicyMoney[i] = 0f;
+                m_PolicyHazard[i] = 0f;
                 if (definition.Prefab == Entity.Null)
                 {
                     continue;
@@ -373,16 +449,22 @@ namespace RealisticPolicies.Engine
                 float cut = definition.Direction == Direction.Benefit ? math.max(0f, pressure.m_SpendRef - spend) : 0f;
                 float raised = math.max(0f, burden - pressure.m_BurdenRef);
                 float money = cut + kBurdenWeight * raised;
-                if (pressure.m_SurpriseUntil > frame)
-                {
-                    money *= math.max(1f, pressure.m_SurpriseFactor);
-                }
-                m_PolicyPressure[i] = 100f * money / income * OpinionFactor(protests, definition.Prefab);
+                float surprise = pressure.m_SurpriseUntil > frame ? math.max(1f, pressure.m_SurpriseFactor) : 1f;
+                money *= surprise;
+                m_PolicyMoney[i] = money;
+                // Each part against the income of the households it actually falls on (2026-11-10 user decision, option 가).
+                // A part falling on no households (no stake, or no income counted yet) adds nothing.
+                float benefitIncome = BenefitIncome(i, definition);
+                float burdenIncome = BurdenIncome(definition);
+                float share = 100f * surprise * ((benefitIncome >= 1f ? cut / benefitIncome : 0f) + (burdenIncome >= 1f ? kBurdenWeight * raised / burdenIncome : 0f));
+                // At most all of their income.
+                m_PolicyPressure[i] = math.min(100f, share) * OpinionFactor(protests, definition.Prefab);
                 if (!HasProtest(protests, definition.Prefab))
                 {
                     total += m_PolicyPressure[i];
+                    m_PolicyHazard[i] = kQuickPerPoint * math.max(0f, m_PolicyPressure[i] - kQuickThreshold);
+                    hazard += m_PolicyHazard[i];
                 }
-                grievance += math.max(0f, m_Engine.GroupGrievance(i, TargetGroup.Households));
                 pressure.m_SpendRef += adapt * (spend - pressure.m_SpendRef);
                 pressure.m_BurdenRef += adapt * (burden - pressure.m_BurdenRef);
                 pressure.m_IntensityRef += adapt * (intensity - pressure.m_IntensityRef);
@@ -399,24 +481,120 @@ namespace RealisticPolicies.Engine
             }
             float revenue = m_ServiceBudget.GetIncome(IncomeSource.TaxResidential);
             float taxRaised = rate > 0f ? revenue * math.max(0f, rate - state.m_ResidentialRateRef) / rate : 0f;
-            m_TaxPressure = 100f * kBurdenWeight * taxRaised / income * OpinionFactor(protests, Entity.Null);
+            m_TaxMoney = kBurdenWeight * taxRaised;
+            m_TaxPressure = (m_AllIncome >= 1f ? 100f * m_TaxMoney / m_AllIncome : 0f) * OpinionFactor(protests, Entity.Null);
+            m_TaxHazard = 0f;
             if (!HasProtest(protests, Entity.Null))
             {
                 total += m_TaxPressure;
+                m_TaxHazard = kQuickPerPoint * math.max(0f, m_TaxPressure - kQuickThreshold);
+                hazard += m_TaxHazard;
             }
             state.m_ResidentialRateRef += adapt * (rate - state.m_ResidentialRateRef);
             if (state.m_MixedUntil > frame)
             {
                 total *= kMixedFactor;
+                hazard *= kMixedFactor;
             }
             EntityManager.SetComponentData(city, state);
 
             LastPressure = total;
-            LastGrievanceLevel = grievance + total / 5f;
+            // The grievance map shows what starts protests (2026-11-10 user decision, option 가): full at 5%.
+            LastGrievanceLevel = 2f * total / kMapFullPressure;
             float legitimacy = m_Engine.LastState.m_Legitimacy;
             float legitimacyFactor = math.clamp(EngineParameters.kLegitimacyBase / math.max(0.01f, legitimacy), 0.5f, 2f);
             // No background rate: protests come only from policy changes (2026-11-09 user decision).
-            LastYearlyRate = kBaseRate * (math.exp(kRateSlope * total) - 1f) * legitimacyFactor;
+            LastHourlyRate = hazard * legitimacyFactor;
+            LastYearlyRate = LastHourlyRate * 24f * 12f;
+        }
+
+        /// <summary>
+        /// Income of the households a benefit cut falls on: those actually paid for livelihood and rent support (the number
+        /// they were used to, so a cut to nothing still counts them), otherwise the policy's households' benefit stake as a
+        /// share of the households it is aimed at (the poor, or all). 0 when households do not benefit.
+        /// </summary>
+        private float BenefitIncome(int index, PolicyDefinition definition)
+        {
+            int paid = -1;
+            if (definition.Id == PolicyCatalog.kLivelihoodSupport)
+            {
+                paid = World.GetOrCreateSystemManaged<LivelihoodSupportSystem>().LastSupported;
+            }
+            else if (definition.Id == PolicyCatalog.kRentSupport)
+            {
+                paid = World.GetOrCreateSystemManaged<RentSupportSystem>().LastSupported;
+            }
+            if (paid >= 0)
+            {
+                // First sight this session (negative): people are used to those paid now.
+                float used = m_RecipientRef[index] < 0f ? paid : m_RecipientRef[index];
+                m_RecipientRef[index] = used + m_RecipientAdapt * (paid - used);
+                float recipients = math.max(paid, used);
+                if (recipients >= 1f && m_PoorCount > 0)
+                {
+                    return recipients * m_PoorIncome / m_PoorCount;
+                }
+            }
+            float stake = HouseholdStake(definition, false);
+            bool poor = definition.Target == TargetGroup.PoorHouseholds;
+            return stake * (poor ? m_PoorIncome : m_AllIncome);
+        }
+
+        /// <summary>Income of the households a burden falls on: the households' burden stake as a share of all households.</summary>
+        private float BurdenIncome(PolicyDefinition definition) => HouseholdStake(definition, true) * m_AllIncome;
+
+        private static float HouseholdStake(PolicyDefinition definition, bool burden)
+        {
+            float stake = 0f;
+            if (definition.Groups != null)
+            {
+                foreach (GroupStake group in definition.Groups)
+                {
+                    if (group.Group == TargetGroup.Households)
+                    {
+                        stake += burden ? group.Burden : group.Benefit;
+                    }
+                }
+            }
+            return math.saturate(stake);
+        }
+
+        /// <summary>Monthly income of all households and of the poor ones (the game's household income), now and then.</summary>
+        private void CountHouseholdIncome(uint frame)
+        {
+            if (m_HasIncome && frame - m_IncomeFrame < kIncomeRecountFrames)
+            {
+                return;
+            }
+            m_IncomeFrame = frame;
+            m_HasIncome = true;
+            int poor = ServiceSeriesCensus.PoorWealthLimit(EntityManager);
+            double all = 0, poorSum = 0;
+            int poorCount = 0;
+            m_HouseholdQuery.CompleteDependency();
+            ComponentTypeHandle<Household> householdType = GetComponentTypeHandle<Household>(true);
+            BufferTypeHandle<Resources> resourcesType = GetBufferTypeHandle<Resources>(true);
+            using (NativeArray<ArchetypeChunk> chunks = m_HouseholdQuery.ToArchetypeChunkArray(Allocator.Temp))
+            {
+                foreach (ArchetypeChunk chunk in chunks)
+                {
+                    NativeArray<Household> data = chunk.GetNativeArray(ref householdType);
+                    BufferAccessor<Resources> resources = chunk.GetBufferAccessor(ref resourcesType);
+                    for (int i = 0; i < chunk.Count; i++)
+                    {
+                        float income = math.max(0, data[i].m_Income);
+                        all += income;
+                        if (EconomyUtils.GetHouseholdTotalWealth(data[i], resources[i]) < poor)
+                        {
+                            poorSum += income;
+                            poorCount++;
+                        }
+                    }
+                }
+            }
+            m_AllIncome = (float)all;
+            m_PoorIncome = (float)poorSum;
+            m_PoorCount = poorCount;
         }
 
         private static int FindPressure(DynamicBuffer<ProtestPressure> pressures, Entity policy)
@@ -466,7 +644,7 @@ namespace RealisticPolicies.Engine
 
         // ------------------------------------------------------------------ start
 
-        private void ConsiderStart(Entity city, uint frame, float dtDays)
+        private void ConsiderStart(Entity city, uint frame, float dtHours)
         {
             bool forced = TestStartProtest;
             TestStartProtest = false;
@@ -478,22 +656,44 @@ namespace RealisticPolicies.Engine
                 Start(city, frame, chosen);
                 return;
             }
+            PolicyDefinition[] all = PolicyDefinitions.All;
             if (!forced)
             {
-                if (LastYearlyRate <= 0f)
+                if (LastHourlyRate <= 0f || TestDisableRandomStart)
                 {
                     return;
                 }
-                float chance = 1f - math.exp(-LastYearlyRate * dtDays / 12f);
+                float chance = 1f - math.exp(-LastHourlyRate * dtHours);
                 var random = Random.CreateFromIndex(frame ^ 0x51ED27u);
                 if (random.NextFloat() >= chance)
                 {
                     return;
                 }
+                // The demand: drawn in proportion to how fast each grievance would bring people out.
+                float pick = random.NextFloat() * (m_TaxHazard + Sum(m_PolicyHazard));
+                if (pick < m_TaxHazard)
+                {
+                    Start(city, frame, null);
+                    return;
+                }
+                pick -= m_TaxHazard;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (m_PolicyHazard[i] <= 0f)
+                    {
+                        continue;
+                    }
+                    if (pick < m_PolicyHazard[i])
+                    {
+                        Start(city, frame, all[i]);
+                        return;
+                    }
+                    pick -= m_PolicyHazard[i];
+                }
+                return;
             }
-            // The demand: the policy (or the residential tax) that adds most to the pressure, not already protested.
+            // Forced by the self-test without a demand: the policy (or the residential tax) with the most pressure.
             DynamicBuffer<Protest> protests = EntityManager.GetBuffer<Protest>(city, true);
-            PolicyDefinition[] all = PolicyDefinitions.All;
             int best = -1;
             float bestPressure = HasProtest(protests, Entity.Null) ? -1f : m_TaxPressure;
             for (int i = 0; i < all.Length; i++)
@@ -504,11 +704,17 @@ namespace RealisticPolicies.Engine
                     bestPressure = m_PolicyPressure[i];
                 }
             }
-            if (bestPressure <= 0f && !forced)
-            {
-                return;
-            }
             Start(city, frame, best >= 0 ? all[best] : null);
+        }
+
+        private static float Sum(float[] values)
+        {
+            float sum = 0f;
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += values[i];
+            }
+            return sum;
         }
 
         private void Start(Entity city, uint frame, PolicyDefinition definition)
@@ -522,7 +728,25 @@ namespace RealisticPolicies.Engine
             bool noPark = TestNoPark;
             TestNoPark = false;
             float distance = 0f;
-            Entity park = noPark ? Entity.Null : PickPark(ref random, home, out distance);
+            Entity park = Entity.Null;
+            if (TestStationPark)
+            {
+                TestStationPark = false;
+                // Station parks sit on roads nobody lives on (2026-11-10 runs: 1 and 0 residents) and the nearest to a
+                // random home was 3 km away, too far to arrive in the check's time: the aggrieved are taken to live on the
+                // lived-in road nearest (in segments) to a station park.
+                park = FindStationPark(out Entity lived);
+                TestStationParkUsed = park;
+                if (lived != Entity.Null)
+                {
+                    home = lived;
+                }
+                Mod.Log.Info(park != Entity.Null ? $"Self-test: protest goes to station park {park.Index}." : "Self-test: no park with something underground in the city.");
+            }
+            if (park == Entity.Null)
+            {
+                park = noPark ? Entity.Null : PickPark(ref random, home, out distance);
+            }
             Entity edge = park != Entity.Null ? EntityManager.GetComponentData<Building>(park).m_RoadEdge : home;
             ProtestCityState state = EntityManager.GetComponentData<ProtestCityState>(city);
             int id = state.m_NextId++;
@@ -566,7 +790,7 @@ namespace RealisticPolicies.Engine
             EntityManager.GetBuffer<Protest>(city).Add(protest);
             EntityManager.GetBuffer<ProtestEdge>(city).Add(new ProtestEdge { m_Protest = id, m_Edge = edge, m_Role = (byte)ProtestEdgeRole.Protest });
             m_Notifications.PostChirp(representative, protest.m_IconOwner, false);
-            Mod.Log.Info($"Protest {id} starts over {(definition != null ? definition.Id : "the residential tax")} ({trait}), pressure {LastPressure:0.00}%, yearly rate {LastYearlyRate:0.00}, "
+            Mod.Log.Info($"Protest {id} starts over {(definition != null ? definition.Id : "the residential tax")} ({trait}), pressure {LastPressure:0.00}% of the affected households' income, {LastHourlyRate:0.000} an hour, "
                 + (park != Entity.Null ? $"in park {park.Index} {distance:0} m from the residents' road." : "on the residents' road (no park within reach)."));
         }
 
@@ -757,6 +981,110 @@ namespace RealisticPolicies.Engine
         /// road segment, with a lot, and not one of the park buildings made to stand on a road, such as pedestrian
         /// overpasses (the game's <see cref="Game.Prefabs.BuildingFlags.CanBeOnRoad"/> and <see cref="Game.Prefabs.BuildingFlags.CanBeOnRoadArea"/>).
         /// </summary>
+        /// <summary>
+        /// Self-test: the roadside park with something underground with a lived-in road (30 residents or more) fewest
+        /// segments away (at most 6), and that road.
+        /// </summary>
+        private Entity FindStationPark(out Entity lived)
+        {
+            lived = Entity.Null;
+            var paths = new List<Entity>();
+            Entity best = Entity.Null;
+            int bestHops = int.MaxValue;
+            // Every park with something underground and why it was or was not taken (2026-11-10 user "엥 없다고? 아닐텐데???":
+            // the city has train and subway station parks, yet none was found).
+            var candidates = new System.Text.StringBuilder();
+            int underground = 0;
+            PrefabSystem prefabs = World.GetOrCreateSystemManaged<PrefabSystem>();
+            using (NativeArray<Entity> parks = m_ParkQuery.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity park in parks)
+                {
+                    paths.Clear();
+                    bool surface = SurfacePaths(park, paths, out string reason);
+                    if (!surface && reason == "nothing underground")
+                    {
+                        continue;
+                    }
+                    underground++;
+                    string name = prefabs.TryGetPrefab(EntityManager.GetComponentData<PrefabRef>(park).m_Prefab, out PrefabBase prefab) ? prefab.name : "?";
+                    candidates.Append($"\n  {name} {park.Index}: ");
+                    if (!IsRoadsidePark(EntityManager, park, out BuildingData _))
+                    {
+                        candidates.Append($"not a roadside park{(surface ? "" : $", {reason}")}");
+                        continue;
+                    }
+                    if (!surface)
+                    {
+                        candidates.Append(reason);
+                        continue;
+                    }
+                    Entity road = EntityManager.GetComponentData<Building>(park).m_RoadEdge;
+                    Entity found = NearestLivedRoad(road, out int hops, out int residents);
+                    if (found == Entity.Null)
+                    {
+                        candidates.Append($"{paths.Count} ground paths, its road has {EdgeResidents(road)} residents, no road with 30 or more within 6 segments");
+                        continue;
+                    }
+                    candidates.Append($"{paths.Count} ground paths, a lived-in road {hops} segments away ({residents} residents)");
+                    if (hops < bestHops)
+                    {
+                        best = park;
+                        bestHops = hops;
+                        lived = found;
+                    }
+                }
+            }
+            Mod.Log.Info($"Self-test: {underground} parks with something underground.{candidates}");
+            if (best != Entity.Null)
+            {
+                Mod.Log.Info($"Self-test: station park {best.Index}, a lived-in road {bestHops} segments away ({EdgeResidents(lived)} residents). {DescribeUnderground(best)}");
+            }
+            else
+            {
+                Mod.Log.Info("Self-test: no station park within 6 segments of a lived-in road.");
+            }
+            return best;
+        }
+
+        /// <summary>The lived-in road (30 residents or more, the most at the same distance) fewest segments from <paramref name="from"/>, at most 6.</summary>
+        private Entity NearestLivedRoad(Entity from, out int hops, out int residents)
+        {
+            residents = 0;
+            var seen = new HashSet<Entity> { from };
+            var ring = new List<Entity> { from };
+            for (hops = 0; hops <= 6 && ring.Count > 0; hops++)
+            {
+                Entity found = Entity.Null;
+                foreach (Entity edge in ring)
+                {
+                    int count = EdgeResidents(edge);
+                    if (count >= 30 && count > residents)
+                    {
+                        found = edge;
+                        residents = count;
+                    }
+                }
+                if (found != Entity.Null)
+                {
+                    return found;
+                }
+                var next = new List<Entity>();
+                foreach (Entity edge in ring)
+                {
+                    foreach (Entity neighbour in Neighbours(edge))
+                    {
+                        if (seen.Add(neighbour))
+                        {
+                            next.Add(neighbour);
+                        }
+                    }
+                }
+                ring = next;
+            }
+            return Entity.Null;
+        }
+
         internal static bool IsRoadsidePark(EntityManager entityManager, Entity park, out BuildingData lot)
         {
             lot = default;
@@ -983,7 +1311,8 @@ namespace RealisticPolicies.Engine
             {
                 policy = math.saturate((now - protest.m_StartIntensity) / gap);
             }
-            float yearly = 12f * MonthlyIncome() * math.max(0.001f, (definition != null ? m_PolicyPressure[System.Array.IndexOf(PolicyDefinitions.All, definition)] : m_TaxPressure) / 100f);
+            // What the protesters lose in a year at the level they protest.
+            float yearly = 12f * math.max(1f, definition != null ? m_PolicyMoney[System.Array.IndexOf(PolicyDefinitions.All, definition)] : m_TaxMoney);
             float money = protest.m_Compensation > 0f ? math.saturate(protest.m_Compensation / yearly) : 0f;
             return math.saturate(policy + money);
         }
@@ -1250,6 +1579,7 @@ namespace RealisticPolicies.Engine
                     {
                         RiotCrimes++;
                         RiotCriminals.Add(rioters[pick]);
+                        RiotCrimeRecords.Add(new RiotCrimeRecord { Citizen = rioters[pick], Protest = protest.m_Id, Target = target, Frame = m_SimulationSystem.frameIndex });
                     }
                     rioters.RemoveAt(pick);
                 }
@@ -1261,7 +1591,8 @@ namespace RealisticPolicies.Engine
         /// riot's roads (2026-11-10 user decision). The game's criminal system adds a crime trip with no target and lets the
         /// trip system find the building with the most crime anywhere in the city, which can be kilometres away (self-test
         /// 2026-11-10: 5.3 km); it adds none when the citizen already has a crime trip, and a trip that names its target goes
-        /// straight there. So the rioter is given a crime trip to the riot building first; the crime scene opens there.
+        /// straight there. So the riot building is handed to <see cref="RiotCrimeTargetSystem"/>, which writes it into the
+        /// game's crime trip; the crime scene opens there.
         /// </summary>
         private bool StartCrime(Entity citizen, Entity target)
         {
@@ -1278,10 +1609,8 @@ namespace RealisticPolicies.Engine
                     Entity e = buffer.CreateEntity(eventData.m_Archetype);
                     buffer.SetComponent(e, new PrefabRef(prefabs[i]));
                     buffer.SetBuffer<TargetElement>(e).Add(new TargetElement(citizen));
-                    if (target != Entity.Null && EntityManager.TryGetBuffer(citizen, false, out DynamicBuffer<TripNeeded> trips))
-                    {
-                        trips.Add(new TripNeeded { m_TargetAgent = target, m_Purpose = Purpose.Crime, m_Priority = 128 });
-                    }
+                    // The game's crime trip is pointed at the riot building once the citizen is a criminal (RiotCrimeTargetSystem).
+                    RiotCrimeTargetSystem.Add(citizen, target, m_SimulationSystem.frameIndex);
                     NativeQueue<StatisticsEvent> statistics = m_Statistics.GetStatisticsEventQueue(out Unity.Jobs.JobHandle deps);
                     deps.Complete();
                     statistics.Enqueue(new StatisticsEvent { m_Statistic = StatisticType.CrimeCount, m_Change = 1f });
@@ -1496,7 +1825,58 @@ namespace RealisticPolicies.Engine
             buffer.SetComponent(e, new Modify(city, definition.Prefab, intensity > 0f, adjustment));
         }
 
-        /// <summary>Policy pressure (% of monthly income) of a protest's demand at the last update, for the panel.</summary>
+        /// <summary>
+        /// Self-test: people are used to things as they are now (every reference set to the current spending, burden,
+        /// level and recipients), as after weeks of a policy, so a change right after counts in full.
+        /// </summary>
+        internal void TestSettleReferences()
+        {
+            Entity city = m_CitySystem.City;
+            if (city == Entity.Null || !EntityManager.HasBuffer<ProtestPressure>(city))
+            {
+                return;
+            }
+            DynamicBuffer<ProtestPressure> pressures = EntityManager.GetBuffer<ProtestPressure>(city);
+            PolicyDefinition[] all = PolicyDefinitions.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].Prefab == Entity.Null)
+                {
+                    continue;
+                }
+                int p = FindPressure(pressures, all[i].Prefab);
+                if (p < 0)
+                {
+                    continue;
+                }
+                ProtestPressure pressure = pressures[p];
+                pressure.m_SpendRef = Spending(all[i]);
+                pressure.m_BurdenRef = ResidentBurden(all[i]);
+                pressure.m_IntensityRef = m_Engine.LastIntensity(all[i]);
+                pressures[p] = pressure;
+                if (all[i].Id == PolicyCatalog.kLivelihoodSupport)
+                {
+                    m_RecipientRef[i] = World.GetOrCreateSystemManaged<LivelihoodSupportSystem>().LastSupported;
+                }
+                else if (all[i].Id == PolicyCatalog.kRentSupport)
+                {
+                    m_RecipientRef[i] = World.GetOrCreateSystemManaged<RentSupportSystem>().LastSupported;
+                }
+            }
+        }
+
+        /// <summary>Money a protest's demand costs the protesters per month at the last update (compensation, self-test).</summary>
+        public float DemandMoney(Entity policy)
+        {
+            if (policy == Entity.Null)
+            {
+                return m_TaxMoney;
+            }
+            int index = System.Array.FindIndex(PolicyDefinitions.All, d => d.Prefab == policy);
+            return index >= 0 ? m_PolicyMoney[index] : 0f;
+        }
+
+        /// <summary>Policy pressure (% of the affected households' income) of a protest's demand at the last update, for the panel.</summary>
         public float DemandPressure(Entity policy)
         {
             if (policy == Entity.Null)

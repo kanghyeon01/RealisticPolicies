@@ -96,7 +96,10 @@ namespace RealisticPolicies.Engine
                         continue;
                     }
                     EligibleSeen++;
-                    if (random.NextFloat() >= kDelayChance)
+                    // Fewer delay their search when jobs are scarce (Kroft & Notowidigdo 2016: the duration elasticity halves
+                    // with one standard deviation more unemployment).
+                    float chance = kDelayChance * (m_Engine.Conditions != null ? m_Engine.Conditions.SearchDelayFactor : 1f);
+                    if (random.NextFloat() >= chance)
                     {
                         continue;
                     }

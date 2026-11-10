@@ -46,11 +46,65 @@ namespace RealisticPolicies.Engine
         }
     }
 
+    /// <summary>
+    /// Rent support: months each household has had it (2026-11-10), saved with the city. A household that has had the
+    /// months the detail setting allows gets no more; the list is emptied when the policy is switched off.
+    /// </summary>
+    [InternalBufferCapacity(0)]
+    public struct RentSupportMonths : IBufferElementData, ISerializable
+    {
+        private const byte kVersion = 1;
+
+        public Entity m_Household;
+        public float m_Months;
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(kVersion);
+            writer.Write(m_Household);
+            writer.Write(m_Months);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            reader.Read(out byte version);
+            reader.Read(out m_Household);
+            reader.Read(out m_Months);
+        }
+    }
+
+    /// <summary>
+    /// A building and the simulation frame it was last built or rebuilt (new, level-up, placed), for the building codes
+    /// (<see cref="BuildingWorksSystem"/>, 2026-11-10). Saved with the city.
+    /// </summary>
+    [InternalBufferCapacity(0)]
+    public struct BuildingWorks : IBufferElementData, ISerializable
+    {
+        private const byte kVersion = 1;
+
+        public Entity m_Building;
+        public uint m_Frame;
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(kVersion);
+            writer.Write(m_Building);
+            writer.Write(m_Frame);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            reader.Read(out byte version);
+            reader.Read(out m_Building);
+            reader.Read(out m_Frame);
+        }
+    }
+
     /// <summary>Per-policy engine state, one element per mod policy, saved with the city.</summary>
     [InternalBufferCapacity(0)]
     public struct PolicyRuntime : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 4;
+        private const byte kVersion = 6;
 
         /// <summary>Policy prefab (remapped by the serializer like vanilla policy references).</summary>
         public Entity m_Policy;
@@ -83,6 +137,15 @@ namespace RealisticPolicies.Engine
         /// </summary>
         public uint m_EnactedFrame;
 
+        /// <summary>Buildings in the city when the policy was switched on: building codes reach only those built since (v5).</summary>
+        public int m_StartBuildings;
+
+        /// <summary>The policy's detail setting (second slider, 2026-11-10); negative means the default (v6).</summary>
+        public float m_Second;
+
+        /// <summary>The detail setting people are used to (with <see cref="m_Reference"/>); negative means the default (v6).</summary>
+        public float m_SecondReference;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -96,6 +159,9 @@ namespace RealisticPolicies.Engine
             writer.Write(m_HasBaseline);
             writer.Write(m_BurdenReference);
             writer.Write(m_EnactedFrame);
+            writer.Write(m_StartBuildings);
+            writer.Write(m_Second);
+            writer.Write(m_SecondReference);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -119,6 +185,17 @@ namespace RealisticPolicies.Engine
             if (version >= 4)
             {
                 reader.Read(out m_EnactedFrame);
+            }
+            if (version >= 5)
+            {
+                reader.Read(out m_StartBuildings);
+            }
+            m_Second = -1f;
+            m_SecondReference = -1f;
+            if (version >= 6)
+            {
+                reader.Read(out m_Second);
+                reader.Read(out m_SecondReference);
             }
         }
     }

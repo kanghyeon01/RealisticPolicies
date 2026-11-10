@@ -61,6 +61,29 @@ namespace RealisticPolicies.Engine
 
         /// <summary>Factor on each policy's modifiers and levers from the policy that amplifies it (§14.8), last written.</summary>
         private float[] m_Amplification;
+
+        /// <summary>City conditions that scale some policies' effects (docs/POLICY-REVIEW.md §5a), and each policy's factor at the last step.</summary>
+        private CityConditions m_Conditions;
+        private float[] m_ConditionFactor;
+
+        private LivelihoodSupportSystem m_Livelihood;
+
+        /// <summary>Each policy's detail setting (second slider) at the last read; its default when never set.</summary>
+        private float[] m_SecondValue;
+
+        /// <summary>
+        /// Other buildings renovated to a code each game year (about 1% of the stock a year: European Commission 2019,
+        /// Esser et al.; IEA). New buildings and level-ups come from the game (<see cref="BuildingWorksSystem"/>).
+        /// </summary>
+        private const float kRenovationPerYear = 0.01f;
+
+        private BuildingWorksSystem m_Works;
+
+        /// <summary>Self-test: the building codes' share of the stock, in place of the count (negative: off).</summary>
+        internal static float TestCodeCoverage = -1f;
+
+        /// <summary>Each policy's share of the stock under its code at the last step (building codes only; 1 for the rest).</summary>
+        private float[] m_Covered;
         private readonly float[] m_Demand = new float[(int)ServiceSeries.Count];
         private readonly float[] m_Utilization = new float[(int)ServiceSeries.Count];
 
@@ -122,6 +145,69 @@ namespace RealisticPolicies.Engine
             int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
             return index >= 0 && index < LastResults.Length ? math.saturate(LastResults[index].Progress) : 0f;
         }
+
+        /// <summary>A policy's detail setting (second slider): what the player set, or its default.</summary>
+        public float SecondValue(PolicyDefinition definition)
+        {
+            int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
+            return index >= 0 && m_SecondValue != null ? m_SecondValue[index] : definition?.Second?.Default ?? 0f;
+        }
+
+        /// <summary>
+        /// The level people feel, for lawsuits: the first slider, times the detail setting against its default when the
+        /// setting is not already part of the intensity (2026-11-10 user: "갑자기 장학금 금액이 대폭 삭감된다고 생각하면").
+        /// </summary>
+        public float FeltIntensity(PolicyDefinition definition) => LastIntensity(definition) * SecondScale(definition);
+
+        /// <summary>The detail setting against its default (1 for policies without one, or at the default).</summary>
+        public float SecondScale(PolicyDefinition definition) => definition?.Second == null ? 1f : SecondScaleOf(definition, SecondValue(definition));
+
+        /// <summary><paramref name="value"/> against the detail setting's default; a negative value is the default.</summary>
+        public static float SecondScaleOf(PolicyDefinition definition, float value)
+        {
+            SecondSetting second = definition?.Second;
+            return second == null || value < 0f || second.Default <= 0f ? 1f : value / second.Default;
+        }
+
+        /// <summary>Sets a policy's detail setting (UI); read at the next engine step like a slider change.</summary>
+        public void SetSecond(string id, float value)
+        {
+            PolicyDefinition definition = PolicyCatalog.Definition(id);
+            Entity city = m_CitySystem.City;
+            if (definition?.Second == null || definition.Prefab == Entity.Null || city == Entity.Null || !EntityManager.HasBuffer<PolicyRuntime>(city))
+            {
+                return;
+            }
+            SecondSetting second = definition.Second;
+            value = math.clamp(second.Step > 0f ? math.round(value / second.Step) * second.Step : value, second.Range.min, second.Range.max);
+            DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
+            int r = FindRuntime(runtimes, definition.Prefab);
+            if (r < 0)
+            {
+                runtimes.Add(new PolicyRuntime { m_Policy = definition.Prefab, m_Second = value, m_SecondReference = -1f });
+                return;
+            }
+            PolicyRuntime runtime = runtimes[r];
+            runtime.m_Second = value;
+            runtimes[r] = runtime;
+        }
+
+        /// <summary>A policy's city-condition factor at the last step (1 when its effect does not depend on the city).</summary>
+        public float ConditionFactor(PolicyDefinition definition)
+        {
+            int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
+            return index >= 0 && m_ConditionFactor != null ? m_ConditionFactor[index] : 1f;
+        }
+
+        /// <summary>A building code's share of the stock under it at the last step (1 for other policies).</summary>
+        public float Covered(PolicyDefinition definition)
+        {
+            int index = System.Array.IndexOf(PolicyDefinitions.All, definition);
+            return index >= 0 && m_Covered != null ? m_Covered[index] : 1f;
+        }
+
+        /// <summary>The city conditions counted at the last census (null before the first).</summary>
+        public CityConditions Conditions => m_Conditions;
 
         /// <summary>Staff demanded from each series at the last step.</summary>
         public float[] Demand => m_Demand;
@@ -252,6 +338,17 @@ namespace RealisticPolicies.Engine
             int count = PolicyDefinitions.All.Length;
             m_Intensity = new float[count];
             m_Amplification = new float[count];
+            m_ConditionFactor = new float[count];
+            m_Covered = new float[count];
+            m_SecondValue = new float[count];
+            for (int c = 0; c < count; c++)
+            {
+                m_SecondValue[c] = PolicyDefinitions.All[c].Second != null ? PolicyDefinitions.All[c].Second.Default : 0f;
+            }
+            for (int c = 0; c < count; c++)
+            {
+                m_ConditionFactor[c] = 1f;
+            }
             m_GroupGrievance = new float[count, (int)TargetGroup.Count];
             m_TaxShare = new float[count];
             LastResults = new PolicyStepResult[count];
@@ -333,6 +430,13 @@ namespace RealisticPolicies.Engine
                 long census = Perf.Start();
                 m_Census.Count();
                 Perf.Stop("Engine.Census", census);
+                long conditions = Perf.Start();
+                if (m_Conditions == null)
+                {
+                    m_Conditions = new CityConditions(EntityManager, World, m_Census);
+                }
+                m_Conditions.Count();
+                Perf.Stop("Engine.Conditions", conditions);
                 m_CensusDue = false;
                 m_LastCensusDay = day;
             }
@@ -389,6 +493,7 @@ namespace RealisticPolicies.Engine
                     runtime.m_HasBaseline = true;
                     // Switched on (again): its place in the queue for staff is now the last.
                     runtime.m_EnactedFrame = frame;
+                    runtime.m_StartBuildings = m_Conditions != null ? m_Conditions.Buildings : 0;
                 }
                 runtime.m_LastIntensity = s;
                 runtimes[r] = runtime;
@@ -404,6 +509,15 @@ namespace RealisticPolicies.Engine
                 if (workload > 0f)
                 {
                     float targets = m_Census.TargetCount(definition.Target);
+                    // Livelihood support: the caseload is the households under its own income limit (detail setting).
+                    if (definition.Id == PolicyCatalog.kLivelihoodSupport)
+                    {
+                        m_Livelihood ??= World.GetExistingSystemManaged<LivelihoodSupportSystem>();
+                        if (m_Livelihood != null && m_Livelihood.LastPoor > 0)
+                        {
+                            targets = m_Livelihood.LastPoor;
+                        }
+                    }
                     foreach (StaffRequirement staff in definition.Staff)
                     {
                         float need = workload * (staff.Fixed + staff.PerUnit * targets) * reforms.StaffNeedScale;
@@ -536,8 +650,12 @@ namespace RealisticPolicies.Engine
                 // ⑧ Grievance against the reference point, with loss aversion, per group (option (나)).
                 // Price-driven policies are judged by their actual burden against the burden people are used to.
                 bool actual = UsesActualBurden(definition);
-                float felt = actual ? ActualBurden(definition) : s;
-                float reference = actual ? runtime.m_BurdenReference : runtime.m_Reference;
+                // A cut in the detail setting (scholarship per student, rent support months) is felt like a cut in the
+                // slider (2026-11-10 user: "갑자기 장학금 금액이 대폭 삭감된다고 생각하면 답 나오지 않아?").
+                float secondScale = definition.Second != null ? SecondScaleOf(definition, m_SecondValue[i]) : 1f;
+                float secondReferenceScale = definition.Second != null ? SecondScaleOf(definition, runtime.m_SecondReference) : 1f;
+                float felt = actual ? ActualBurden(definition) : s * secondScale;
+                float reference = actual ? runtime.m_BurdenReference : runtime.m_Reference * secondReferenceScale;
                 float up = math.max(0f, felt - reference);
                 // Public hearings soften the anger of those who carry a newly raised burden (§14.10).
                 float burdenRaise = reforms.BurdenRaiseGrievanceScale(definition);
@@ -578,6 +696,11 @@ namespace RealisticPolicies.Engine
                     float adapt = 1f - math.exp(-dt / EngineParameters.kReferenceDays);
                     runtime.m_Reference += adapt * (s - runtime.m_Reference);
                     runtime.m_BurdenReference += adapt * (felt - runtime.m_BurdenReference);
+                    if (definition.Second != null)
+                    {
+                        float used = runtime.m_SecondReference >= 0f ? runtime.m_SecondReference : definition.Second.Default;
+                        runtime.m_SecondReference = used + adapt * (m_SecondValue[i] - used);
+                    }
                 }
                 runtimes[r] = runtime;
 
@@ -585,6 +708,7 @@ namespace RealisticPolicies.Engine
                 {
                     Detection = detection,
                     Intensity = s,
+                    Felt = actual ? s : s * secondScale,
                     Effectiveness = effectiveness,
                     Utilization = rho,
                     StaffShare = rationing,
@@ -659,7 +783,7 @@ namespace RealisticPolicies.Engine
             {
                 if (definition.Prefab != Entity.Null && FindRuntime(runtimes, definition.Prefab) < 0)
                 {
-                    runtimes.Add(new PolicyRuntime { m_Policy = definition.Prefab });
+                    runtimes.Add(new PolicyRuntime { m_Policy = definition.Prefab, m_Second = -1f, m_SecondReference = -1f });
                 }
             }
         }
@@ -668,6 +792,7 @@ namespace RealisticPolicies.Engine
         private bool ReadIntensities(Entity city, PolicyDefinition[] all)
         {
             DynamicBuffer<Policy> policies = EntityManager.GetBuffer<Policy>(city, true);
+            DynamicBuffer<PolicyRuntime> saved = EntityManager.GetBuffer<PolicyRuntime>(city, true);
             bool changed = false;
             for (int i = 0; i < all.Length; i++)
             {
@@ -679,6 +804,14 @@ namespace RealisticPolicies.Engine
                         intensity = all[i].Intensity((policies[j].m_Flags & PolicyFlags.Active) != 0, policies[j].m_Adjustment);
                         break;
                     }
+                }
+                SecondSetting second = all[i].Second;
+                if (second != null)
+                {
+                    int r = FindRuntime(saved, all[i].Prefab);
+                    float value = r >= 0 && saved[r].m_Second >= 0f ? saved[r].m_Second : second.Default;
+                    changed |= value != m_SecondValue[i];
+                    m_SecondValue[i] = value;
                 }
                 changed |= intensity != m_Intensity[i];
                 m_Intensity[i] = intensity;
@@ -807,8 +940,33 @@ namespace RealisticPolicies.Engine
             for (int i = 0; i < all.Length; i++)
             {
                 PolicyDefinition definition = all[i];
-                float progress = runtimes[FindRuntime(runtimes, definition.Prefab)].m_Progress;
+                PolicyRuntime own = runtimes[FindRuntime(runtimes, definition.Prefab)];
+                float progress = own.m_Progress;
                 float intensity = m_Intensity[i];
+                // Programme sizes (scholarship per student, months of talent grants): the effect and the money follow the
+                // detail setting against its default (linear; estimate), the staff do not.
+                if (definition.Second != null && definition.Second.ScalesIntensity)
+                {
+                    float programme = SecondScaleOf(definition, m_SecondValue[i]);
+                    progress *= programme;
+                    intensity *= programme;
+                }
+                // City conditions (2026-11-10): 1 in a reference city. Building codes reach the buildings built or levelled
+                // up since they started, and about 1% of the others a year (Aroonruengsawat et al. 2012; user decision,
+                // option 1).
+                float covered = 1f;
+                if (CityConditions.IsBuildingCode(definition.Id) && m_Conditions != null && m_Conditions.Buildings > 0)
+                {
+                    m_Works ??= World.GetExistingSystemManaged<BuildingWorksSystem>();
+                    float built = m_Works != null ? math.min(1f, m_Works.BuiltSince(own.m_EnactedFrame) / (float)m_Conditions.Buildings) : 0f;
+                    covered = math.saturate(built + (1f - built) * kRenovationPerYear * own.m_AgeDays / 12f);
+                    if (TestCodeCoverage >= 0f)
+                    {
+                        covered = TestCodeCoverage;
+                    }
+                }
+                m_Covered[i] = covered;
+                m_ConditionFactor[i] = m_Conditions != null ? m_Conditions.Factor(definition.Id, covered) : 1f;
                 if (EntityManager.HasBuffer<CityModifierData>(definition.Prefab))
                 {
                     DynamicBuffer<CityModifierData> modifiers = EntityManager.GetBuffer<CityModifierData>(definition.Prefab);
@@ -816,7 +974,9 @@ namespace RealisticPolicies.Engine
                     {
                         CityModifierData data = modifiers[m];
                         float amplified = definition.AmplifyOnly == null || definition.AmplifyOnly == data.m_Type ? m_Amplification[i] : 1f;
-                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance) * amplified;
+                        // Park care: only its crime part follows the condition (Branas et al. 2018), not park attraction.
+                        float condition = definition.Id == PolicyCatalog.kParkCare && data.m_Type != CityModifierType.CrimeAccumulation ? 1f : m_ConditionFactor[i];
+                        float value = ModifierFor(definition, data.m_Type) * Shape(definition, data.m_Type, progress, intensity, LastResults[i].Compliance) * amplified * condition;
                         if (math.abs(data.m_Range.min - value) > 1e-5f || math.abs(data.m_Range.max - value) > 1e-5f)
                         {
                             data.m_Range = new Bounds1(value, value);
@@ -834,7 +994,7 @@ namespace RealisticPolicies.Engine
                                 factor = 1f;
                             }
                             float age = runtimes[FindRuntime(runtimes, definition.Prefab)].m_AgeDays;
-                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity) * Fading(definition, age) * LeverAmplification(i));
+                            m_LeverFactors[output.Key] = factor * (1f + output.FullEffect * LeverShape(definition, progress, intensity) * Fading(definition, age) * LeverAmplification(i) * m_ConditionFactor[i]);
                             break;
                         case OutputKind.Income:
                         case OutputKind.Expense:
@@ -1211,6 +1371,9 @@ namespace RealisticPolicies.Engine
     {
         public float Detection;
         public float Intensity;
+
+        /// <summary>The level people feel: <see cref="Intensity"/> × the detail setting against its default.</summary>
+        public float Felt;
         public float Effectiveness;
         public float Utilization;
 

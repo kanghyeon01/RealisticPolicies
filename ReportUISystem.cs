@@ -53,6 +53,8 @@ namespace RealisticPolicies
             AddBinding(m_LawsuitsBinding = new RawValueBinding(kGroup, "lawsuits", WriteLawsuits));
             AddBinding(new TriggerBinding<int, int>(kGroup, "respondSuit", RespondSuit));
             AddBinding(new TriggerBinding<int, float, int>(kGroup, "proposeSettlement", ProposeSettlement));
+            // The detail setting (second slider) in the policy's column (2026-11-10, docs/previews/policy-second-slider.html).
+            AddBinding(new TriggerBinding<string, float>(kGroup, "setPolicySecond", (id, value) => m_Engine.SetSecond(id, value)));
         }
 
         [Preserve]
@@ -193,6 +195,29 @@ namespace RealisticPolicies
                 writer.Write(definition.Instrument == Instrument.Authority);
                 writer.PropertyName("suspended");
                 writer.Write(m_Litigation.IsSuspended(definition.Prefab));
+                writer.PropertyName("second");
+                if (definition.Second == null)
+                {
+                    writer.WriteNull();
+                }
+                else
+                {
+                    SecondSetting second = definition.Second;
+                    writer.TypeBegin("RealisticPolicies.SecondSetting");
+                    writer.PropertyName("key");
+                    writer.Write(second.Key);
+                    writer.PropertyName("value");
+                    writer.Write(runtime.m_Policy != Entity.Null && runtime.m_Second >= 0f ? runtime.m_Second : second.Default);
+                    writer.PropertyName("min");
+                    writer.Write(second.Range.min);
+                    writer.PropertyName("max");
+                    writer.Write(second.Range.max);
+                    writer.PropertyName("step");
+                    writer.Write(second.Step);
+                    writer.PropertyName("unit");
+                    writer.Write(second.Unit);
+                    writer.TypeEnd();
+                }
 
                 // Input: staff per series and the policy's money rows.
                 writer.PropertyName("staff");
@@ -258,6 +283,9 @@ namespace RealisticPolicies
                 writer.Write(result.Intensity > 0f ? math.saturate(result.Progress / math.max(1e-4f, result.Intensity) + inflation) : 0f);
                 writer.PropertyName("inflated");
                 writer.Write(inflation > 0.005f);
+                // City conditions scaling the effect (2026-11-10): the report says only whether they raise or lower it.
+                writer.PropertyName("condition");
+                writer.Write(m_Engine.ConditionFactor(definition));
                 float price = result.Progress * FirmModel.kBasePrice;
                 writer.PropertyName("abatement");
                 writer.Write(definition.Mechanism == Mechanism.EmissionTax || definition.Mechanism == Mechanism.AbatementSubsidy ? FirmModel.Abatement(price) : 0f);

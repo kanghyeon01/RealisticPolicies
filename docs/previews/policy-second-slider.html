@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Second Slider Preview</title>
+<style>
+/* Values copied from the game's own stylesheet (same tokens as report-panel.html). */
+:root {
+  --panel: rgba(42,55,83,.92);
+  --panelDark: rgba(24,33,51,.94);
+  --section: rgba(38,49,71,.5);
+  --divider: rgba(255,255,255,.1);
+  --accent: #4bc3f1;
+  --selected: #1e83aa;
+  --text: #f0fbff;
+  --dim: rgba(240,251,255,.7);
+  --dimmer: rgba(240,251,255,.5);
+  --positive: #8bdb46;
+  --warning: #ffa42d;
+  --radius: 4px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #2f3a2c; color: var(--text);
+  font-family: Overpass, "Noto Sans KR", "Noto Sans", "Malgun Gothic", sans-serif; font-size: 14px; }
+.page { padding: 16px; max-width: 1040px; }
+.intro { font-size: 13px; color: var(--dim); line-height: 1.6; margin: 0 0 14px; max-width: 820px; }
+.intro b { color: var(--text); font-weight: 600; }
+.cip { background: var(--panelDark); border-radius: var(--radius); }
+.cip-head { padding: 12px 12px 0; text-align: center; }
+.cip-head h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--accent); }
+.tabs { display: flex; justify-content: center; gap: 2px; margin-top: 12px; }
+.tab { width: 150px; padding: 7px 0; font-size: 13px; background: rgba(255,255,255,.08); border-radius: 3px 3px 0 0; text-align: center; }
+.tab.on { background: var(--selected); }
+.cip-body { background: var(--panel); padding: 6px; border-radius: 0 0 var(--radius) var(--radius); }
+.search { margin: 2px 0 6px; padding: 6px 12px; width: 300px; border-radius: 16px; background: rgba(0,0,0,.25); color: var(--dimmer); font-size: 13px; }
+.pp { display: flex; gap: 6px; align-items: stretch; }
+.plist { flex: 1; min-width: 0; background: var(--section); }
+.prow { display: flex; align-items: center; gap: 14px; padding: 6px 12px; min-height: 52px; border-bottom: 1px solid var(--divider); cursor: pointer; }
+.prow:hover { background: rgba(255,255,255,.05); }
+.prow.sel { background: var(--selected); }
+.ic { width: 36px; height: 36px; border-radius: 4px; background: #eef3f5; color: #2a3753; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+.prow .nm { flex: 1; min-width: 0; color: var(--dim); }
+.prow.sel .nm { color: var(--text); }
+.prow .val { width: 64px; text-align: right; font-size: 13px; }
+.prow input[type=range] { width: 150px; accent-color: #e9f1f5; }
+.cb { width: 18px; height: 18px; border: 2px solid #a9d9ee; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.side { width: 340px; flex: none; background: var(--section); display: flex; flex-direction: column; }
+.side-head { padding: 12px; border-bottom: 2px solid var(--divider); }
+.side-head .ic { width: 56px; height: 56px; font-size: 20px; }
+.side-head h3 { margin: 8px 0 0; font-size: 15px; font-weight: 600; color: var(--accent); }
+.side-desc { padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--dim); border-bottom: 2px solid var(--divider); }
+.isec { padding: 6px 0; }
+.isec + .isec { border-top: 2px solid var(--divider); }
+.irow { display: flex; align-items: center; gap: 10px; padding: 4px 12px; min-height: 28px; font-size: 13px; }
+.irow .l { flex: 1; color: var(--dim); }
+.irow .r { text-align: right; white-space: nowrap; }
+.irow.head .l { color: var(--text); text-transform: uppercase; font-size: 12px; letter-spacing: .02em; }
+.irow.sub .l { padding-left: 10px; }
+.new { outline: 2px dashed var(--warning); outline-offset: -2px; }
+.setting { padding: 2px 12px 8px; }
+.setting .top { display: flex; justify-content: space-between; font-size: 13px; color: var(--dim); }
+.setting .top b { color: var(--text); font-weight: 600; }
+.setting input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 2px; }
+.setting .hint { font-size: 12px; color: var(--dimmer); line-height: 1.45; }
+.legend { font-size: 12px; color: var(--warning); margin: 8px 0 0; }
+.r.pos { color: var(--positive); }
+</style>
+</head>
+<body>
+<div class="page">
+<p class="intro">
+  게임의 정책 줄은 슬라이더를 하나만 그립니다. 그래서 <b>첫 번째 값은 지금처럼 줄의 슬라이더</b>로 정하고,
+  <b>두 번째 값은 정책을 눌렀을 때 오른쪽 상세 칸의 "세부 설정"</b>에서 정합니다(주황 점선이 새로 들어가는 부분).
+  왼쪽 목록에서 정책을 눌러 보세요. 아래 두 개(양형 강화, 재난 조기경보)는 두 번째 값 없이 단위만 바뀝니다.
+</p>
+<div class="cip">
+  <div class="cip-head"><h2>도시 정보</h2>
+    <div class="tabs"><div class="tab">수요</div><div class="tab on">도시 정책</div><div class="tab">행정소송</div><div class="tab">시위</div></div>
+  </div>
+  <div class="cip-body">
+    <div class="search">정책 검색</div>
+    <div class="pp">
+      <div class="plist" id="list"></div>
+      <div class="side" id="side"></div>
+    </div>
+  </div>
+</div>
+<p class="legend">주황 점선: 새로 들어가는 칸. 값과 문구는 시작값(추정)입니다.</p>
+</div>
+<script>
+const money = (v) => "¢" + Math.round(v).toLocaleString("en-US");
+const P = [
+  { key: "rent", name: "임대료 지원", icon: "임", main: { min: 50, max: 1000, step: 50, value: 300, fmt: money },
+    desc: "가난한 세입자 가구에 매달 정해진 금액을 월세로 지원합니다. 월세보다 많이 주지는 않습니다. 가장 어려운 가구부터 받습니다. 슬라이더: 가구당 한 달 지원액.",
+    second: { label: "가구당 최대 지원 기간", min: 1, max: 24, step: 1, value: 12, unit: "개월",
+      hint: "이 기간을 다 받은 가구는 지원이 끝나고, 다음으로 어려운 가구가 받습니다. 서울시 청년월세지원은 최대 12개월입니다." } },
+  { key: "livelihood", name: "생계 지원", icon: "생", main: { min: 50, max: 1600, step: 50, value: 400, fmt: money },
+    desc: "재산이 기준보다 적은 가구에 도시 예산으로 매달 생계비를 줍니다. 가장 어려운 가구부터 받습니다. 슬라이더: 가구당 한 달 지급액 (실업급여는 ¢800).",
+    second: { label: "받을 수 있는 재산 상한", min: 1000, max: 20000, step: 500, value: 6000, unit: "", fmtValue: money,
+      hint: "가구 재산이 이 금액보다 적으면 받을 수 있습니다. 올리면 받는 가구가 늘고, 필요한 사회복지직도 늘어납니다." } },
+  { key: "talent", name: "인재 유치", icon: "인", main: { min: 5, max: 100, step: 5, value: 50, fmt: (v) => v + "%" },
+    desc: "고학력 전입자에게 정착 지원금을 줍니다. 슬라이더: 시가 할 수 있는 최대 수준 대비 시행 정도.",
+    second: { label: "전입 가구당 지원 기간", min: 1, max: 24, step: 1, value: 6, unit: "개월",
+      hint: "길수록 들어오는 고학력 가구가 늘지만, 한 가구에 드는 돈도 늘어납니다." } },
+  { key: "flex", name: "시차출퇴근 지원제도", icon: "시", main: { min: 5, max: 50, step: 5, value: 30, fmt: (v) => v + "%" },
+    desc: "시차출퇴근을 도입하는 기업에 지원금을 줍니다. 도입 여부는 기업마다 정합니다. 슬라이더: 시차출퇴근을 도입하는 사업장 비율.",
+    second: { label: "출근을 늦출 수 있는 최대 시간", min: 30, max: 120, step: 15, value: 90, unit: "분",
+      hint: "길수록 아침 첨두 차량이 더 퍼지지만, 도입하려는 기업은 조금 줄어듭니다." } },
+  { key: "scholar", name: "장학금", icon: "장", main: { min: 5, max: 100, step: 5, value: 60, fmt: (v) => v + "%" },
+    desc: "대학생에게 장학금을 줍니다. 슬라이더: 장학금을 받는 대학생 비율.",
+    second: { label: "1인당 장학금 (한 달)", min: 50, max: 1000, step: 50, value: 300, unit: "", fmtValue: money,
+      hint: "받는 학생 수 × 1인당 금액이 예산 줄에 잡힙니다. 대학이 꽉 차 있으면 돈만 나가고 달라지는 것이 적습니다." } },
+  { key: "sentence", name: "양형 강화", icon: "양", main: { min: 1, max: 12, step: 1, value: 4, fmt: (v) => v + "" },
+    desc: "형기를 늘립니다. 범죄자가 더 오래 갇히지만 교도소가 붐비고 비용이 늘어납니다. 슬라이더: 늘어나는 형기(개월).", second: null },
+  { key: "warning", name: "재난 조기경보", icon: "재", main: { min: 10, max: 180, step: 10, value: 90, fmt: (v) => v + "" },
+    desc: "폭풍과 홍수 전에 문자, 방송, 사이렌으로 경보를 보냅니다. 슬라이더: 늘어나는 경보 시간(초).", second: null },
+];
+let selected = 0;
+function render() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  P.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "prow" + (i === selected ? " sel" : "");
+    row.innerHTML = `<div class="ic">${p.icon}</div><div class="nm">${p.name}</div>
+      <div class="val">${p.main.fmt(p.main.value)}</div>
+      <input type="range" min="${p.main.min}" max="${p.main.max}" step="${p.main.step}" value="${p.main.value}">
+      <div class="cb">✓</div>`;
+    row.onclick = (e) => { if (e.target.tagName !== "INPUT") { selected = i; render(); } };
+    row.querySelector("input").oninput = (e) => { p.main.value = +e.target.value; render(); };
+    list.appendChild(row);
+  });
+  const p = P[selected];
+  const s = p.second;
+  const fmt2 = s ? (s.fmtValue ? s.fmtValue(s.value) : s.value + s.unit) : "";
+  document.getElementById("side").innerHTML = `
+    <div class="side-head"><div class="ic">${p.icon}</div><h3>${p.name}</h3></div>
+    <div class="side-desc">${p.desc}</div>
+    ${s ? `<div class="isec new">
+      <div class="irow head"><div class="l">세부 설정</div></div>
+      <div class="setting"><div class="top"><span>${s.label}</span><b id="v2">${fmt2}</b></div>
+        <input id="s2" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.value}">
+        <div class="hint">${s.hint}</div></div></div>` : ""}
+    <div class="isec">
+      <div class="irow head"><div class="l">투입</div></div>
+      <div class="irow sub"><div class="l">사회복지직</div><div class="r">12명 (전체 50명)</div></div>
+      <div class="irow sub"><div class="l">집행 역량</div><div class="r">82%</div></div>
+    </div>
+    <div class="isec">
+      <div class="irow head"><div class="l">산출</div></div>
+      <div class="irow sub"><div class="l">효과 달성률</div><div class="r">64%</div></div>
+    </div>
+    <div class="isec">
+      <div class="irow head"><div class="l">결과</div></div>
+      <div class="irow sub"><div class="l">이 미리보기의 수치는 예시입니다</div><div class="r pos">—</div></div>
+    </div>`;
+  if (s) {
+    document.getElementById("s2").oninput = (e) => {
+      s.value = +e.target.value;
+      document.getElementById("v2").textContent = s.fmtValue ? s.fmtValue(s.value) : s.value + s.unit;
+    };
+  }
+}
+render();
+</script>
+</body>
+</html>

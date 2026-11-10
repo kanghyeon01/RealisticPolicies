@@ -200,6 +200,26 @@ namespace RealisticPolicies.Engine
     /// Everything about one mod policy. Adding a policy means adding a definition here and its texts to Locale.cs
     /// (Policy.TITLE[id], Policy.DESCRIPTION[id], and EconomyPanel.BUDGET_ITEM[row] for money outputs).
     /// </summary>
+    /// <summary>
+    /// The second value of a policy, set in the detail column under "세부 설정" (docs/previews/policy-second-slider.html):
+    /// the game's policy row has room for one slider only. Changing it counts like moving the policy for lawsuits
+    /// (Scales: the felt level is the first slider × value ÷ default) and, through the money it moves, for protests.
+    /// </summary>
+    public sealed class SecondSetting
+    {
+        /// <summary>Locale key part: "RealisticPolicies.UI.Second.{Key}" (label) and ".Hint".</summary>
+        public string Key;
+        public Bounds1 Range;
+        public float Step;
+        public float Default;
+
+        /// <summary>"money" (¢), "months" or "minutes": how the UI writes the value.</summary>
+        public string Unit;
+
+        /// <summary>The felt level of the policy (lawsuits) and, for programme sizes, its scale follow value ÷ default.</summary>
+        public bool ScalesIntensity;
+    }
+
     public sealed class PolicyDefinition
     {
         public string Id;
@@ -232,6 +252,9 @@ namespace RealisticPolicies.Engine
         /// </summary>
         public float EffectHalfLifeDays;
         public float EffectFloor;
+
+        /// <summary>A second value set in the policy's detail column (2026-11-10 user decision), or null.</summary>
+        public SecondSetting Second;
 
         public bool IsSlider;
         public Bounds1 SliderRange;
@@ -772,6 +795,9 @@ namespace RealisticPolicies.Engine
                 SliderDefault = 50f,
                 SliderStep = 10f,
                 SliderUnit = PolicySliderUnit.percentage,
+                // Months of grants per newcomer household (2026-11-10): longer grants bring more and cost more, linearly
+                // against 6 months (estimate).
+                Second = new SecondSetting { Key = "TalentMonths", Range = new Bounds1(1f, 24f), Step = 1f, Default = 6f, Unit = "months", ScalesIntensity = true },
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.GeneralAdministration, 1f),
@@ -1584,10 +1610,10 @@ namespace RealisticPolicies.Engine
                 Direction = Direction.Benefit,
                 Mechanism = Mechanism.Generic,
                 IsSlider = true,
-                SliderRange = new Bounds1(0f, 100f),
-                SliderDefault = 50f,
-                SliderStep = 10f,
-                SliderUnit = PolicySliderUnit.percentage,
+                SliderRange = new Bounds1(0f, 5f),
+                SliderDefault = 2f,
+                SliderStep = 1f,
+                SliderUnit = PolicySliderUnit.integer,
                 Series = new[] { new SeriesWeight(ServiceSeries.GeneralAdministration, 1f) },
                 ClearancePoints = 1,
                 Staff = new[] { new StaffRequirement(ServiceSeries.GeneralAdministration, 1f, 1f / 20000f) },
@@ -2055,10 +2081,11 @@ namespace RealisticPolicies.Engine
                 Direction = Direction.Burden,
                 Mechanism = Mechanism.Generic,
                 IsSlider = true,
-                SliderRange = new Bounds1(0f, 100f),
-                SliderDefault = 50f,
-                SliderStep = 10f,
-                SliderUnit = PolicySliderUnit.percentage,
+                // Months added to each prison term (2026-11-10 user decision on units; preview 1-12, default 4).
+                SliderRange = new Bounds1(0f, 12f),
+                SliderDefault = 4f,
+                SliderStep = 1f,
+                SliderUnit = PolicySliderUnit.integer,
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.Corrections, 0.7f),
@@ -2072,8 +2099,10 @@ namespace RealisticPolicies.Engine
                 BaseLagDays = 1f,
                 Outputs = new[]
                 {
-                    PolicyOutput.CityModifier(CityModifierType.PrisonTime, 0.5f),
-                    PolicyOutput.CityModifier(CityModifierType.CrimeProbability, -0.03f),
+                    // A game day is a month; vanilla terms are 1-100 days (Crime.m_PrisonTimeRange, mean about 50), so
+                    // 12 months is about +24%. Deterrence kept at the old rate: -3% for +50% (about 25 months).
+                    PolicyOutput.CityModifierAbsolute(CityModifierType.PrisonTime, 12f),
+                    PolicyOutput.CityModifier(CityModifierType.CrimeProbability, -0.0144f),
                     PolicyOutput.Expense(kSentencingRow, ExpenseSource.ServiceUpkeep, 200f, 3f, TargetGroup.Criminals, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0.05f, 0.1f) },
@@ -2300,6 +2329,9 @@ namespace RealisticPolicies.Engine
                 SliderDefault = 50f,
                 SliderStep = 10f,
                 SliderUnit = PolicySliderUnit.percentage,
+                // The slider is the share of university students paid; the detail is the money each gets a month
+                // (2026-11-10). The effect follows the money against ¢300 (Dynarski 2003 is per $1,000: linear, estimate).
+                Second = new SecondSetting { Key = "ScholarshipAmount", Range = new Bounds1(50f, 1000f), Step = 50f, Default = 300f, Unit = "money", ScalesIntensity = true },
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.Education, 0.7f),
@@ -2315,7 +2347,8 @@ namespace RealisticPolicies.Engine
                 {
                     PolicyOutput.CityModifier(CityModifierType.UniversityInterest, 0.3f),
                     PolicyOutput.CityModifier(CityModifierType.UniversityGraduation, 0.05f),
-                    PolicyOutput.Expense(kScholarshipRow, ExpenseSource.SubsidyResidential, 200f, 0.05f, TargetGroup.Households, MoneyBasis.Intensity),
+                    // Students paid × money each (the detail setting scales the ¢300).
+                    PolicyOutput.Expense(kScholarshipRow, ExpenseSource.SubsidyResidential, 0f, 300f, TargetGroup.TertiaryStudents, MoneyBasis.Intensity),
                 },
                 Groups = new[] { new GroupStake(TargetGroup.Households, 0f, 0.3f) },
             },
@@ -2393,10 +2426,11 @@ namespace RealisticPolicies.Engine
                 Direction = Direction.Benefit,
                 Mechanism = Mechanism.Generic,
                 IsSlider = true,
-                SliderRange = new Bounds1(0f, 100f),
-                SliderDefault = 50f,
+                // Seconds of extra warning (2026-11-10 user decision on units; preview 10-180, default 90).
+                SliderRange = new Bounds1(0f, 180f),
+                SliderDefault = 90f,
                 SliderStep = 10f,
-                SliderUnit = PolicySliderUnit.percentage,
+                SliderUnit = PolicySliderUnit.integer,
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.FireAndDisaster, 0.7f),
@@ -2457,44 +2491,8 @@ namespace RealisticPolicies.Engine
                     new GroupStake(TargetGroup.IndustrialCompanies, 0.1f, 0f),
                 },
             },
-            // Volume-based waste fee (§10.7, the user's idea of 2026-11-03): homes and shops pay per bag. Bag price
-            // elasticity -0.05 to -0.23 (구남규 2022, 정광호 외 2007); introductions cut waste weight by 14% and
-            // caused illegal dumping (Fullerton & Kinnaman 1996), which vanilla cannot show. The slider is the bag
-            // price: -15% garbage from homes and shops at the highest price. Bag sales are booked as garbage fees.
-            new PolicyDefinition
-            {
-                Id = PolicyCatalog.kWasteFee,
-                Icon = "Media/Game/Policies/Recycling.svg",
-                Instrument = Instrument.Treasure,
-                Direction = Direction.Burden,
-                Mechanism = Mechanism.Generic,
-                IsSlider = true,
-                SliderRange = new Bounds1(0f, 100f),
-                SliderDefault = 50f,
-                SliderStep = 10f,
-                SliderUnit = PolicySliderUnit.percentage,
-                Series = new[]
-                {
-                    new SeriesWeight(ServiceSeries.Environment, 0.6f),
-                    new SeriesWeight(ServiceSeries.GeneralAdministration, 0.4f),
-                },
-                ClearancePoints = 2,
-                Staff = new[] { new StaffRequirement(ServiceSeries.Environment, 2f, 1f / 20000f) },
-                Target = TargetGroup.Households,
-                ChangeBand = 0.2f,
-                ChangeCost = 1.5f,
-                BaseLagDays = 1f,
-                Outputs = new[]
-                {
-                    PolicyOutput.Parameter(ParameterLevers.kHouseholdGarbage, -0.15f),
-                    PolicyOutput.Income(kWasteFeeRow, IncomeSource.FeeGarbage, 0f, 0.03f, TargetGroup.Households, MoneyBasis.Intensity),
-                },
-                Groups = new[]
-                {
-                    new GroupStake(TargetGroup.Households, 0.2f, 0.05f),
-                    new GroupStake(TargetGroup.CommercialCompanies, 0.1f, 0f),
-                },
-            },
+            // Volume-based waste fee: taken out of the city policies on 2026-11-10 (user decision). It moves to the district
+            // policies with a new model in which households really pay per bag (docs/PLAN.md §12 "지구 정책").
             // University–industry support (§14.20-2, 2026-11-06 user decision): grants for joint research between
             // companies and universities. Companies and private universities are not public bodies, so this supports
             // rather than mandates. Supported firms' sales rose by 11.4% one to seven years later (Jensen et al.), more
@@ -2551,10 +2549,17 @@ namespace RealisticPolicies.Engine
                 Direction = Direction.Benefit,
                 Mechanism = Mechanism.Generic,
                 IsSlider = true,
-                SliderRange = new Bounds1(0f, 100f),
-                SliderDefault = 50f,
-                SliderStep = 10f,
-                SliderUnit = PolicySliderUnit.percentage,
+                SliderRange = new Bounds1(0f, 1600f),
+                SliderDefault = 400f,
+                SliderStep = 50f,
+                SliderUnit = PolicySliderUnit.money,
+                // Who may get it: households whose income (without this support) is below this share of the city's median
+                // household income (2026-11-10 user decision "안 가로 가자"). Wealth could not tell the poor apart: in the
+                // test city 86% of households were under the game's "modest" line and the bottom 3% and the median were
+                // close (1,047 vs 1,345), while income ran from 0 to a median of 2,720. Korea's basic livelihood
+                // thresholds as shares of the standard median income (2024): livelihood 32%, medical 40%, housing 48%,
+                // education 50%. At 32% about 13% of the test city's households qualify.
+                Second = new SecondSetting { Key = "LivelihoodIncome", Range = new Bounds1(20f, 50f), Step = 1f, Default = 32f, Unit = "percent" },
                 Series = new[] { new SeriesWeight(ServiceSeries.SocialWelfare, 1f) },
                 ClearancePoints = 1,
                 Staff = new[] { new StaffRequirement(ServiceSeries.SocialWelfare, 1f, 1f / LivelihoodSupportSystem.kHouseholdsPerWorker) },
@@ -2580,10 +2585,13 @@ namespace RealisticPolicies.Engine
                 Direction = Direction.Benefit,
                 Mechanism = Mechanism.Generic,
                 IsSlider = true,
-                SliderRange = new Bounds1(0f, 50f),
-                SliderDefault = 30f,
-                SliderStep = 5f,
-                SliderUnit = PolicySliderUnit.percentage,
+                SliderRange = new Bounds1(0f, 1000f),
+                SliderDefault = 300f,
+                SliderStep = 50f,
+                SliderUnit = PolicySliderUnit.money,
+                // Months each household may get it; then the next poorest gets it (2026-11-10; Seoul's youth rent
+                // support pays up to 12 months).
+                Second = new SecondSetting { Key = "RentMonths", Range = new Bounds1(1f, 24f), Step = 1f, Default = 12f, Unit = "months" },
                 Series = new[] { new SeriesWeight(ServiceSeries.SocialWelfare, 1f) },
                 ClearancePoints = 1,
                 Staff = new[] { new StaffRequirement(ServiceSeries.SocialWelfare, 1f, 1f / RentSupportSystem.kHouseholdsPerWorker) },
@@ -2614,6 +2622,8 @@ namespace RealisticPolicies.Engine
                 SliderDefault = 30f,
                 SliderStep = 5f,
                 SliderUnit = PolicySliderUnit.percentage,
+                // How much later workers may start (2026-11-10): the delays spread over 0 to this.
+                Second = new SecondSetting { Key = "FlexibleDelay", Range = new Bounds1(30f, 120f), Step = 15f, Default = 90f, Unit = "minutes" },
                 Series = new[] { new SeriesWeight(ServiceSeries.GeneralAdministration, 1f) },
                 ClearancePoints = 1,
                 Staff = new[] { new StaffRequirement(ServiceSeries.GeneralAdministration, 1f, 0f) },

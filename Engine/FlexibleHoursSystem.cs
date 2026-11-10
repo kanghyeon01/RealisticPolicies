@@ -27,9 +27,11 @@ namespace RealisticPolicies.Engine
     /// </summary>
     public sealed partial class FlexibleHoursSystem : GameSystemBase
     {
-        /// <summary>Largest share of workers taking part (the slider's top, 50%) and the latest start, 90 minutes.</summary>
+        /// <summary>Largest share of workers taking part (the slider's top, 50%).</summary>
         public const float kMaxShare = 0.5f;
-        public const float kMaxDelayDays = 1.5f / 24f;
+
+        /// <summary>The latest start at the last update, as a fraction of a day (detail setting, 30-120 minutes; default 90).</summary>
+        public float LastMaxDelayDays { get; private set; } = 1.5f / 24f;
 
         private PolicyEngineSystem m_Engine;
         private TimeSystem m_TimeSystem;
@@ -89,6 +91,10 @@ namespace RealisticPolicies.Engine
             float intensity = definition != null && definition.Prefab != Entity.Null ? m_Engine.LastIntensity(definition) : 0f;
             // The share asked for, reached as far as the policy is delivered.
             LastShare = kMaxShare * math.min(intensity, m_Engine.Delivered(PolicyCatalog.kFlexibleHours));
+            if (definition != null)
+            {
+                LastMaxDelayDays = m_Engine.SecondValue(definition) / (24f * 60f);
+            }
             if (LastShare <= 0f)
             {
                 LastHeld = 0;
@@ -104,6 +110,7 @@ namespace RealisticPolicies.Engine
                 m_Economy = m_EconomyQuery.GetSingleton<EconomyParameterData>(),
                 m_TimeOfDay = m_TimeSystem.normalizedTime,
                 m_Share = LastShare,
+                m_MaxDelay = LastMaxDelayDays,
                 m_Held = m_Held,
             }.Schedule(m_WorkerQuery, Dependency);
             Dependency = m_Handle;
@@ -113,13 +120,13 @@ namespace RealisticPolicies.Engine
 
         /// <summary>
         /// Whether the citizen's workplace has adopted staggered starts (fixed per workplace), and the citizen's delay
-        /// (0..90 minutes as a fraction of a day, fixed per citizen).
+        /// (0 to the latest start, as a fraction of a day, fixed per citizen).
         /// </summary>
-        public static bool Participates(Citizen citizen, Worker worker, float share, out float delay)
+        public static bool Participates(Citizen citizen, Worker worker, float share, float maxDelay, out float delay)
         {
             var firm = Random.CreateFromIndex((uint)worker.m_Workplace.Index ^ 0xF1E8u);
             bool part = firm.NextFloat() < share;
-            delay = Random.CreateFromIndex(citizen.m_PseudoRandom ^ 0x5A61u).NextFloat() * kMaxDelayDays;
+            delay = Random.CreateFromIndex(citizen.m_PseudoRandom ^ 0x5A61u).NextFloat() * maxDelay;
             return part;
         }
 
@@ -132,6 +139,7 @@ namespace RealisticPolicies.Engine
             public EconomyParameterData m_Economy;
             public float m_TimeOfDay;
             public float m_Share;
+            public float m_MaxDelay;
             public NativeArray<int> m_Held;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
@@ -143,7 +151,7 @@ namespace RealisticPolicies.Engine
                 {
                     DynamicBuffer<TripNeeded> buffer = trips[i];
                     Worker worker = workers[i];
-                    if (buffer.Length == 0 || !Participates(citizens[i], worker, m_Share, out float delay))
+                    if (buffer.Length == 0 || !Participates(citizens[i], worker, m_Share, m_MaxDelay, out float delay))
                     {
                         continue;
                     }

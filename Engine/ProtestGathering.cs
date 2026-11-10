@@ -70,6 +70,32 @@ namespace RealisticPolicies.Engine
             public bool Needed;
         }
 
+        /// <summary>Lanes this far below a park's lot are underground (a station); paths this close to it are at ground level.</summary>
+        private const float kUndergroundDepth = 4f;
+        private const float kGroundTolerance = 2.5f;
+
+        /// <summary>Paths of a station park the crowd stands on at most.</summary>
+        private const int kMaxParkPaths = 4;
+
+        /// <summary>Paths of a station park this close to its road are on the street side.</summary>
+        private const float kStreetSideDistance = 60f;
+
+        private readonly HashSet<int> m_LoggedStationParks = new HashSet<int>();
+
+        /// <summary>
+        /// Protests whose people could not find a way onto their station park's paths: they gather on the sidewalks in
+        /// front of the park instead (2026-11-10 user decision, option ㄱ: "근처면 상관 없지 않을까?"). A castle-like park
+        /// asset was taken for a station park and its paths could not be reached from the street; everyone stayed at home.
+        /// For this session; found again after a load.
+        /// </summary>
+        private readonly HashSet<int> m_ParkPathsUnreachable = new HashSet<int>();
+
+        /// <summary>Failed ways to a park's paths before the crowd goes to the sidewalks in front instead.</summary>
+        private const int kFailedPathsToFallBack = 3;
+
+        /// <summary>Whether a protest's crowd gathers in front of its park because its paths could not be reached.</summary>
+        public bool GathersInFrontOfPark(int protestId) => m_ParkPathsUnreachable.Contains(protestId);
+
         private void CreateGatheringQueries()
         {
             m_CitizenLocationQuery = GetEntityQuery(ComponentType.ReadOnly<Citizen>(), ComponentType.ReadOnly<CurrentBuilding>(), ComponentType.Exclude<Deleted>());
@@ -104,6 +130,8 @@ namespace RealisticPolicies.Engine
             // The sidewalks each protest needs, in order from where it started (its park first, then segments in the order it spread).
             var places = new Dictionary<Entity, SpotPlace>();
             var sidewalks = new List<Entity>();
+            var surface = new List<Entity>();
+            var stationParks = new List<int>();
             DynamicBuffer<ProtestEdge> edges = EntityManager.GetBuffer<ProtestEdge>(city, true);
             foreach (KeyValuePair<int, int> entry in participants)
             {
@@ -113,10 +141,48 @@ namespace RealisticPolicies.Engine
                 }
                 float capacity = 0f;
                 int order = 0;
-                if (parks.TryGetValue(entry.Key, out Entity park))
+                if (parks.TryGetValue(entry.Key, out Entity park) && m_ParkPathsUnreachable.Contains(entry.Key))
+                {
+                    // Its paths could not be reached: no park spot, the sidewalks of its road from the start.
+                    stationParks.Add(entry.Key);
+                }
+                else if (parks.TryGetValue(entry.Key, out park))
                 {
                     capacity = ParkCapacity(park);
                     order = 1;
+                    // A park over something underground (a subway station): the game sends visitors through the station
+                    // and they did not get there (2026-11-10 run). Up top it is a park all the same (user decision, option 나),
+                    // so the crowd stands on its paths at ground level, with spots as on sidewalks.
+                    surface.Clear();
+                    if (SurfacePaths(park, surface))
+                    {
+                        stationParks.Add(entry.Key);
+                        if (m_LoggedStationParks.Add(entry.Key))
+                        {
+                            Mod.Log.Info($"Protest {entry.Key}: park {park.Index} has something underground; the crowd stands on {surface.Count} ground-level paths. {DescribeUnderground(park)}");
+                        }
+                        float total = 0f;
+                        foreach (Entity lane in surface)
+                        {
+                            total += EntityManager.GetComponentData<Curve>(lane).m_Length;
+                        }
+                        order = 0;
+                        foreach (Entity lane in surface)
+                        {
+                            if (places.ContainsKey(lane))
+                            {
+                                continue;
+                            }
+                            places[lane] = new SpotPlace
+                            {
+                                Protest = entry.Key,
+                                Edge = park,
+                                Order = order++,
+                                Capacity = capacity * EntityManager.GetComponentData<Curve>(lane).m_Length / math.max(1f, total),
+                                Needed = true,
+                            };
+                        }
+                    }
                 }
                 for (int i = 0; i < edges.Length; i++)
                 {
@@ -147,6 +213,11 @@ namespace RealisticPolicies.Engine
                         order++;
                     }
                 }
+            }
+
+            foreach (int id in stationParks)
+            {
+                parks.Remove(id);
             }
 
             // Spots: those no longer kept go, needed ones that are missing are made.
@@ -201,6 +272,208 @@ namespace RealisticPolicies.Engine
                 return 1f;
             }
             return math.max(1f, lot.m_LotSize.x * lot.m_LotSize.y * kCellSize * kCellSize * kParkPeoplePerSquareMetre);
+        }
+
+        /// <summary>
+        /// For a park with something underground (lanes or entrances 4 m or more below its lot): its walkable paths at ground
+        /// level, long enough to stand on (the park's own lanes and those of its paths). False for an ordinary park, which
+        /// the game's own park visit handles, or when no path is found.
+        /// </summary>
+        private bool SurfacePaths(Entity park, List<Entity> into) => SurfacePaths(park, into, out string _);
+
+        /// <param name="reason">Why it is not a park with ground-level paths to stand on (self-test log), or "" when it is.</param>
+        private bool SurfacePaths(Entity park, List<Entity> into, out string reason)
+        {
+            reason = "";
+            if (!EntityManager.TryGetComponent(park, out Game.Objects.Transform lot))
+            {
+                reason = "no position";
+                return false;
+            }
+            float ground = lot.m_Position.y;
+            bool below = false;
+            var lanes = new List<Entity>();
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<SubLane> own))
+            {
+                for (int i = 0; i < own.Length; i++)
+                {
+                    lanes.Add(own[i].m_SubLane);
+                }
+            }
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<Game.Net.SubNet> nets))
+            {
+                for (int n = 0; n < nets.Length; n++)
+                {
+                    if (EntityManager.TryGetBuffer(nets[n].m_SubNet, true, out DynamicBuffer<SubLane> netLanes))
+                    {
+                        for (int i = 0; i < netLanes.Length; i++)
+                        {
+                            lanes.Add(netLanes[i].m_SubLane);
+                        }
+                    }
+                }
+            }
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<Game.Buildings.SpawnLocationElement> entrances))
+            {
+                for (int i = 0; i < entrances.Length; i++)
+                {
+                    if (EntityManager.TryGetComponent(entrances[i].m_SpawnLocation, out Game.Objects.Transform at) && at.m_Position.y < ground - kUndergroundDepth)
+                    {
+                        below = true;
+                    }
+                }
+            }
+            foreach (Entity lane in lanes)
+            {
+                if (!EntityManager.TryGetComponent(lane, out Curve curve))
+                {
+                    continue;
+                }
+                float y = MathUtils.Position(curve.m_Bezier, 0.5f).y;
+                if (y < ground - kUndergroundDepth)
+                {
+                    // Only a lane people or vehicles use counts: a castle park on a slope had nothing below but a
+                    // decorative hedge lane 4.4 m under its lot (2026-11-10 run, user "오케이").
+                    below |= IsTravelLane(lane);
+                    continue;
+                }
+                if (EntityManager.TryGetComponent(lane, out PedestrianLane pedestrian) && (pedestrian.m_Flags & PedestrianLaneFlags.Crosswalk) == 0
+                    && curve.m_Length >= kMinSidewalkLength && math.abs(y - ground) <= kGroundTolerance)
+                {
+                    into.Add(lane);
+                }
+            }
+            if (!below || into.Count == 0)
+            {
+                reason = !below ? "nothing underground" : "no ground-level path 8 m or longer";
+                into.Clear();
+                return false;
+            }
+            // The paths on the street side, nearest the park's road first: the longest ones were platforms people could
+            // not walk to from the street (2026-11-10 run at a train station park, every path failed). At most a few, within
+            // reach of the road, so the crowd stays together where it can get to.
+            if (!EntityManager.TryGetComponent(park, out Game.Buildings.Building building) || !EntityManager.TryGetComponent(building.m_RoadEdge, out Curve road))
+            {
+                reason = "no road";
+                into.Clear();
+                return false;
+            }
+            var near = new List<(Entity lane, float distance)>();
+            foreach (Entity lane in into)
+            {
+                float3 middle = MathUtils.Position(EntityManager.GetComponentData<Curve>(lane).m_Bezier, 0.5f);
+                float distance = MathUtils.Distance(road.m_Bezier.xz, middle.xz, out float _);
+                if (distance <= kStreetSideDistance)
+                {
+                    near.Add((lane, distance));
+                }
+            }
+            near.Sort((a, b) => a.distance.CompareTo(b.distance));
+            int groundPaths = into.Count;
+            into.Clear();
+            for (int i = 0; i < near.Count && i < kMaxParkPaths; i++)
+            {
+                into.Add(near[i].lane);
+            }
+            if (into.Count == 0)
+            {
+                reason = $"none of its {groundPaths} ground-level paths within {kStreetSideDistance:0} m of its road";
+            }
+            return into.Count > 0;
+        }
+
+        /// <summary>
+        /// What made a park count as having something underground (2026-11-10 user: "우리가 모르는 지하가 있는 거 아니야?"):
+        /// its prefab, its lot height against its road, and the lanes and entrances 4 m or more below the lot, with their
+        /// depth and what they belong to.
+        /// </summary>
+        internal string DescribeUnderground(Entity park)
+        {
+            PrefabSystem prefabs = World.GetOrCreateSystemManaged<PrefabSystem>();
+            string Name(Entity entity) => EntityManager.TryGetComponent(entity, out PrefabRef prefab) && prefabs.TryGetPrefab(prefab.m_Prefab, out PrefabBase prefabBase) ? prefabBase.name : "?";
+            if (!EntityManager.TryGetComponent(park, out Game.Objects.Transform lot))
+            {
+                return "";
+            }
+            float ground = lot.m_Position.y;
+            var text = new System.Text.StringBuilder($"Park prefab {Name(park)}, lot height {ground:0.0}");
+            if (EntityManager.TryGetComponent(park, out Game.Buildings.Building building) && EntityManager.TryGetComponent(building.m_RoadEdge, out Curve road))
+            {
+                text.Append($", its road {MathUtils.Position(road.m_Bezier, 0.5f).y - ground:0.0} m against the lot");
+            }
+            var lanes = new List<(Entity lane, Entity owner)>();
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<SubLane> own))
+            {
+                for (int i = 0; i < own.Length; i++)
+                {
+                    lanes.Add((own[i].m_SubLane, park));
+                }
+            }
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<Game.Net.SubNet> nets))
+            {
+                for (int n = 0; n < nets.Length; n++)
+                {
+                    if (EntityManager.TryGetBuffer(nets[n].m_SubNet, true, out DynamicBuffer<SubLane> netLanes))
+                    {
+                        for (int i = 0; i < netLanes.Length; i++)
+                        {
+                            lanes.Add((netLanes[i].m_SubLane, nets[n].m_SubNet));
+                        }
+                    }
+                }
+            }
+            int below = 0;
+            int decorations = 0;
+            float deepest = 0f;
+            var samples = new System.Text.StringBuilder();
+            foreach ((Entity lane, Entity owner) in lanes)
+            {
+                if (!EntityManager.TryGetComponent(lane, out Curve curve))
+                {
+                    continue;
+                }
+                float depth = ground - MathUtils.Position(curve.m_Bezier, 0.5f).y;
+                if (depth < kUndergroundDepth)
+                {
+                    continue;
+                }
+                if (!IsTravelLane(lane))
+                {
+                    decorations++;
+                    if (decorations <= 3)
+                    {
+                        samples.Append($"; ignored decoration {Name(lane)} of {Name(owner)} {depth:0.0} m below");
+                    }
+                    continue;
+                }
+                below++;
+                deepest = math.max(deepest, depth);
+                if (below <= 6)
+                {
+                    samples.Append($"; lane {Name(lane)} of {Name(owner)} {depth:0.0} m below, {curve.m_Length:0} m long");
+                }
+            }
+            if (EntityManager.TryGetBuffer(park, true, out DynamicBuffer<Game.Buildings.SpawnLocationElement> entrances))
+            {
+                for (int i = 0; i < entrances.Length; i++)
+                {
+                    if (EntityManager.TryGetComponent(entrances[i].m_SpawnLocation, out Game.Objects.Transform at) && ground - at.m_Position.y >= kUndergroundDepth)
+                    {
+                        below++;
+                        deepest = math.max(deepest, ground - at.m_Position.y);
+                        samples.Append($"; entrance {Name(entrances[i].m_SpawnLocation)} {ground - at.m_Position.y:0.0} m below");
+                    }
+                }
+            }
+            text.Append($"; {below} lanes or entrances 4 m or more below (deepest {deepest:0.0} m), {decorations} decorative lanes ignored{samples}.");
+            return text.ToString();
+        }
+
+        /// <summary>A lane people or vehicles move on (walkway, connection, road or track), not a decoration such as a hedge.</summary>
+        private bool IsTravelLane(Entity lane)
+        {
+            return EntityManager.HasComponent<PedestrianLane>(lane) || EntityManager.HasComponent<Game.Net.ConnectionLane>(lane)
+                || EntityManager.HasComponent<Game.Net.CarLane>(lane) || EntityManager.HasComponent<Game.Net.TrackLane>(lane);
         }
 
         /// <summary>Sidewalks of a road segment: its pedestrian lanes other than crossings, long enough to stand on.</summary>
@@ -345,6 +618,17 @@ namespace RealisticPolicies.Engine
             var active = new Dictionary<int, int>();
             var marching = new HashSet<Entity>();
             int movedOn = 0, left = 0, sent = 0;
+            // Ways to a station park's paths that failed, per protest (the paths' spots belong to the park).
+            var parkPathSpots = new HashSet<Entity>();
+            for (int i = 0; i < spots.Length; i++)
+            {
+                if (EntityManager.HasComponent<Game.Buildings.Park>(spots[i].m_Edge))
+                {
+                    parkPathSpots.Add(spots[i].m_Spot);
+                }
+            }
+            var failedWays = new Dictionary<int, int>();
+            var parkPathMarchers = new Dictionary<int, int>();
             DynamicBuffer<ProtestMarcher> marchers = EntityManager.GetBuffer<ProtestMarcher>(city);
             for (int i = marchers.Length - 1; i >= 0; i--)
             {
@@ -386,6 +670,16 @@ namespace RealisticPolicies.Engine
                         SendHome(marcher.m_Citizen);
                     }
                 }
+                if (state == MarcherState.Heading && parkPathSpots.Contains(marcher.m_Spot))
+                {
+                    parkPathMarchers.TryGetValue(marcher.m_Protest, out int heading);
+                    parkPathMarchers[marcher.m_Protest] = heading + 1;
+                    if (WayFailed(marcher.m_Citizen))
+                    {
+                        failedWays.TryGetValue(marcher.m_Protest, out int failed);
+                        failedWays[marcher.m_Protest] = failed + 1;
+                    }
+                }
                 if (state == MarcherState.Heading)
                 {
                     active.TryGetValue(marcher.m_Protest, out int n);
@@ -397,6 +691,16 @@ namespace RealisticPolicies.Engine
                 left++;
                 marchers = EntityManager.GetBuffer<ProtestMarcher>(city);
                 marchers.RemoveAt(i);
+            }
+
+            // Paths nobody can reach: from the next update the crowd gathers on the sidewalks in front of the park.
+            foreach (KeyValuePair<int, int> failed in failedWays)
+            {
+                parkPathMarchers.TryGetValue(failed.Key, out int heading);
+                if ((failed.Value >= kFailedPathsToFallBack || failed.Value >= heading) && m_ParkPathsUnreachable.Add(failed.Key))
+                {
+                    Mod.Log.Info($"Protest {failed.Key}: {failed.Value} of {heading} could not find a way onto the park's paths; the crowd gathers on the sidewalks in front of it instead.");
+                }
             }
 
             // Top up each protest to its participants, from residents at home on the road the aggrieved live on and then on its
@@ -580,6 +884,21 @@ namespace RealisticPolicies.Engine
                 return MarcherState.Idle;
             }
             return MarcherState.Gone;
+        }
+
+        /// <summary>The game could not find the citizen a way to where it is going (its walk or its path failed).</summary>
+        private bool WayFailed(Entity citizen)
+        {
+            if (!EntityManager.TryGetComponent(citizen, out CurrentTransport transport))
+            {
+                return false;
+            }
+            Entity body = transport.m_CurrentTransport;
+            if (EntityManager.TryGetComponent(body, out Game.Creatures.Divert divert) && divert.m_Purpose == Purpose.PathFailed)
+            {
+                return true;
+            }
+            return EntityManager.TryGetComponent(body, out Game.Pathfind.PathOwner owner) && (owner.m_State & Game.Pathfind.PathFlags.Failed) != 0;
         }
 
         private bool Home(Entity citizen, out Entity home)

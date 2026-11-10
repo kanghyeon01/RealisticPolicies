@@ -49,6 +49,8 @@ namespace RealisticPolicies
             {
                 // Suits only where the self-test files them, so earlier checks are not disturbed.
                 Engine.LitigationSystem.TestDisableRandomFiling = true;
+                // Protests, strikes and closures only where the self-test starts them (measurement runs keep them).
+                Engine.ProtestSystem.TestDisableRandomStart = !SelfTestSystem.IsMeasureRequested;
             }
             updateSystem.UpdateAt<Engine.PolicyEngineSystem>(SystemUpdatePhase.GameSimulation);
             // Saved policy references in the mod's buffers go through the game's prefab reference mapping (save and load).
@@ -64,8 +66,11 @@ namespace RealisticPolicies
             // Building efficiency effects (commercial strikes, performance management, corporate rescue) and lifelong learning.
             updateSystem.UpdateAt<Engine.BuildingEffectSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<Engine.LifelongLearningSystem>(SystemUpdatePhase.GameSimulation);
+            // Buildings built or levelled up, for the building codes.
+            updateSystem.UpdateAt<Engine.BuildingWorksSystem>(SystemUpdatePhase.GameSimulation);
             // Same interval as the trip system, so it shares its frame and runs just before it.
             updateSystem.UpdateBefore<Engine.FlexibleHoursSystem, TripNeededSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<Engine.RiotCrimeTargetSystem, TripNeededSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<ModUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<ReportUISystem>(SystemUpdatePhase.UIUpdate);
             updateSystem.UpdateAt<ProtestUISystem>(SystemUpdatePhase.UIUpdate);

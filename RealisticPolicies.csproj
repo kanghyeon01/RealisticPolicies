@@ -65,13 +65,22 @@
   </ItemGroup>
 
   <!--
-    The toolchain's Mod Post Processor targets .NET 6, which this PC does not have (only .NET 8, 2026-11-09).
-    Until .NET 6 is installed it runs on .NET 8 through the standard roll-forward switch. Same command as Mod.targets.
+    The toolchain's Mod Post Processor targets .NET 6; this PC has .NET 8, so it runs through the standard roll-forward
+    switch. Same command as Mod.targets, with two changes (2026-11-10):
+    - It runs before DeployWIP. Redefined here, after the toolchain's import, it ran after the copy to the Mods folder,
+      so the game got the assembly before post-processing and none of the Burst libraries (*_win_x86_64.dll etc.).
+    - The Burst compiler inside it sometimes fails while hashing a game assembly (NullReferenceException in its metadata
+      reader) and then never exits. A run that takes over 4 minutes is stopped and run once more; that has always passed.
   -->
-  <Target Name="RunModPostProcessor" AfterTargets="AfterBuild" Condition="'$(NeedBuild)'">
+  <Target Name="RunModPostProcessor" AfterTargets="AfterBuild" BeforeTargets="DeployWIP" Condition="'$(NeedBuild)'">
     <Error Condition="!Exists('$(ModPostProcessorFullPath)')" Text="Post processor not found, please check the path: $(ModPostProcessorFullPath)" />
     <Message Text="Run post processor: $(ModPostProcessorArgs)" Importance="high" />
-    <Exec Command="$(ModPostProcessorArgs)" LogStandardErrorAsError="true" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" />
+    <Exec Command="$(ModPostProcessorArgs)" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" Timeout="240000" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="PostProcessExit" />
+    </Exec>
+    <Message Condition="'$(PostProcessExit)' != '0'" Text="Post processor failed or hung (exit $(PostProcessExit)); running it once more on a fresh copy of the compiled assembly." Importance="high" />
+    <Copy Condition="'$(PostProcessExit)' != '0'" SourceFiles="@(IntermediateAssembly)" DestinationFiles="$(TargetPath)" />
+    <Exec Condition="'$(PostProcessExit)' != '0'" Command="$(ModPostProcessorArgs)" LogStandardErrorAsError="true" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" Timeout="240000" />
   </Target>
 
   <!-- The UI module (hand-written .mjs, no bundler) goes next to the DLL after the toolchain's own copy. -->

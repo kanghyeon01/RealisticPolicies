@@ -53,7 +53,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct Lawsuit : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 3;
+        private const byte kVersion = 4;
 
         public Entity m_Policy;
         public int m_Year;
@@ -111,6 +111,10 @@ namespace RealisticPolicies.Engine
         /// <summary>Month the contested disposition was made, as year × 12 + month (0-based); for the claim text.</summary>
         public int m_ActMonth;
 
+        /// <summary>The detail setting contested and the one before (negative: the default; v4). A ruling restores both.</summary>
+        public float m_ContestedSecond;
+        public float m_PriorSecond;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -142,6 +146,8 @@ namespace RealisticPolicies.Engine
             writer.Write(m_Offers);
             writer.Write(m_LastOfferFrame);
             writer.Write(m_ActMonth);
+            writer.Write(m_ContestedSecond);
+            writer.Write(m_PriorSecond);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -180,6 +186,13 @@ namespace RealisticPolicies.Engine
                 reader.Read(out m_Offers);
                 reader.Read(out m_LastOfferFrame);
                 reader.Read(out m_ActMonth);
+            }
+            m_ContestedSecond = -1f;
+            m_PriorSecond = -1f;
+            if (version >= 4)
+            {
+                reader.Read(out m_ContestedSecond);
+                reader.Read(out m_PriorSecond);
             }
         }
     }

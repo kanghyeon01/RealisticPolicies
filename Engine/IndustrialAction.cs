@@ -78,11 +78,10 @@ namespace RealisticPolicies.Engine
     /// <summary>
     /// Strikes and collective closures (2026-11-09 user decisions, option 가): a strike when a policy takes from workers
     /// (minimum wage cut, civil service pay cut, more contracting out), a collective closure when a policy's burden falls
-    /// on one sector (industrial, office or commercial stake 0.6 or more, the policy raised). People keep going to work; only
-    /// output falls, by the share taking part × 0.2 (a sector loses little, Neumann &amp; Reder 1984). A minimum wage cut
-    /// brings out industrial and shop workers alike. Like protests, the change
-    /// against what people were used to (the same 12-day reference) drives the start, at 1.4 × (e^(0.21 P) − 1) a year with
-    /// P = 10 × change; the share moves toward the change (at most half) and fades 4% an hour, and it ends when the change
+    /// on one sector (industrial, office or commercial stake 0.6 or more, the policy raised). Output falls by the share
+    /// taking part × 0.2 (a sector loses little, Neumann &amp; Reder 1984). A minimum wage cut brings out industrial and
+    /// shop workers alike. Like protests, the change against what people were used to (the same 12-day reference) drives
+    /// the start, at once (2026-11-10 user decision): 1.0 × (change − 0.05) an hour; the share moves toward the change (at most half) and fades 4% an hour, and it ends when the change
     /// is given back or the share drops under 2%. Industrial and office losses go through a policy kept out of the policy
     /// list, whose city modifiers the game applies as for any policy; public servants on strike leave less staff for policies;
     /// shops have no city-wide efficiency, so <see cref="BuildingEffectSystem"/> lowers each shop's own efficiency.
@@ -250,12 +249,12 @@ namespace RealisticPolicies.Engine
                 if (!forced)
                 {
                     // The self-test holds one change for every policy: only its forced ones start then.
-                    if (change < kActionMinChange || TestHeldChange >= 0f)
+                    if (change < kActionMinChange || TestHeldChange >= 0f || TestDisableRandomStart)
                     {
                         continue;
                     }
-                    float yearly = kBaseRate * (math.exp(kRateSlope * 10f * change) - 1f);
-                    if (random.NextFloat() >= 1f - math.exp(-yearly * dtDays / 12f))
+                    float hourly = kActionPerHour * (change - kActionMinChange);
+                    if (random.NextFloat() >= 1f - math.exp(-hourly * dtHours))
                     {
                         continue;
                     }

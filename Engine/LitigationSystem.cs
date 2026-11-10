@@ -366,8 +366,12 @@ namespace RealisticPolicies.Engine
             }
             newIntensity = math.saturate(newIntensity);
             // What is left of the grievance shrinks with the contested change; compensation buys off the rest.
-            float gapNow = math.max(1e-3f, suit.m_AgainstCut ? suit.m_PriorIntensity - suit.m_ContestedIntensity : suit.m_ContestedIntensity - suit.m_PriorIntensity);
-            float gapNew = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - newIntensity) : math.max(0f, newIntensity - suit.m_PriorIntensity);
+            // In felt terms: the slider × the detail setting against its default.
+            float prior = PriorFelt(definition, suit);
+            float contested = ContestedFelt(definition, suit);
+            float offered = newIntensity * m_Engine.SecondScale(definition);
+            float gapNow = math.max(1e-3f, suit.m_AgainstCut ? prior - contested : contested - prior);
+            float gapNew = suit.m_AgainstCut ? math.max(0f, prior - offered) : math.max(0f, offered - prior);
             float perMoney = suit.m_Grievance / AnnualPlaintiffLoss(definition, suit);
             float remaining = suit.m_Grievance * math.min(1f, gapNew / gapNow) - perMoney * compensation;
             float plaintiffWin = LoseProbability(suit, suit.m_Response == (byte)SuitResponse.None ? SuitResponse.Official : (SuitResponse)suit.m_Response);
@@ -573,6 +577,8 @@ namespace RealisticPolicies.Engine
                 m_AgainstCut = againstCut,
                 m_ContestedIntensity = result.Intensity,
                 m_PriorIntensity = runtime.m_Reference,
+                m_ContestedSecond = definition.Second != null ? m_Engine.SecondValue(definition) : -1f,
+                m_PriorSecond = definition.Second != null ? runtime.m_SecondReference : -1f,
                 m_Grievance = grievance,
                 m_HintNoise = Normal(ref random) * 0.1f,
                 m_Seed = random.NextUInt(),
@@ -612,7 +618,7 @@ namespace RealisticPolicies.Engine
 
             // Damages cover the plaintiffs' losses since the policy took effect, not only the suit (§7: loss × time in force).
             suit.m_Claim = plaintiffs * LossPerDay(stake.Group) * Stake(definition, suit) * m_Engine.BurdenFactor(definition)
-                * (againstCut ? math.max(0f, suit.m_PriorIntensity - result.Intensity) : result.Intensity) * runtime.m_AgeDays;
+                * (againstCut ? math.max(0f, PriorFelt(definition, suit) - result.Felt) : result.Felt) * runtime.m_AgeDays;
             suit.m_IconBuilding = m_Notifications.PickIconBuilding(suit.m_Representative);
             suit.m_ActMonth = CurrentMonth() - (int)math.floor(runtime.m_AgeDays * 12f / math.max(1, m_TimeSystem.daysPerYear));
             DynamicBuffer<Lawsuit> suits = EntityManager.GetBuffer<Lawsuit>(city);
@@ -648,7 +654,7 @@ namespace RealisticPolicies.Engine
                 float intensity = CurrentIntensity(definition);
 
                 // Damages claimed accumulate while the contested burden (or cut) is in force.
-                float burden = suit.m_AgainstCut ? math.max(0f, suit.m_PriorIntensity - intensity) : intensity;
+                float burden = suit.m_AgainstCut ? math.max(0f, PriorFelt(definition, suit) - intensity) : intensity;
                 if (suit.m_Injunction != (byte)InjunctionStage.InEffect)
                 {
                     suit.m_Claim += suit.m_Plaintiffs * LossPerDay((TargetGroup)suit.m_Group) * burden * Stake(definition, suit)
@@ -751,6 +757,11 @@ namespace RealisticPolicies.Engine
             // The disposition is revoked: a burden goes off, a cut benefit comes back; people's reference returns to before it.
             float restored = suit.m_AgainstCut ? suit.m_PriorIntensity : 0f;
             SetIntensity(city, definition, restored);
+            // A cut detail setting comes back too.
+            if (suit.m_AgainstCut && definition.Second != null)
+            {
+                m_Engine.SetSecond(definition.Id, suit.m_PriorSecond >= 0f ? suit.m_PriorSecond : definition.Second.Default);
+            }
             DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
             for (int r = 0; r < runtimes.Length; r++)
             {
@@ -758,6 +769,10 @@ namespace RealisticPolicies.Engine
                 {
                     PolicyRuntime runtime = runtimes[r];
                     runtime.m_Reference = suit.m_AgainstCut ? suit.m_PriorIntensity : 0f;
+                    if (suit.m_AgainstCut && definition.Second != null)
+                    {
+                        runtime.m_SecondReference = suit.m_PriorSecond;
+                    }
                     runtimes[r] = runtime;
                 }
             }
@@ -831,7 +846,7 @@ namespace RealisticPolicies.Engine
         /// </summary>
         private void Violations(Entity city, PolicyDefinition definition, Lawsuit suit, float effectiveness, out float proportionality, out float expectation, out float procedure)
         {
-            float intensity = suit.m_AgainstCut ? suit.m_PriorIntensity - CurrentIntensity(definition) : CurrentIntensity(definition);
+            float intensity = suit.m_AgainstCut ? PriorFelt(definition, suit) - CurrentIntensity(definition) : CurrentIntensity(definition);
             proportionality = 0f;
             if (!suit.m_AgainstCut)
             {
@@ -841,7 +856,7 @@ namespace RealisticPolicies.Engine
                     : math.max(0f, kProportionalityThreshold * Stake(definition, suit) / math.max(effectiveness, 1e-3f) - 1f);
             }
             // Toggles have no gradual path, so legitimate expectation is argued only against sliders (assumption).
-            float change = math.abs(suit.m_ContestedIntensity - suit.m_PriorIntensity);
+            float change = math.abs(ContestedFelt(definition, suit) - PriorFelt(definition, suit));
             expectation = definition.IsSlider ? math.max(0f, change - definition.ChangeBand) : 0f;
             float legitimacy = EntityManager.GetComponentData<PolicyEngineState>(city).m_Legitimacy;
             // Simplified procedures weaken the record behind a regulation; mandatory hearings strengthen it (§14.10).
@@ -896,7 +911,9 @@ namespace RealisticPolicies.Engine
                     continue;
                 }
                 // Sliders may come back under the conditions of the grounds the city lost on (§7 "패소하면" 3).
-                float allowed = 1f;
+                // Limits are in felt terms; the full slider is the detail setting against its default.
+                float secondScale = m_Engine.SecondScale(definition);
+                float allowed = secondScale;
                 SuitGrounds grounds = (SuitGrounds)ban.m_Grounds;
                 if ((grounds & SuitGrounds.Procedure) != 0
                     && EntityManager.GetComponentData<PolicyEngineState>(city).m_Legitimacy < EngineParameters.kLegitimacyBase)
@@ -915,7 +932,7 @@ namespace RealisticPolicies.Engine
                 float intensity = CurrentIntensity(definition);
                 if (intensity > allowed + 1e-4f)
                 {
-                    SetIntensity(city, definition, allowed);
+                    SetIntensity(city, definition, secondScale > 0f ? math.saturate(allowed / secondScale) : 0f);
                     intensity = allowed;
                 }
                 ban.m_Accepted = math.max(ban.m_Accepted, math.min(intensity, allowed));
@@ -1040,7 +1057,7 @@ namespace RealisticPolicies.Engine
         private float CollectiveActionFactor(PolicyDefinition definition, PolicyStepResult result, GroupStake stake, float grievance, bool againstCut)
         {
             int plaintiffs = PlaintiffCount(stake.Group, grievance);
-            float contested = againstCut ? math.max(0f, CurrentReference(definition) - result.Intensity) : result.Intensity;
+            float contested = againstCut ? math.max(0f, CurrentReference(definition) - result.Felt) : result.Felt;
             float stakeShare = againstCut ? stake.Benefit : stake.Burden;
             float annualLoss = LossPerDay(stake.Group) * stakeShare * m_Engine.BurdenFactor(definition) * contested * 12f;
             float costEach = AnnualIncome() * kLawyerShareOfIncome * Workload(definition, stake.Group != TargetGroup.Households, plaintiffs, 2, false)
@@ -1066,7 +1083,7 @@ namespace RealisticPolicies.Engine
             {
                 if (runtimes[r].m_Policy == definition.Prefab)
                 {
-                    return runtimes[r].m_Reference;
+                    return runtimes[r].m_Reference * PolicyEngineSystem.SecondScaleOf(definition, runtimes[r].m_SecondReference);
                 }
             }
             return 0f;
@@ -1171,7 +1188,14 @@ namespace RealisticPolicies.Engine
             return 0f;
         }
 
-        private float CurrentIntensity(PolicyDefinition definition) => m_Engine.LastIntensity(definition);
+        // The felt level: a cut in a policy's detail setting (scholarship per student, rent support months) counts too.
+        private float CurrentIntensity(PolicyDefinition definition) => m_Engine.FeltIntensity(definition);
+
+        private static float PriorFelt(PolicyDefinition definition, Lawsuit suit) =>
+            suit.m_PriorIntensity * PolicyEngineSystem.SecondScaleOf(definition, suit.m_PriorSecond);
+
+        private static float ContestedFelt(PolicyDefinition definition, Lawsuit suit) =>
+            suit.m_ContestedIntensity * PolicyEngineSystem.SecondScaleOf(definition, suit.m_ContestedSecond);
 
         private static float RemainingShare(Lawsuit suit, uint frame)
         {
