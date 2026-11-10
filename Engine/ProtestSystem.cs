@@ -982,8 +982,10 @@ namespace RealisticPolicies.Engine
         /// overpasses (the game's <see cref="Game.Prefabs.BuildingFlags.CanBeOnRoad"/> and <see cref="Game.Prefabs.BuildingFlags.CanBeOnRoadArea"/>).
         /// </summary>
         /// <summary>
-        /// Self-test: the roadside park with something underground with a lived-in road (30 residents or more) fewest
-        /// segments away (at most 6), and that road.
+        /// Self-test: a roadside park with something underground with a lived-in road (30 residents or more) within 6
+        /// segments, and that road. Parks with nowhere at ground level to stand come first, the largest lot first (their
+        /// crowd gathers on the sidewalks in front, option ①, 2026-11-10; a 1-cell underpass is less like a station than a
+        /// subway station park); then those whose crowd stands on ground-level paths, fewest segments first.
         /// </summary>
         private Entity FindStationPark(out Entity lived)
         {
@@ -991,6 +993,8 @@ namespace RealisticPolicies.Engine
             var paths = new List<Entity>();
             Entity best = Entity.Null;
             int bestHops = int.MaxValue;
+            bool bestInFront = false;
+            int bestLot = 0;
             // Every park with something underground and why it was or was not taken (2026-11-10 user "엥 없다고? 아닐텐데???":
             // the city has train and subway station parks, yet none was found).
             var candidates = new System.Text.StringBuilder();
@@ -1002,7 +1006,7 @@ namespace RealisticPolicies.Engine
                 {
                     paths.Clear();
                     bool surface = SurfacePaths(park, paths, out string reason);
-                    if (!surface && reason == "nothing underground")
+                    if (!surface && (reason == kNothingUnderground || reason == kNoPosition))
                     {
                         continue;
                     }
@@ -1014,23 +1018,28 @@ namespace RealisticPolicies.Engine
                         candidates.Append($"not a roadside park{(surface ? "" : $", {reason}")}");
                         continue;
                     }
-                    if (!surface)
-                    {
-                        candidates.Append(reason);
-                        continue;
-                    }
+                    string where = surface ? $"{paths.Count} ground paths" : $"{reason}, the crowd would gather in front";
                     Entity road = EntityManager.GetComponentData<Building>(park).m_RoadEdge;
                     Entity found = NearestLivedRoad(road, out int hops, out int residents);
                     if (found == Entity.Null)
                     {
-                        candidates.Append($"{paths.Count} ground paths, its road has {EdgeResidents(road)} residents, no road with 30 or more within 6 segments");
+                        candidates.Append($"{where}, its road has {EdgeResidents(road)} residents, no road with 30 or more within 6 segments");
                         continue;
                     }
-                    candidates.Append($"{paths.Count} ground paths, a lived-in road {hops} segments away ({residents} residents)");
-                    if (hops < bestHops)
+                    candidates.Append($"{where}, a lived-in road {hops} segments away ({residents} residents)");
+                    int2 size = EntityManager.TryGetComponent(EntityManager.GetComponentData<PrefabRef>(park).m_Prefab, out BuildingData lot) ? lot.m_LotSize : default;
+                    int area = size.x * size.y;
+                    bool inFront = !surface;
+                    bool better = best == Entity.Null
+                        || (inFront && !bestInFront)
+                        || (inFront && bestInFront && area > bestLot)
+                        || (!inFront && !bestInFront && hops < bestHops);
+                    if (better)
                     {
                         best = park;
                         bestHops = hops;
+                        bestInFront = inFront;
+                        bestLot = area;
                         lived = found;
                     }
                 }

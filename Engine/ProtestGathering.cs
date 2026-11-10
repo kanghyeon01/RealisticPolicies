@@ -154,7 +154,22 @@ namespace RealisticPolicies.Engine
                     // and they did not get there (2026-11-10 run). Up top it is a park all the same (user decision, option 나),
                     // so the crowd stands on its paths at ground level, with spots as on sidewalks.
                     surface.Clear();
-                    if (SurfacePaths(park, surface))
+                    bool paths = SurfacePaths(park, surface, out string reason);
+                    if (!paths && reason != kNothingUnderground && reason != kNoPosition)
+                    {
+                        // Something underground but nowhere at ground level to stand (subway station parks had no path
+                        // 8 m long, a train station park none near its road; 2026-11-10 run): the game would send them
+                        // through the station, so the crowd gathers on the sidewalks in front from the start (user
+                        // decision, option ①, as option ㄱ).
+                        capacity = 0f;
+                        order = 0;
+                        stationParks.Add(entry.Key);
+                        if (m_ParkPathsUnreachable.Add(entry.Key))
+                        {
+                            Mod.Log.Info($"Protest {entry.Key}: park {park.Index} has something underground and {reason}; the crowd gathers on the sidewalks in front of it. {DescribeUnderground(park)}");
+                        }
+                    }
+                    else if (paths)
                     {
                         stationParks.Add(entry.Key);
                         if (m_LoggedStationParks.Add(entry.Key))
@@ -279,6 +294,10 @@ namespace RealisticPolicies.Engine
         /// level, long enough to stand on (the park's own lanes and those of its paths). False for an ordinary park, which
         /// the game's own park visit handles, or when no path is found.
         /// </summary>
+        /// <summary>Reasons <see cref="SurfacePaths(Entity, List{Entity}, out string)"/> gives for an ordinary park (nothing below) or a park it cannot read.</summary>
+        private const string kNothingUnderground = "nothing underground";
+        private const string kNoPosition = "no position";
+
         private bool SurfacePaths(Entity park, List<Entity> into) => SurfacePaths(park, into, out string _);
 
         /// <param name="reason">Why it is not a park with ground-level paths to stand on (self-test log), or "" when it is.</param>
@@ -287,7 +306,7 @@ namespace RealisticPolicies.Engine
             reason = "";
             if (!EntityManager.TryGetComponent(park, out Game.Objects.Transform lot))
             {
-                reason = "no position";
+                reason = kNoPosition;
                 return false;
             }
             float ground = lot.m_Position.y;
@@ -345,7 +364,7 @@ namespace RealisticPolicies.Engine
             }
             if (!below || into.Count == 0)
             {
-                reason = !below ? "nothing underground" : "no ground-level path 8 m or longer";
+                reason = !below ? kNothingUnderground : "no ground-level path 8 m or longer";
                 into.Clear();
                 return false;
             }
