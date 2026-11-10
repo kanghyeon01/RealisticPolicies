@@ -101,6 +101,8 @@ namespace RealisticPolicies.Engine
                     Clear();
                     m_Budget.SetRow(PolicyDefinitions.kLivelihoodRow, false, (int)Game.City.ExpenseSource.SubsidyResidential, 0);
                 }
+                // Switched off: the next payment after it comes back does not cover the time it was off.
+                m_HasPaid = false;
                 return;
             }
             long start = Perf.Start();

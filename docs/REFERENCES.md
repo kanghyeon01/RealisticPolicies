@@ -112,7 +112,7 @@
 - 대법원규칙 제2936호 (2020. 12. 28. 일부개정). 변호사보수의 소송비용 산입에 관한 규칙.
 - 문화체육관광부 고시 제2014-42호. 국어의 로마자 표기법.
 - 문화체육관광부 고시 제2017-14호. 외래어 표기법 (제3장 제1절 영어의 표기).
-- 보건복지부 (2023). 2024년 기준 중위소득 및 급여별 선정기준. (생계급여 기준 중위소득의 32%(2023년 30%에서 상향), 의료급여 40%, 주거급여 48%, 교육급여 50%. 생계 지원 세부 설정의 기본값과 범위 §14.21, 2026-11-10) — 고시 번호와 원문은 아직 대조하지 않음.
+- 보건복지부 고시 제2023-150호 (2023. 8. 16. 제정). 2024년 기준 중위소득 및 생계·의료급여 선정기준과 최저보장수준. (생계급여 선정기준은 기준 중위소득의 32%, 2023년 30%에서 상향. 의료급여 40%. 주거급여 48%와 교육급여 50%는 같은 중앙생활보장위원회 의결(2023. 7. 28. 보건복지부 보도자료)이며 고시는 국토교통부·교육부가 따로 낸다. 생계 지원 세부 설정의 기본값과 범위 §14.21) — 고시 번호·제정일은 보건복지부 누리집의 고시 게시물에서, 32%는 보건복지부 보도자료에서 확인 (2026-11-11). 고시 첨부 본문(PDF)은 열어 보지 않음.
 - 전북일보 (2024). 기초생활보장 수급자 시도별 비율 보도. (2023년 말 수급자 255만 명, 인구의 4.9%; 전북 7.5%, 부산 7.1%, 광주 6.8%. 생계 지원 받는 가구 비율의 비교 기준)
 
 ## 3. 해외 문헌과 이론 (설계에 쓴 것)
@@ -328,6 +328,24 @@
 - Jones, D., & Marinescu, I. (2022). The Labor Market Impacts of Universal and Permanent Cash Transfers: Evidence from the Alaska Permanent Fund. American Economic Journal: Economic Policy, 14(2), 315–340.
 - Watson, B., Guettabi, M., & Reimer, M. (2020). Universal Cash and Crime. Review of Economics and Statistics, 102(4), 678–689.
 - McGuire, J., Kaiser, C., & Bach-Mortensen, A. M. (2022). A Systematic Review and Meta-analysis of the Impact of Cash Transfers on Subjective Well-being and Mental Health in Low- and Middle-income Countries. Nature Human Behaviour, 6, 359–370. (서지는 원문으로 다시 확인)
+
+### 해외 실증 (도시 조건에 따른 효과 §14.7a, 2026-11-10)
+도시 조건(실업률, 빈집률, 병원 거리, 재정 건전성, 건물 개보수율)에 따라 정책 효과를 보정할 때 쓴 문헌 가운데 위에 없는 것이다. 원문에서 확인한 값과 설계에 쓴 값은 `POLICY-REVIEW.md` §5a에 있다. 서지는 원문 첫 쪽과 대조했다 (2026-11-11).
+- 실업급여 기간 연장 (구직을 늦추는 효과는 실업률이 낮을 때 크다):
+  - Kroft, K., & Notowidigdo, M. J. (2016). Should Unemployment Insurance Vary with the Unemployment Rate? Theory and Evidence. Review of Economic Studies, 83(3), 1092–1124.
+- 출소자 사회복귀 지원 (출소한 지역의 저숙련 임금이 높으면 재범이 준다. 게임에서는 실업률로 대신함):
+  - Yang, C. S. (2017). Local Labor Markets and Criminal Recidivism. Journal of Public Economics, 147, 16–29.
+- 임대료 지원 (지원금의 상당 부분이 임대료 상승으로 집주인에게 간다):
+  - Fack, G. (2006). Are Housing Benefit an Effective Way to Redistribute Income? Evidence from a Natural Experiment in France. Labour Economics, 13(6), 747–771.
+- 응급의료 체계 (병원이 멀수록 응급 환자 사망이 는다):
+  - Nicholl, J., West, J., Goodacre, S., & Turner, J. (2007). The Relationship between Distance to Hospital and Patient Mortality in Emergencies: An Observational Study. Emergency Medicine Journal, 24(9), 665–668.
+- 재정준칙 (이자를 낮추는 효과는 재정이 건전할 때 크다. 스위스 칸톤에서는 그 차이가 유의하지 않았다):
+  - Afonso, A., & Jalles, J. T. (2019). Fiscal Rules and Government Financing Costs. Fiscal Studies, 40(1), 71–90.
+  - Feld, L. P., Kalb, A., Moessinger, M.-D., & Osterloh, S. (2013). Sovereign Bond Market Reactions to Fiscal Rules and No-Bailout Clauses: The Swiss Experience. Document de treball de l'IEB 2013/27. Institut d'Economia de Barcelona.
+- 건물 기준 4개 (기존 건물은 해마다 약 1%만 에너지 개보수를 한다):
+  - Keliauskaitė, U., McWilliams, B., Sgaravatti, G., & Tagliapietra, S. (2024). How to Finance the European Union's Building Decarbonisation Plan. Bruegel Policy Brief 12/2024. (2016~2020년 EU 건물의 연 1%가 에너지 개보수, 비주거는 0.6%. 에너지를 60% 이상 줄이는 깊은 개보수는 주거 0.2%, 비주거 0.3%. 누리집 본문에서 확인, 2026-11-11)
+  - Esser, A., Dunne, A., Meeusen, T., Quaschning, S., & Wegge, D. (2019). Comprehensive Study of Building Energy Renovation Activities and the Uptake of Nearly Zero-Energy Buildings in the EU: Final Report. European Commission. (2012~2016년 개보수율. 위 Bruegel 보고서가 깊은 개보수의 정의로 인용. 원문 PDF는 받지 못해 서지와 수치를 원문과 대조하지 않음)
+  - 국제에너지기구(IEA)의 "기존 건물 개보수율 연 약 1%"는 IEA 누리집이 자동 접속을 막아 원문을 확인하지 못했다. 확인될 때까지 근거로 세지 않는다. 연 1%는 위 두 문헌으로 받친다.
 
 ## 4. 추가 조사 자료 (별도 파일)
 - 설계를 마친 뒤 추가로 조사한 해외 연구는 [REFERENCES-additional.md](REFERENCES-additional.md)에 따로 정리했다 (2026-11-07). 2026-11-09에 지금 값을 받치는 연구를 골라 위 "추가 조사에서 채택"으로 옮겼다. 나머지는 그 파일에만 둔다.

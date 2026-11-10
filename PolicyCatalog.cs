@@ -297,10 +297,9 @@ namespace RealisticPolicies
                     modifiers.Add(new CityModifierInfo { m_Type = output.Modifier, m_Mode = output.Absolute ? ModifierValueMode.Absolute : ModifierValueMode.Relative, m_Range = new Bounds1(0f, 0f) });
                 }
             }
-            if (modifiers.Count > 0)
-            {
-                prefab.AddComponent<CityModifiers>().m_Modifiers = modifiers.ToArray();
-            }
+            // Always, even with no modifiers: the game's city policy list takes only prefabs with CityOptionData or
+            // CityModifierData (PoliciesUISystem), so a policy without the component never showed (2026-11-11: 28 of 61).
+            prefab.AddComponent<CityModifiers>().m_Modifiers = modifiers.ToArray();
             prefab.AddComponent<UIObject>().m_Icon = definition.Icon ?? PolicyCatalog.kDefaultIcon;
             return prefab;
         }

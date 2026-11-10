@@ -458,8 +458,12 @@ function extendDetailLayout(Layout) {
     };
 }
 
+// Policies the mod reports on at the last render of a report, for the self-test only.
+let lastReportCount = 0;
+
 function PolicyReport({ id }) {
     const reports = api.useValue(policyReports$) || [];
+    lastReportCount = reports.length;
     const suits = api.useValue(lawsuits$);
     const text = useText();
     const money = useMoney();
@@ -1224,6 +1228,76 @@ async function runActionTest(translate) {
     report("done");
 }
 
+// Detail settings (second sliders): shown in the report column of a selected policy, also while it is off.
+async function showDetail(translate, id, shot) {
+    api.trigger("game", "showCityInfoPanel", 1);
+    await sleep(1500);
+    const modRows = Array.from(visibleRows).filter((r) => r.indexOf("RealisticPolicies.") === 0).length;
+    report(`Before searching for ${id}: ${visibleRows.size} rows drawn (${modRows} of the mod's ${lastReportCount}), its row drawn ${visibleRows.has(id)}`);
+    // Search for the policy so its row is the one drawn, then select it.
+    search.set(translate(`Policy.TITLE[${id}]`, id));
+    testSelectPolicy = id;
+    await sleep(2500);
+    testSelectPolicy = null;
+    report(`After searching "${search.query}": rows ${Array.from(visibleRows).join(",") || "none"}`);
+    const panel = document.querySelector(".rp-policy-report");
+    const text = panel ? panel.textContent || "" : "";
+    report("shot:" + shot);
+    await sleep(1500);
+    search.set("");
+    return text;
+}
+
+const squeeze = (t) => String(t).replace(/\s+/g, "");
+
+async function runDetailTest(translate) {
+    try {
+        const title = translate("RealisticPolicies.UI.Second.Title", "");
+        const livelihood = "RealisticPolicies.LivelihoodSupport";
+        const label = translate("RealisticPolicies.UI.Second.LivelihoodIncome", "");
+        const hint = translate("RealisticPolicies.UI.Second.LivelihoodIncome.Hint", "");
+        let text = await showDetail(translate, livelihood, "detail-livelihood");
+        api.trigger("game", "closeActivePanel");
+        await sleep(1000);
+        api.trigger("game", "showCityInfoPanel", 1);
+        await sleep(2500);
+        const modRows = Array.from(visibleRows).filter((r) => r.indexOf("RealisticPolicies.") === 0);
+        check("Every policy of the mod has a row in the city policy list", lastReportCount > 0 && modRows.length === lastReportCount, `${modRows.length} rows, ${lastReportCount} policies`);
+        api.trigger("game", "closeActivePanel");
+        await sleep(1000);
+        text = await showDetail(translate, livelihood, "detail-livelihood");
+        check("Livelihood support shows its detail setting as 32% with its label and hint",
+            !!title && text.indexOf(title) >= 0 && !!label && squeeze(text).indexOf(squeeze(label) + "32%") >= 0 && !!hint && text.indexOf(hint) >= 0,
+            text.substring(0, 240));
+        report(`Slider parts in the report column: ${document.querySelectorAll(".rp-policy-report div[class*=slider]").length}`);
+        // Changed as the slider does it; the shown value follows the saved one.
+        api.trigger(GROUP, "setPolicySecond", livelihood, 40);
+        await sleep(2500);
+        const panel = document.querySelector(".rp-policy-report");
+        const changed = panel ? panel.textContent || "" : "";
+        check("A changed detail setting is shown as saved (40%)", squeeze(changed).indexOf(squeeze(label) + "40%") >= 0, changed.substring(0, 160));
+        report("shot:detail-livelihood-40");
+        await sleep(1500);
+        api.trigger(GROUP, "setPolicySecond", livelihood, 32);
+        await sleep(1000);
+        api.trigger("game", "closeActivePanel");
+        await sleep(1000);
+
+        const months = translate("RealisticPolicies.UI.Second.Months", "").replace("{N}", "12");
+        text = await showDetail(translate, "RealisticPolicies.RentSupport", "detail-rent");
+        check("Rent support shows its detail setting in months (12)", text.indexOf(title) >= 0 && !!months && text.indexOf(months) >= 0, `"${months}" in: ${text.substring(0, 200)}`);
+        api.trigger("game", "closeActivePanel");
+        await sleep(1000);
+
+        text = await showDetail(translate, "RealisticPolicies.Scholarships", "detail-scholarships");
+        check("Scholarships show their detail setting as money (\u00a2300)", text.indexOf(title) >= 0 && text.indexOf("\u00a2300") >= 0, text.substring(0, 200));
+        api.trigger("game", "closeActivePanel");
+    } catch (e) {
+        check("Detail settings UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
 function SelfTestRunner() {
     const stage = api.useValue(selfTestStage$);
     const { translate } = l10n.useLocalization();
@@ -1240,6 +1314,8 @@ function SelfTestRunner() {
             runBuildingPanelTest(translate);
         } else if (stage === 6) {
             runActionTest(translate);
+        } else if (stage === 7) {
+            runDetailTest(translate);
         }
     }, [stage]);
     return null;

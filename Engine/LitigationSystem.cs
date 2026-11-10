@@ -790,6 +790,7 @@ namespace RealisticPolicies.Engine
                 m_Year = suit.m_Year,
                 m_CaseNumber = suit.m_CaseNumber,
                 m_Partial = partial,
+                m_AgainstCut = suit.m_AgainstCut,
             });
             if (!definition.IsSlider || suit.m_AgainstCut)
             {
@@ -906,7 +907,9 @@ namespace RealisticPolicies.Engine
                     bans.RemoveAt(i);
                     continue;
                 }
-                if (!definition.IsSlider)
+                // After a suit over a cut benefit the court has put the benefit back and the policy is locked: the
+                // conditions below cap a burden coming back and would cut the restored benefit again (2026-11-11).
+                if (!definition.IsSlider || ban.m_AgainstCut)
                 {
                     continue;
                 }

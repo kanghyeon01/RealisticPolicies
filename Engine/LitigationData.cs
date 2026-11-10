@@ -201,7 +201,7 @@ namespace RealisticPolicies.Engine
     [InternalBufferCapacity(0)]
     public struct PolicyBan : IBufferElementData, ISerializable
     {
-        private const byte kVersion = 2;
+        private const byte kVersion = 3;
 
         public Entity m_Policy;
         public uint m_UntilFrame;
@@ -220,6 +220,12 @@ namespace RealisticPolicies.Engine
         public int m_CaseNumber;
         public bool m_Partial;
 
+        /// <summary>
+        /// The suit was over a cut benefit: the court put the benefit back and the policy is locked, so the slider
+        /// conditions (which cap a burden coming back) do not apply (false in saves from before version 3).
+        /// </summary>
+        public bool m_AgainstCut;
+
         public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
         {
             writer.Write(kVersion);
@@ -231,6 +237,7 @@ namespace RealisticPolicies.Engine
             writer.Write(m_Year);
             writer.Write(m_CaseNumber);
             writer.Write(m_Partial);
+            writer.Write(m_AgainstCut);
         }
 
         public void Deserialize<TReader>(TReader reader) where TReader : IReader
@@ -246,6 +253,11 @@ namespace RealisticPolicies.Engine
                 reader.Read(out m_Year);
                 reader.Read(out m_CaseNumber);
                 reader.Read(out m_Partial);
+            }
+            m_AgainstCut = false;
+            if (version >= 3)
+            {
+                reader.Read(out m_AgainstCut);
             }
         }
     }

@@ -30,7 +30,7 @@ namespace RealisticPolicies
     /// </summary>
     public sealed partial class SelfTestSystem : GameSystemBase
     {
-        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, LaterBundles, LaterBundlesOff,
+        private enum Stage { Off, WaitMenu, Loading, Settle, Activate, WaitModifiers, EngineSamples, WaitMigration, BudgetPrepare, BudgetMeasure, WaitLock, Ui, WelfareUi, WelfareCensus, TaxStaff, TaxFloor, TaxGone, SuitRaise, SuitFiled, SuitIcon, SuitInjunction, SuitVerdict, SuitBan, SuitDefault, SuitDefaultVerdict, SuitSettle, SuitAuto, ReportUi, SaveGame, Reloading, ReloadSettle, Trading, TradingOff, Bundle2, Bundle2Off, Details, DetailsUi, LaterBundles, LaterBundlesOff,
             ProtestStart, ProtestIcon, ProtestPanel, ProtestUi, ProtestCrowd, ProtestPartial, ProtestFull, RiotStart, RiotClosed, RiotPolice, RiotShots, RiotSave, RiotReloading, RiotReloadSettle, RiotEnd, ActionStart, ActionRun, ActionUi, ActionEnd, CleanupStart, CleanupRiot, CleanupCheck,
             MoneyWatch, Measure, Finish, Quit }
 
@@ -57,6 +57,7 @@ namespace RealisticPolicies
         private bool m_MoneyMode;
         private bool m_ProtestsOnly;
         private bool m_ChangedOnly;
+        private bool m_DetailsOnly;
         private bool m_LivelihoodOn;
         private float m_NextMoneySample;
         private int m_MoneyAtStart;
@@ -118,6 +119,12 @@ namespace RealisticPolicies
             // "save:<file name>;changed" runs only what changed lately (2026-11-10 user decision): batches 3-10 with the new
             // policies, then protests, strikes, the riot with its save and reload, and the clean-up. The stages passed many
             // times and not touched since (batches 1-2, the tax and series UI, lawsuits, the first save, trading) are left out.
+            // "save:<file name>;details" runs only the detail settings stage (2026-11-11).
+            m_DetailsOnly = request.EndsWith(";details", StringComparison.Ordinal);
+            if (m_DetailsOnly)
+            {
+                request = request.Substring(0, request.Length - ";details".Length);
+            }
             m_ChangedOnly = request.EndsWith(";changed", StringComparison.Ordinal);
             if (m_ChangedOnly)
             {
@@ -221,11 +228,17 @@ namespace RealisticPolicies
                     {
                         StartMoneyWatch();
                     }
+                    else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_DetailsOnly)
+                    {
+                        m_SimulationSystem.selectedSpeed = kTestSpeed;
+                        Line("Details-only run: the detail settings stage.");
+                        StartDetails();
+                    }
                     else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_ChangedOnly)
                     {
                         m_SimulationSystem.selectedSpeed = kTestSpeed;
-                        Line("Changed-only run: batches 3-10, protests, strikes, riot and clean-up.");
-                        StartLaterBundles();
+                        Line("Changed-only run: detail settings, batches 3-10, protests, strikes, riot and clean-up.");
+                        StartDetails();
                     }
                     else if (StageSeconds() > 5f && m_SimulationSystem.loadingProgress >= 1f && !GameManager.instance.isGameLoading && m_ProtestsOnly)
                     {
@@ -556,6 +569,35 @@ namespace RealisticPolicies
                     if (SimFrames() >= 4096)
                     {
                         CheckBundle2Off();
+                        StartDetails();
+                    }
+                    break;
+                case Stage.Details:
+                    UpdateDetails();
+                    break;
+                case Stage.DetailsUi:
+                    if (m_UiDone || StageSeconds() > 90f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Detail settings UI test reported back", false, "no report within 90 s");
+                        }
+                        // A switched-off policy winds down over days; the batches that follow start these two afresh.
+                        DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(m_CitySystem.City);
+                        for (int r = 0; r < runtimes.Length; r++)
+                        {
+                            if (runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kRentSupport) || runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kTalentAttraction))
+                            {
+                                PolicyRuntime runtime = runtimes[r];
+                                runtime.m_Progress = 0f;
+                                runtimes[r] = runtime;
+                            }
+                        }
+                        if (m_DetailsOnly)
+                        {
+                            SetStage(Stage.Finish);
+                            break;
+                        }
                         StartLaterBundles();
                     }
                     break;
@@ -1603,6 +1645,168 @@ namespace RealisticPolicies
         private DemandParameterData m_LaterDemandBefore;
 
         /// <summary>Every policy of batches 3–10 at its default strength at once; random suits off so the court stays out.</summary>
+        private int m_DetailStep;
+        private uint m_DetailFrame;
+        private Entity m_DetailOffice;
+        private float m_DetailPriorSecond;
+        private bool m_DetailAgainstCut;
+        private uint m_DetailVerdictFrame;
+
+        private const float kDetailRentMonths = 2f;
+        private const float kDetailMonthScale = 32f;
+
+        /// <summary>
+        /// Detail settings that need time or a court (2026-11-11): rent support on its own with social workers, at most
+        /// 2 months a household with the months counted 32 times faster, and talent attraction with its grant months cut
+        /// from 6 to 1, sued over the cut and left unanswered so the city loses.
+        /// </summary>
+        private void StartDetails()
+        {
+            LitigationSystem.TestDisableRandomFiling = true;
+            LitigationSystem.TestTimeScale = 0.05f;
+            m_DetailOffice = FindGeneralWelfareOffice(Entity.Null);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_DetailOffice, WelfareSeriesSection.Choice.SocialWelfare);
+            RentSupportSystem.TestMonthScale = kDetailMonthScale;
+            m_Engine.SetSecond(PolicyCatalog.kRentSupport, kDetailRentMonths);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRentSupport), true, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).SliderDefault);
+            PolicyDefinition talent = PolicyCatalog.Definition(PolicyCatalog.kTalentAttraction);
+            m_Engine.SetSecond(PolicyCatalog.kTalentAttraction, talent.Second.Default);
+            SetPolicy(m_CitySystem.City, talent.Prefab, true, talent.SliderDefault);
+            Line($"Details: welfare office {m_DetailOffice.Index} set to social welfare; rent support on alone, at most {kDetailRentMonths:0} months a household (months x{kDetailMonthScale:0}); talent attraction on with {talent.Second.Default:0} months of grants.");
+            m_DetailStep = 0;
+            m_DetailVerdictFrame = 0;
+            SetStage(Stage.Details);
+        }
+
+        private void UpdateDetails()
+        {
+            Entity city = m_CitySystem.City;
+            PolicyDefinition talent = PolicyCatalog.Definition(PolicyCatalog.kTalentAttraction);
+            int talentIndex = System.Array.IndexOf(PolicyDefinitions.All, talent);
+            RentSupportSystem rent = World.GetOrCreateSystemManaged<RentSupportSystem>();
+            uint frame = m_SimulationSystem.frameIndex;
+            switch (m_DetailStep)
+            {
+                case 0:
+                    if (SimFrames() >= 8192 && m_Engine.LastIntensity(talent) > 0f)
+                    {
+                        // As if the grants had run for weeks at 6 months: the cut is then felt in full.
+                        DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(city);
+                        for (int r = 0; r < runtimes.Length; r++)
+                        {
+                            if (runtimes[r].m_Policy == talent.Prefab)
+                            {
+                                PolicyRuntime runtime = runtimes[r];
+                                runtime.m_Reference = m_Engine.LastIntensity(talent);
+                                runtime.m_SecondReference = talent.Second.Default;
+                                runtimes[r] = runtime;
+                            }
+                        }
+                        m_Engine.SetSecond(PolicyCatalog.kTalentAttraction, 1f);
+                        Line("Talent attraction: grant months cut from 6 to 1, the slider left alone.");
+                        m_DetailStep = 1;
+                        m_DetailFrame = frame;
+                    }
+                    break;
+                case 1:
+                    if (m_Engine.GroupGrievance(talentIndex, TargetGroup.OfficeCompanies) > 0f)
+                    {
+                        LitigationSystem.TestFilingPolicy = talent.Prefab;
+                        m_DetailStep = 2;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 24576)
+                    {
+                        Check("Cutting only the detail setting aggrieves those who had the benefit", false,
+                            $"no grievance within 24576 frames (felt {m_Engine.LastResults[talentIndex].Felt:0.000})");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 2:
+                    if (SuitIndex(talent.Prefab) >= 0)
+                    {
+                        Lawsuit suit = Suit(talent.Prefab);
+                        m_DetailPriorSecond = suit.m_PriorSecond;
+                        m_DetailAgainstCut = suit.m_AgainstCut;
+                        Check("A suit over a cut detail setting records the setting before and after the cut",
+                            suit.m_AgainstCut && Mathf.Approximately(suit.m_ContestedSecond, 1f) && suit.m_PriorSecond > 5f && suit.m_PriorSecond <= 6f,
+                            $"against a cut {suit.m_AgainstCut}, {(TargetGroup)suit.m_Group}, months {suit.m_PriorSecond:0.00} -> {suit.m_ContestedSecond:0.00}, slider {suit.m_PriorIntensity:0.000} -> {suit.m_ContestedIntensity:0.000}, {suit.m_DurationFrames} frames");
+                        m_DetailStep = 3;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 16384)
+                    {
+                        Check("A suit is filed over the cut detail setting", false, "none within 16384 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 3:
+                    if (m_DetailVerdictFrame == 0 && SuitIndex(talent.Prefab) < 0)
+                    {
+                        m_DetailVerdictFrame = frame;
+                    }
+                    // The court's changes go through the policy panel's event path and the engine's next step.
+                    if (m_DetailVerdictFrame != 0 && frame - m_DetailVerdictFrame >= 2048)
+                    {
+                        float reference = -1f;
+                        foreach (PolicyRuntime runtime in EntityManager.GetBuffer<PolicyRuntime>(city, true))
+                        {
+                            if (runtime.m_Policy == talent.Prefab)
+                            {
+                                reference = runtime.m_SecondReference;
+                            }
+                        }
+                        float months = m_Engine.SecondValue(talent);
+                        Check("Lost suit over a cut detail setting: the setting is back to what it was, the policy stays on and is locked",
+                            m_DetailAgainstCut && Mathf.Approximately(months, 6f) && IsActive(talent.Prefab) && IsLocked(talent.Prefab)
+                            && World.GetOrCreateSystemManaged<LitigationSystem>().IsBanned(talent.Prefab) && Mathf.Abs(reference - m_DetailPriorSecond) < 0.3f,
+                            $"months {months:0.00} (before the cut {m_DetailPriorSecond:0.00}), reference {reference:0.00}, active {IsActive(talent.Prefab)}, locked {IsLocked(talent.Prefab)}");
+                        m_DetailStep = 4;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 60000)
+                    {
+                        Check("The court rules on the cut detail setting", false, "no verdict within 60000 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 4:
+                    // Rent support: the first households have had their 2 months and others get it in their place.
+                    if ((rent.LastExhausted > 0 && rent.LastSupported > 0) || SimFrames() > 98304)
+                    {
+                        FinishDetails(rent, true);
+                    }
+                    break;
+            }
+        }
+
+        private void FinishDetails(RentSupportSystem rent, bool checkRent)
+        {
+            if (checkRent)
+            {
+                int rentIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kRentSupport));
+                float rentStaff = m_Engine.PolicyStaff(rentIndex, ServiceSeries.SocialWelfare) * m_Engine.PolicyStaffShare(rentIndex, ServiceSeries.SocialWelfare);
+                // A household stops once it has had the months; the last payment may run a little over.
+                Check($"Rent support pays no household for longer than the months set in details ({kDetailRentMonths:0}): those who have had them drop out and others take their place",
+                    rentStaff > 0.05f && rent.LastExhausted > 0 && rent.LastSupported > 0 && rent.SupportedPastLimit() == 0
+                    && rent.LastMaxMonths >= kDetailRentMonths && rent.LastMaxMonths <= kDetailRentMonths + 0.1f,
+                    $"staff got {rentStaff:0.0}, poor renters left {rent.LastRenters}, supported now {rent.LastSupported}, have had their months {rent.LastExhausted}, " +
+                    $"supported past the limit {rent.SupportedPastLimit()}, most months had {rent.LastMaxMonths:0.00}, monthly {rent.LastMonthly}");
+            }
+            RentSupportSystem.TestMonthScale = 1f;
+            LitigationSystem.TestFilingPolicy = Entity.Null;
+            LitigationSystem.TestTimeScale = 1f;
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRentSupport), false, 0f);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kTalentAttraction), false, 0f);
+            m_Engine.SetSecond(PolicyCatalog.kRentSupport, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).Second.Default);
+            m_Engine.SetSecond(PolicyCatalog.kTalentAttraction, PolicyCatalog.Definition(PolicyCatalog.kTalentAttraction).Second.Default);
+            World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_DetailOffice, WelfareSeriesSection.Choice.GeneralAdministration);
+            // The detail settings as the player sees them (policies off, defaults).
+            m_UiDone = false;
+            m_UISystem.SetSelfTestStage(7);
+            SetStage(Stage.DetailsUi);
+        }
+
         private void StartLaterBundles()
         {
             LitigationSystem.TestDisableRandomFiling = true;
@@ -1645,8 +1849,7 @@ namespace RealisticPolicies
             PolicyEngineSystem.TestCodeCoverage = 1f;
             m_Engine.SetSecond(PolicyCatalog.kScholarships, 600f);
             m_Engine.SetSecond(PolicyCatalog.kFlexibleHours, 60f);
-            m_Engine.SetSecond(PolicyCatalog.kRentSupport, 2f);
-            Line("Details: scholarships ¢600 a student, flexible hours up to 60 min, rent support at most 2 months a household.");
+            Line("Details: scholarships ¢600 a student, flexible hours up to 60 min.");
             LogDisasterWarning("before");
             SetStage(Stage.LaterBundles);
         }
@@ -2005,13 +2208,6 @@ namespace RealisticPolicies
                 rent.LastRenters > 0 && reached && rent.LastSupported <= Mathf.CeilToInt(rentStaff * RentSupportSystem.kHouseholdsPerWorker) + 1
                 && rentRow == rent.LastMonthly,
                 $"poor renters {rent.LastRenters}, supported {rent.LastSupported}, staff got {rentStaff:0.0}, monthly {rent.LastMonthly}, row {rentRow}");
-            // Detail setting: at most 2 months a household (set when batches 3-10 came on); one engine step may run over.
-            float rentLimit = m_Engine.SecondValue(PolicyCatalog.Definition(PolicyCatalog.kRentSupport));
-            Check("Rent support pays no household for longer than the months set in details (2)",
-                Mathf.Approximately(rentLimit, 2f) && rent.LastMaxMonths <= rentLimit + 0.1f,
-                $"limit {rentLimit:0}, most months had {rent.LastMaxMonths:0.00}, households that have had their months {rent.LastExhausted}");
-            m_Engine.SetSecond(PolicyCatalog.kRentSupport, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).Second.Default);
-
             FlexibleHoursSystem flexible = World.GetOrCreateSystemManaged<FlexibleHoursSystem>();
             int workers = 0, taking = 0;
             var firms = new System.Collections.Generic.HashSet<Entity>();
@@ -3973,7 +4169,7 @@ namespace RealisticPolicies
         private void OnUiReport(string message)
         {
             if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi && m_Stage != Stage.ReportUi && m_Stage != Stage.ProtestUi && m_Stage != Stage.ProtestPanel
-                && m_Stage != Stage.ActionUi)
+                && m_Stage != Stage.ActionUi && m_Stage != Stage.DetailsUi)
             {
                 return;
             }
@@ -4041,6 +4237,7 @@ namespace RealisticPolicies
             PolicyEngineSystem.TestCodeCoverage = -1f;
             ReleaseEdgeScrolling();
             LitigationSystem.TestTimeScale = 1f;
+            RentSupportSystem.TestMonthScale = 1f;
             LitigationSystem.TestDisableRandomFiling = false;
             LitigationSystem.TestForceInjunctionRequest = false;
             LitigationSystem.TestForcedVerdict = -1;

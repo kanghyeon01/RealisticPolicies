@@ -26,6 +26,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Households one social welfare worker handles (an allowance case is lighter than livelihood support; estimate).</summary>
         public const float kHouseholdsPerWorker = 100f;
 
+        /// <summary>Self-test: months counted per game day (1 in play), so the months allowed run out within a test.</summary>
+        internal static float TestMonthScale = 1f;
+
 
         private const int kSlices = 16;
 
@@ -99,6 +102,8 @@ namespace RealisticPolicies.Engine
                     Clear();
                     m_Budget.SetRow(PolicyDefinitions.kRentSupportRow, false, (int)Game.City.ExpenseSource.SubsidyResidential, 0);
                 }
+                // Switched off: the next payment after it comes back does not cover the time it was off.
+                m_HasPaid = false;
                 // Switched off: the months start again from zero when it comes back.
                 Entity city = m_CitySystem.City;
                 if (city != Entity.Null && EntityManager.HasBuffer<RentSupportMonths>(city) && EntityManager.GetBuffer<RentSupportMonths>(city, true).Length > 0)
@@ -247,6 +252,17 @@ namespace RealisticPolicies.Engine
             LastExhausted = m_Exhausted.Count;
         }
 
+        /// <summary>Self-test: supported households that have already had the months allowed (always 0).</summary>
+        internal int SupportedPastLimit()
+        {
+            int count = 0;
+            foreach (Entity household in m_Supported.Keys)
+            {
+                count += m_Exhausted.Contains(household) ? 1 : 0;
+            }
+            return count;
+        }
+
         /// <summary>Adds the elapsed months (a game day is a month) to each supported household's count.</summary>
         private void CountMonths(float days)
         {
@@ -266,12 +282,12 @@ namespace RealisticPolicies.Engine
                 if (m_ClockIndex.TryGetValue(household, out int c))
                 {
                     RentSupportMonths clock = clocks[c];
-                    clock.m_Months += days;
+                    clock.m_Months += days * TestMonthScale;
                     clocks[c] = clock;
                 }
                 else
                 {
-                    clocks.Add(new RentSupportMonths { m_Household = household, m_Months = days });
+                    clocks.Add(new RentSupportMonths { m_Household = household, m_Months = days * TestMonthScale });
                 }
             }
         }
