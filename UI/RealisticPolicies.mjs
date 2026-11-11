@@ -1303,6 +1303,31 @@ async function runDetailTest(translate) {
     report("done");
 }
 
+// While a policy is banned after a lost suit, its detail setting shows the value the ruling put back, without a slider
+// (2026-11-12 user decision, option 2).
+async function runBannedDetailTest(translate) {
+    try {
+        const id = "RealisticPolicies.TalentAttraction";
+        const locked = translate("RealisticPolicies.UI.Second.Locked", "");
+        const months = translate("RealisticPolicies.UI.Second.Months", "").replace("{N}", "6");
+        const text = await showDetail(translate, id, "detail-talent-banned");
+        api.trigger("game", "showCityInfoPanel", 1);
+        search.set(translate(`Policy.TITLE[${id}]`, id));
+        testSelectPolicy = id;
+        await sleep(2500);
+        testSelectPolicy = null;
+        const sliders = document.querySelectorAll(".rp-policy-report div[class*=slider]").length;
+        search.set("");
+        check("A banned policy shows its detail setting as the ruling left it (6 months), locked, without a slider",
+            !!locked && text.indexOf(locked) >= 0 && !!months && text.indexOf(months) >= 0 && sliders === 0,
+            `sliders ${sliders}; ${text.substring(0, 240)}`);
+        api.trigger("game", "closeActivePanel");
+    } catch (e) {
+        check("Banned policy detail UI test ran without errors", false, String(e && e.stack ? e.stack : e));
+    }
+    report("done");
+}
+
 function SelfTestRunner() {
     const stage = api.useValue(selfTestStage$);
     const { translate } = l10n.useLocalization();
@@ -1321,6 +1346,8 @@ function SelfTestRunner() {
             runActionTest(translate);
         } else if (stage === 7) {
             runDetailTest(translate);
+        } else if (stage === 8) {
+            runBannedDetailTest(translate);
         }
     }, [stage]);
     return null;

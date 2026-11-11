@@ -135,6 +135,8 @@ namespace RealisticPolicies
                 return;
             }
             m_Engine.SetSecond(id, value);
+            // Show the saved value at once, not at the engine's next step (2026-11-12: the column kept the old value).
+            m_ReportsBinding.Update();
         }
 
         private void ProposeSettlement(int key, float sliderValue, int compensation)

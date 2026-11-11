@@ -262,9 +262,13 @@ namespace RealisticPolicies.Engine
             }
         }
 
+        /// <summary>Months covered by the last payment (self-test: 0 for the first one after switching on).</summary>
+        public float LastPayDays { get; private set; }
+
         /// <summary>Pays the money for the elapsed part of the month into the supported households' accounts.</summary>
         private void Pay(float days)
         {
+            LastPayDays = days;
             int amount = (int)math.round(m_MonthlyEach * days);
             if (amount <= 0)
             {

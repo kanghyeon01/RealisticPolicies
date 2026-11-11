@@ -344,8 +344,9 @@
   - Feld, L. P., Kalb, A., Moessinger, M.-D., & Osterloh, S. (2013). Sovereign Bond Market Reactions to Fiscal Rules and No-Bailout Clauses: The Swiss Experience. Document de treball de l'IEB 2013/27. Institut d'Economia de Barcelona.
 - 건물 기준 4개 (기존 건물은 해마다 약 1%만 에너지 개보수를 한다):
   - Keliauskaitė, U., McWilliams, B., Sgaravatti, G., & Tagliapietra, S. (2024). How to Finance the European Union's Building Decarbonisation Plan. Bruegel Policy Brief 12/2024. (2016~2020년 EU 건물의 연 1%가 에너지 개보수, 비주거는 0.6%. 에너지를 60% 이상 줄이는 깊은 개보수는 주거 0.2%, 비주거 0.3%. 누리집 본문에서 확인, 2026-11-11)
-  - Esser, A., Dunne, A., Meeusen, T., Quaschning, S., & Wegge, D. (2019). Comprehensive Study of Building Energy Renovation Activities and the Uptake of Nearly Zero-Energy Buildings in the EU: Final Report. European Commission. (2012~2016년 개보수율. 위 Bruegel 보고서가 깊은 개보수의 정의로 인용. 원문 PDF는 받지 못해 서지와 수치를 원문과 대조하지 않음)
-  - 국제에너지기구(IEA)의 "기존 건물 개보수율 연 약 1%"는 IEA 누리집이 자동 접속을 막아 원문을 확인하지 못했다. 확인될 때까지 근거로 세지 않는다. 연 1%는 위 두 문헌으로 받친다.
+  - Esser, A., Dunne, A., Meeusen, T., Quaschning, S., Wegge, D. (Ipsos), Hermelink, A., Schimschar, S., Offermann, M., John, A., Reiser, M., Pohl, A., & Grözinger, J. (Navigant) (2019). Comprehensive Study of Building Energy Renovation Activities and the Uptake of Nearly Zero-Energy Buildings in the EU: Final Report. European Commission, DG Energy (계약 ENER/C3/2016-547/02/SI2.753931). https://energy.ec.europa.eu/system/files/2019-12/1.final_report_0.pdf (2012~2016년 개보수율. 위 Bruegel 보고서가 깊은 개보수의 정의로 인용. 2026-11-12 원문으로 저자와 수치를 대조함)
+  - Esser 외 (2019) 원문 확인 (2026-11-12, 유럽위원회 누리집 PDF): 15쪽 "For residential buildings, the annual weighted energy renovation rate was estimated close to 1% within the European Union"(2012~2016년). 같은 쪽: 모든 깊이를 합친 주거 건물 에너지 개보수율은 연면적 기준 연 약 12%, 깊은 개보수는 약 0.2%. 16쪽: 비주거 건물 전체 개보수율은 약 10%. 모드는 "가중" 개보수율(절감량을 깊은 개보수로 환산한 비율) 1%를 기준이 적용되는 몫으로 쓴다.
+  - 국제에너지기구(IEA)의 "기존 건물 개보수율 연 약 1%"는 원문을 확인하지 못해 근거로 세지 않는다. 코드 주석에서도 뺐다(2026-11-12).
 
 ## 4. 추가 조사 자료 (별도 파일)
 - 설계를 마친 뒤 추가로 조사한 해외 연구는 [REFERENCES-additional.md](REFERENCES-additional.md)에 따로 정리했다 (2026-11-07). 2026-11-09에 지금 값을 받치는 연구를 골라 위 "추가 조사에서 채택"으로 옮겼다. 나머지는 그 파일에만 둔다.

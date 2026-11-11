@@ -194,6 +194,9 @@ namespace RealisticPolicies.Engine
         /// </summary>
         internal static bool TestStationPark;
 
+        /// <summary>Self-test: a station park of this prefab wins over the others when it has a lived-in road near.</summary>
+        internal static string TestPreferStationPrefab;
+
         /// <summary>Self-test: the station park the last forced protest used (Entity.Null when none was found).</summary>
         internal static Entity TestStationParkUsed;
 
@@ -994,6 +997,7 @@ namespace RealisticPolicies.Engine
             Entity best = Entity.Null;
             int bestHops = int.MaxValue;
             bool bestInFront = false;
+            bool bestPreferred = false;
             int bestLot = 0;
             // Every park with something underground and why it was or was not taken (2026-11-10 user "엥 없다고? 아닐텐데???":
             // the city has train and subway station parks, yet none was found).
@@ -1030,7 +1034,12 @@ namespace RealisticPolicies.Engine
                     int2 size = EntityManager.TryGetComponent(EntityManager.GetComponentData<PrefabRef>(park).m_Prefab, out BuildingData lot) ? lot.m_LotSize : default;
                     int area = size.x * size.y;
                     bool inFront = !surface;
-                    bool better = best == Entity.Null
+                    bool preferred = TestPreferStationPrefab != null && name == TestPreferStationPrefab;
+                    if (bestPreferred && !preferred)
+                    {
+                        continue;
+                    }
+                    bool better = best == Entity.Null || (preferred && !bestPreferred)
                         || (inFront && !bestInFront)
                         || (inFront && bestInFront && area > bestLot)
                         || (!inFront && !bestInFront && hops < bestHops);
@@ -1040,6 +1049,7 @@ namespace RealisticPolicies.Engine
                         bestHops = hops;
                         bestInFront = inFront;
                         bestLot = area;
+                        bestPreferred = preferred;
                         lived = found;
                     }
                 }

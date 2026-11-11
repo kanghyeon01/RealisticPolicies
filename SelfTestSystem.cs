@@ -173,6 +173,10 @@ namespace RealisticPolicies
             if (m_Stage == Stage.Loading && mode == GameMode.Game)
             {
                 Line($"City loaded (purpose {purpose}).");
+                if (m_WorksStartFrame == 0)
+                {
+                    m_WorksStartFrame = m_SimulationSystem.frameIndex;
+                }
                 SetStage(Stage.Settle);
             }
             else if (m_Stage == Stage.Reloading && mode == GameMode.Game)
@@ -586,7 +590,8 @@ namespace RealisticPolicies
                         DynamicBuffer<PolicyRuntime> runtimes = EntityManager.GetBuffer<PolicyRuntime>(m_CitySystem.City);
                         for (int r = 0; r < runtimes.Length; r++)
                         {
-                            if (runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kRentSupport) || runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kTalentAttraction))
+                            if (runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kRentSupport) || runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kTalentAttraction)
+                                || runtimes[r].m_Policy == PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport))
                             {
                                 PolicyRuntime runtime = runtimes[r];
                                 runtime.m_Progress = 0f;
@@ -748,9 +753,18 @@ namespace RealisticPolicies
                     }
                     break;
                 case Stage.RiotReloadSettle:
-                    if (StageSeconds() >= 5f && SimFrames() >= 4096)
+                    if (!m_RoundTripChecked && StageSeconds() >= 5f && SimFrames() >= 4096)
                     {
                         CheckProtestRoundTrip();
+                        m_RoundTripChecked = true;
+                        m_NextArrivalCheck = 0;
+                    }
+                    // The rioters walk back from home after loading (2026-11-12 run: 57 on the way, 775 m off, at 4096
+                    // frames): the crowd is checked once someone stands there, or after the usual limit.
+                    else if (m_RoundTripChecked && CrowdArrived(m_RiotId))
+                    {
+                        CheckCrowd("After loading, the rioters keep coming to the riot roads", m_RiotId, null);
+                        m_RoundTripChecked = false;
                         GrantRiot();
                     }
                     break;
@@ -1776,13 +1790,37 @@ namespace RealisticPolicies
                             m_DetailAgainstCut && Mathf.Approximately(months, 6f) && IsActive(talent.Prefab) && IsLocked(talent.Prefab)
                             && World.GetOrCreateSystemManaged<LitigationSystem>().IsBanned(talent.Prefab) && Mathf.Abs(reference - m_DetailPriorSecond) < 0.3f,
                             $"months {months:0.00} (before the cut {m_DetailPriorSecond:0.00}), reference {reference:0.00}, active {IsActive(talent.Prefab)}, locked {IsLocked(talent.Prefab)}");
-                        m_DetailStep = 4;
+                        // While banned, the column shows the setting the ruling put back, without a slider (2026-11-12, option 2).
+                        // The ban runs at the test's court time (x0.05): hold it while the UI looks, then give back its end.
+                        m_DetailBanUntil = HoldBan(talent.Prefab, frame + 1000000u);
+                        m_UiDone = false;
+                        m_UISystem.SetSelfTestStage(8);
+                        m_DetailStep = 30;
                         m_DetailFrame = frame;
+                        m_StageStart = UnityEngine.Time.realtimeSinceStartup;
                     }
                     else if (frame - m_DetailFrame > 60000)
                     {
                         Check("The court rules on the cut detail setting", false, "no verdict within 60000 frames");
                         FinishDetails(rent, false);
+                    }
+                    break;
+                case 7:
+                case 8:
+                case 9:
+                    UpdateDetailsLivelihood(city, rent, frame);
+                    break;
+                case 30:
+                    if (m_UiDone || StageSeconds() > 90f)
+                    {
+                        if (!m_UiDone)
+                        {
+                            Check("Banned policy detail UI test reported back", false, "no report within 90 s");
+                        }
+                        m_UISystem.SetSelfTestStage(0);
+                        HoldBan(talent.Prefab, m_DetailBanUntil);
+                        m_DetailStep = 4;
+                        m_DetailFrame = frame;
                     }
                     break;
                 case 4:
@@ -1815,11 +1853,85 @@ namespace RealisticPolicies
                     {
                         Check("Rent support switched off and on again does not pay for the time it was off",
                             rent.LastPayDays == 0f, $"first payment covered {rent.LastPayDays:0.0000} of a month, {rent.LastSupported} households");
-                        FinishDetails(rent, false);
+                        // The same for livelihood support (same code, not tested before 2026-11-12): rent support off, it on.
+                        SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kRentSupport), false, 0f);
+                        SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport), true, PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport).SliderDefault);
+                        m_DetailStep = 7;
+                        m_DetailFrame = frame;
                     }
                     else if (frame - m_DetailFrame > 32768)
                     {
                         Check("Rent support pays again after being switched back on", false, "no household within 32768 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+            }
+        }
+
+        private uint m_DetailBanUntil;
+
+        /// <summary>Sets when a policy's ban ends; returns the end it had (0 when not banned).</summary>
+        private uint HoldBan(Entity policy, uint until)
+        {
+            DynamicBuffer<PolicyBan> bans = EntityManager.GetBuffer<PolicyBan>(m_CitySystem.City);
+            for (int i = 0; i < bans.Length; i++)
+            {
+                if (bans[i].m_Policy == policy)
+                {
+                    PolicyBan ban = bans[i];
+                    uint before = ban.m_UntilFrame;
+                    ban.m_UntilFrame = until;
+                    bans[i] = ban;
+                    return before;
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>Livelihood support on, off for a while, on again: the first payment must not cover the time it was off.</summary>
+        private void UpdateDetailsLivelihood(Entity city, RentSupportSystem rent, uint frame)
+        {
+            LivelihoodSupportSystem livelihood = World.GetOrCreateSystemManaged<LivelihoodSupportSystem>();
+            Entity policy = PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport);
+            switch (m_DetailStep)
+            {
+                case 7:
+                    if (livelihood.LastSupported > 0)
+                    {
+                        SetPolicy(city, policy, false, 0f);
+                        m_DetailStep = 8;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 32768)
+                    {
+                        Check("Livelihood support pays once switched on", false, "no household within 32768 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 8:
+                    if (frame - m_DetailFrame >= 16384 && livelihood.LastSupported == 0)
+                    {
+                        SetPolicy(city, policy, true, PolicyCatalog.Definition(PolicyCatalog.kLivelihoodSupport).SliderDefault);
+                        Line($"Livelihood support switched on again after {frame - m_DetailFrame} frames off.");
+                        m_DetailStep = 9;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 49152)
+                    {
+                        Check("Livelihood support stops when switched off", false, $"still supporting {livelihood.LastSupported} after 49152 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 9:
+                    if (livelihood.LastSupported > 0)
+                    {
+                        Check("Livelihood support switched off and on again does not pay for the time it was off",
+                            livelihood.LastPayDays == 0f, $"first payment covered {livelihood.LastPayDays:0.0000} of a month, {livelihood.LastSupported} households");
+                        FinishDetails(rent, false);
+                    }
+                    else if (frame - m_DetailFrame > 32768)
+                    {
+                        Check("Livelihood support pays again after being switched back on", false, "no household within 32768 frames");
                         FinishDetails(rent, false);
                     }
                     break;
@@ -1857,6 +1969,7 @@ namespace RealisticPolicies
             LitigationSystem.TestTimeScale = 1f;
             SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kRentSupport), false, 0f);
             SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kTalentAttraction), false, 0f);
+            SetPolicy(m_CitySystem.City, PolicyCatalog.Find(PolicyCatalog.kLivelihoodSupport), false, 0f);
             m_Engine.SetSecond(PolicyCatalog.kRentSupport, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).Second.Default);
             m_Engine.SetSecond(PolicyCatalog.kTalentAttraction, PolicyCatalog.Definition(PolicyCatalog.kTalentAttraction).Second.Default);
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_DetailOffice, WelfareSeriesSection.Choice.GeneralAdministration);
@@ -2492,6 +2605,8 @@ namespace RealisticPolicies
             // In a park over a subway station when the city has one (2026-11-10 user decision: the crowd stands on its
             // ground-level paths).
             ProtestSystem.TestStationPark = true;
+            // The train station park was seen on 2026-11-10; this time a subway station park if there is one.
+            ProtestSystem.TestPreferStationPrefab = "Pack7-SubwayStation01";
             Line("Forcing a protest over the scholarships, in a station park if there is one.");
             SetStage(Stage.ProtestStart);
         }
@@ -3247,6 +3362,8 @@ namespace RealisticPolicies
             Line($"Loaded roads, before the mod updates: {flagged} of {closed.Length} recorded lanes public-only ({exists} exist); posts {posts}");
         }
 
+        private bool m_RoundTripChecked;
+
         private void CheckProtestRoundTrip()
         {
             if (ProtestIndex(m_RiotId) < 0)
@@ -3274,7 +3391,6 @@ namespace RealisticPolicies
             {
                 intact += Protests.PostIntact(posts[i]) ? 1 : 0;
             }
-            CheckCrowd("After loading, the rioters keep coming to the riot roads", m_RiotId, null);
             Protest protest = GetProtest(m_RiotId);
             Check("After loading, police posts are whole (broken ones asked for again)", posts.Length > 0 && intact == posts.Length,
                 $"{intact} of {posts.Length} posts whole, {protest.m_CarsArrived}/{protest.m_CarsNeeded} cars in place");
@@ -4215,7 +4331,7 @@ namespace RealisticPolicies
         private void OnUiReport(string message)
         {
             if (m_Stage != Stage.Ui && m_Stage != Stage.WelfareUi && m_Stage != Stage.ReportUi && m_Stage != Stage.ProtestUi && m_Stage != Stage.ProtestPanel
-                && m_Stage != Stage.ActionUi && m_Stage != Stage.DetailsUi)
+                && m_Stage != Stage.ActionUi && m_Stage != Stage.DetailsUi && m_Stage != Stage.Details)
             {
                 return;
             }
@@ -4278,8 +4394,31 @@ namespace RealisticPolicies
             base.OnDestroy();
         }
 
+        /// <summary>Simulation frame the test city was first running: the building codes' pace is counted from it.</summary>
+        private uint m_WorksStartFrame;
+
+        /// <summary>
+        /// How fast buildings are built or levelled up in the test city (2026-11-12, remaining item 5): the share of the
+        /// stock a building code would reach per game year from construction alone (a game day is a month).
+        /// </summary>
+        private void LogBuildingWorksPace()
+        {
+            if (m_WorksStartFrame == 0 || m_Engine.Conditions == null || m_Engine.Conditions.Buildings <= 0)
+            {
+                return;
+            }
+            uint frames = m_SimulationSystem.frameIndex - m_WorksStartFrame;
+            float days = frames / (float)PolicyEngineSystem.kFramesPerDay;
+            int built = World.GetOrCreateSystemManaged<BuildingWorksSystem>().BuiltSince(m_WorksStartFrame);
+            float share = built / (float)m_Engine.Conditions.Buildings;
+            float perYear = days > 0f ? share / days * 12f : 0f;
+            Line($"Building codes' pace: {built} buildings built or levelled up in {days:0.00} game days ({frames} frames) of {m_Engine.Conditions.Buildings}; "
+                + $"{share:P2} of the stock, about {perYear:P1} a game year from construction (plus 1% renovation).");
+        }
+
         private void Finish()
         {
+            LogBuildingWorksPace();
             PolicyEngineSystem.TestCodeCoverage = -1f;
             ReleaseEdgeScrolling();
             LitigationSystem.TestTimeScale = 1f;

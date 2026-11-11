@@ -14,8 +14,8 @@ namespace RealisticPolicies.Engine
     /// <summary>
     /// When each building was last built or rebuilt, for the building codes (2026-11-10 user decision, option 1): a code
     /// reaches the buildings built or levelled up after it started (codes apply to new building and major renovation;
-    /// Aroonruengsawat et al. 2012), plus the few others renovated each year (about 1% of the stock, European Commission
-    /// 2019; IEA). In the game a new zoned building and a level-up both put the building under construction
+    /// Aroonruengsawat et al. 2012), plus the few others renovated each year (the weighted energy renovation rate, close to
+    /// 1% a year: European Commission 2019, Esser et al., p. 15). In the game a new zoned building and a level-up both put the building under construction
     /// (<c>BuildingUpkeepSystem</c> adds <see cref="Game.Objects.UnderConstruction"/> to the same entity); a placed service building
     /// appears at once (<see cref="Created"/>). The frames are saved with the city (<see cref="BuildingWorks"/>).
     /// </summary>

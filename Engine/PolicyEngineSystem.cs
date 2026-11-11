@@ -72,8 +72,8 @@ namespace RealisticPolicies.Engine
         private float[] m_SecondValue;
 
         /// <summary>
-        /// Other buildings renovated to a code each game year (about 1% of the stock a year: European Commission 2019,
-        /// Esser et al.; IEA). New buildings and level-ups come from the game (<see cref="BuildingWorksSystem"/>).
+        /// Other buildings renovated to a code each game year (the weighted energy renovation rate of homes, close to 1% a
+        /// year in the EU: European Commission 2019, Esser et al., p. 15). New buildings and level-ups come from the game (<see cref="BuildingWorksSystem"/>).
         /// </summary>
         private const float kRenovationPerYear = 0.01f;
 
