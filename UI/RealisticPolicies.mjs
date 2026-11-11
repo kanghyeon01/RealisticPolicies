@@ -477,11 +477,15 @@ function PolicyReport({ id }) {
 
     const ban = suits && suits.bans ? suits.bans.find((b) => b.policyId === id) : null;
     // Detail setting (second slider), also while the policy is off so it can be set first.
-    const second = report.second ? React.createElement(SecondSection, { key: "second", id, second: report.second }) : null;
+    const second = report.second ? React.createElement(SecondSection, { key: "second", id, second: report.second, locked: !!ban }) : null;
     if (ban) {
         sections.push(React.createElement(InfoSection, { key: "ban", disableFocus: true },
             Row({ left: text("Report.Banned"), right: text("Report.DaysLeft", { DAYS: ban.daysLeft.toFixed(1) }) }),
             ban.number > 0 ? Row({ left: text("Report.Verdict"), right: text(ban.partial ? "Suit.LostPart" : "Suit.Lost", { CASE: caseNo(ban.year, ban.number) }) }) : null));
+        // The detail setting as the ruling left it, locked until the ban ends (2026-11-12 user decision, option 2).
+        if (second) {
+            sections.push(second);
+        }
         return React.createElement("div", { className: "rp-policy-report" }, sections);
     }
     if (!report.on) {
@@ -626,7 +630,7 @@ function PolicyReport({ id }) {
 }
 
 // The detail setting under "세부 설정": the game's policy row draws one slider only (2026-11-10 user decision).
-function SecondSection({ id, second }) {
+function SecondSection({ id, second, locked }) {
     const text = useText();
     const [value, setValue] = React.useState(second.value);
     // Follow the saved value when it changes from elsewhere (a court ruling, a load).
@@ -645,9 +649,10 @@ function SecondSection({ id, second }) {
     return React.createElement(InfoSection, { disableFocus: true },
         Row({ left: text("Second.Title"), uppercase: true }),
         Row({ left: text(`Second.${second.key}`), right: shown, subRow: true }),
-        Slider ? React.createElement("div", { style: { padding: "4rem 10rem" } },
+        Slider && !locked ? React.createElement("div", { style: { padding: "4rem 10rem" } },
             React.createElement(Slider, { value, start: second.min, end: second.max, valueTransformer: transformer, onChange: change })) : null,
-        React.createElement("div", { style: { padding: "2rem 10rem 6rem", fontSize: "12rem", opacity: 0.7 } }, text(`Second.${second.key}.Hint`)));
+        React.createElement("div", { style: { padding: "2rem 10rem 6rem", fontSize: "12rem", opacity: 0.7 } },
+            text(locked ? "Second.Locked" : `Second.${second.key}.Hint`)));
 }
 
 // ---- Lawsuits tab

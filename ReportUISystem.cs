@@ -54,7 +54,7 @@ namespace RealisticPolicies
             AddBinding(new TriggerBinding<int, int>(kGroup, "respondSuit", RespondSuit));
             AddBinding(new TriggerBinding<int, float, int>(kGroup, "proposeSettlement", ProposeSettlement));
             // The detail setting (second slider) in the policy's column (2026-11-10, docs/previews/policy-second-slider.html).
-            AddBinding(new TriggerBinding<string, float>(kGroup, "setPolicySecond", (id, value) => m_Engine.SetSecond(id, value)));
+            AddBinding(new TriggerBinding<string, float>(kGroup, "setPolicySecond", SetPolicySecond));
         }
 
         [Preserve]
@@ -123,6 +123,20 @@ namespace RealisticPolicies
         }
 
         /// <summary>Settlement offer with the policy's slider value (or 0/1 for a toggle) and a one-off compensation.</summary>
+        /// <summary>
+        /// The detail setting from the policy's column. Not while the policy is banned after a lost suit: the ruling put
+        /// it back, and the column shows it locked (2026-11-12 user decision, option 2: "보이되 바꿀 수 없게").
+        /// </summary>
+        private void SetPolicySecond(string id, float value)
+        {
+            PolicyDefinition definition = PolicyCatalog.Definition(id);
+            if (definition == null || m_Litigation.IsBanned(definition.Prefab))
+            {
+                return;
+            }
+            m_Engine.SetSecond(id, value);
+        }
+
         private void ProposeSettlement(int key, float sliderValue, int compensation)
         {
             int index = FindSuit(key);

@@ -55,6 +55,9 @@ namespace RealisticPolicies.Engine
         /// <summary>Households that have had the months allowed (detail setting) at the last selection.</summary>
         public int LastExhausted { get; private set; }
 
+        /// <summary>Share of a month the last payment covered (0 for the first payment after it comes on).</summary>
+        public float LastPayDays { get; private set; }
+
         /// <summary>The most months any household has had at the last selection.</summary>
         public float LastMaxMonths { get; private set; }
 
@@ -120,6 +123,7 @@ namespace RealisticPolicies.Engine
                 float days = m_HasPaid ? math.min(1f, (frame - m_LastPayFrame) / (float)PolicyEngineSystem.kFramesPerDay) : 0f;
                 Select(definition, intensity);
                 Pay(days);
+                LastPayDays = days;
                 m_LastPayFrame = frame;
                 m_HasPaid = true;
             }

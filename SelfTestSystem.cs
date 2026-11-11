@@ -1662,6 +1662,21 @@ namespace RealisticPolicies
         /// </summary>
         private void StartDetails()
         {
+            // What batches 3-10 must give back, read before this stage: the levers are the game's own here (the
+            // minimum wage, winding down, moves the reoffending lever again during it).
+            m_FireBefore = Singleton<FireConfigurationData>();
+            m_ExtractorBefore = Singleton<ExtractorParameterData>();
+            m_EducationParamsBefore = Singleton<EducationParameterData>();
+            m_WaterBefore = Singleton<WaterPipeParameterData>();
+            m_PoliceBefore = Singleton<PoliceConfigurationData>();
+            m_HappinessBefore = Singleton<CitizenHappinessParameterData>();
+            m_GarbageBefore = Singleton<GarbageParameterData>();
+            m_PollutionBefore = Singleton<PollutionParameterData>();
+            m_LaterEconomyBefore = Singleton<EconomyParameterData>();
+            m_LaterDemandBefore = Singleton<DemandParameterData>();
+            m_ConsumptionBefore = ZonedConsumption();
+            m_EligibleBefore = ExtendedBenefitSearchSystem.EligibleSeen;
+            m_DelayedBefore = ExtendedBenefitSearchSystem.Delayed;
             LitigationSystem.TestDisableRandomFiling = true;
             LitigationSystem.TestTimeScale = 0.05f;
             m_DetailOffice = FindGeneralWelfareOffice(Entity.Null);
@@ -1774,11 +1789,55 @@ namespace RealisticPolicies
                     // Rent support: the first households have had their 2 months and others get it in their place.
                     if ((rent.LastExhausted > 0 && rent.LastSupported > 0) || SimFrames() > 98304)
                     {
-                        FinishDetails(rent, true);
+                        CheckRentMonths(rent);
+                        // Off for a while, then on again: the first payment must not cover the time it was off.
+                        SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kRentSupport), false, 0f);
+                        m_DetailStep = 5;
+                        m_DetailFrame = frame;
+                    }
+                    break;
+                case 5:
+                    if (frame - m_DetailFrame >= 16384 && rent.LastSupported == 0)
+                    {
+                        SetPolicy(city, PolicyCatalog.Find(PolicyCatalog.kRentSupport), true, PolicyCatalog.Definition(PolicyCatalog.kRentSupport).SliderDefault);
+                        Line($"Rent support switched on again after {frame - m_DetailFrame} frames off.");
+                        m_DetailStep = 6;
+                        m_DetailFrame = frame;
+                    }
+                    else if (frame - m_DetailFrame > 49152)
+                    {
+                        Check("Rent support stops when switched off", false, $"still supporting {rent.LastSupported} after 49152 frames");
+                        FinishDetails(rent, false);
+                    }
+                    break;
+                case 6:
+                    if (rent.LastSupported > 0)
+                    {
+                        Check("Rent support switched off and on again does not pay for the time it was off",
+                            rent.LastPayDays == 0f, $"first payment covered {rent.LastPayDays:0.0000} of a month, {rent.LastSupported} households");
+                        FinishDetails(rent, false);
+                    }
+                    else if (frame - m_DetailFrame > 32768)
+                    {
+                        Check("Rent support pays again after being switched back on", false, "no household within 32768 frames");
+                        FinishDetails(rent, false);
                     }
                     break;
             }
         }
+
+        private void CheckRentMonths(RentSupportSystem rent)
+        {
+            int rentIndex = System.Array.IndexOf(PolicyDefinitions.All, PolicyCatalog.Definition(PolicyCatalog.kRentSupport));
+            float rentStaff = m_Engine.PolicyStaff(rentIndex, ServiceSeries.SocialWelfare) * m_Engine.PolicyStaffShare(rentIndex, ServiceSeries.SocialWelfare);
+            // A household stops once it has had the months; the last payment may run a little over.
+            Check($"Rent support pays no household for longer than the months set in details ({kDetailRentMonths:0}): those who have had them drop out and others take their place",
+                rentStaff > 0.05f && rent.LastExhausted > 0 && rent.LastSupported > 0 && rent.SupportedPastLimit() == 0
+                && rent.LastMaxMonths >= kDetailRentMonths && rent.LastMaxMonths <= kDetailRentMonths + 0.1f,
+                $"staff got {rentStaff:0.0}, poor renters left {rent.LastRenters}, supported now {rent.LastSupported}, have had their months {rent.LastExhausted}, " +
+                $"supported past the limit {rent.SupportedPastLimit()}, most months had {rent.LastMaxMonths:0.00}, monthly {rent.LastMonthly}");
+        }
+
 
         private void FinishDetails(RentSupportSystem rent, bool checkRent)
         {
@@ -1817,19 +1876,6 @@ namespace RealisticPolicies
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_WelfareOffice, WelfareSeriesSection.Choice.SocialWelfare);
             World.GetOrCreateSystemManaged<WelfareSeriesSection>().Set(m_TaxOffice, WelfareSeriesSection.Choice.Tax);
             Line($"Welfare office {m_WelfareOffice.Index} set to social welfare, {m_TaxOffice.Index} to tax staff.");
-            m_FireBefore = Singleton<FireConfigurationData>();
-            m_ExtractorBefore = Singleton<ExtractorParameterData>();
-            m_EducationParamsBefore = Singleton<EducationParameterData>();
-            m_WaterBefore = Singleton<WaterPipeParameterData>();
-            m_PoliceBefore = Singleton<PoliceConfigurationData>();
-            m_HappinessBefore = Singleton<CitizenHappinessParameterData>();
-            m_GarbageBefore = Singleton<GarbageParameterData>();
-            m_PollutionBefore = Singleton<PollutionParameterData>();
-            m_LaterEconomyBefore = Singleton<EconomyParameterData>();
-            m_LaterDemandBefore = Singleton<DemandParameterData>();
-            m_ConsumptionBefore = ZonedConsumption();
-            m_EligibleBefore = ExtendedBenefitSearchSystem.EligibleSeen;
-            m_DelayedBefore = ExtendedBenefitSearchSystem.Delayed;
             m_LivelihoodOn = false;
             foreach (string id in kLaterBundles)
             {
