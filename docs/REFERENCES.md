@@ -113,6 +113,7 @@
 - 문화체육관광부 고시 제2014-42호. 국어의 로마자 표기법.
 - 문화체육관광부 고시 제2017-14호. 외래어 표기법 (제3장 제1절 영어의 표기).
 - 보건복지부 고시 제2023-150호 (2023. 8. 16. 제정). 2024년 기준 중위소득 및 생계·의료급여 선정기준과 최저보장수준. (생계급여 선정기준은 기준 중위소득의 32%, 2023년 30%에서 상향. 의료급여 40%. 주거급여 48%와 교육급여 50%는 같은 중앙생활보장위원회 의결(2023. 7. 28. 보건복지부 보도자료)이며 고시는 국토교통부·교육부가 따로 낸다. 생계 지원 세부 설정의 기본값과 범위 §14.21) — 고시 번호·제정일은 보건복지부 누리집의 고시 게시물에서, 32%는 보건복지부 보도자료에서 확인 (2026-11-11). 고시 첨부 본문(PDF)은 열어 보지 않음.
+- 대한민국 정책브리핑 (2023. 7. 28.). 내년 생계급여 역대 최대로 인상…약자복지 강화 기조 반영. https://www.korea.kr/news/policyNewsView.do?newsId=148918302 (2026-11-12 원문 확인: "내년 생계급여는 2017년 이후 7년 만에 기준 중위소득의 30%에서 32%로 상향". 고시 원문은 국가법령정보센터 주소로 열리지 않아 이 공식 발표로 확인함)
 - 전북일보 (2024). 기초생활보장 수급자 시도별 비율 보도. (2023년 말 수급자 255만 명, 인구의 4.9%; 전북 7.5%, 부산 7.1%, 광주 6.8%. 생계 지원 받는 가구 비율의 비교 기준)
 
 ## 3. 해외 문헌과 이론 (설계에 쓴 것)
@@ -347,6 +348,14 @@
   - Esser, A., Dunne, A., Meeusen, T., Quaschning, S., Wegge, D. (Ipsos), Hermelink, A., Schimschar, S., Offermann, M., John, A., Reiser, M., Pohl, A., & Grözinger, J. (Navigant) (2019). Comprehensive Study of Building Energy Renovation Activities and the Uptake of Nearly Zero-Energy Buildings in the EU: Final Report. European Commission, DG Energy (계약 ENER/C3/2016-547/02/SI2.753931). https://energy.ec.europa.eu/system/files/2019-12/1.final_report_0.pdf (2012~2016년 개보수율. 위 Bruegel 보고서가 깊은 개보수의 정의로 인용. 2026-11-12 원문으로 저자와 수치를 대조함)
   - Esser 외 (2019) 원문 확인 (2026-11-12, 유럽위원회 누리집 PDF): 15쪽 "For residential buildings, the annual weighted energy renovation rate was estimated close to 1% within the European Union"(2012~2016년). 같은 쪽: 모든 깊이를 합친 주거 건물 에너지 개보수율은 연면적 기준 연 약 12%, 깊은 개보수는 약 0.2%. 16쪽: 비주거 건물 전체 개보수율은 약 10%. 모드는 "가중" 개보수율(절감량을 깊은 개보수로 환산한 비율) 1%를 기준이 적용되는 몫으로 쓴다.
   - 국제에너지기구(IEA)의 "기존 건물 개보수율 연 약 1%"는 원문을 확인하지 못해 근거로 세지 않는다. 코드 주석에서도 뺐다(2026-11-12).
+
+### 기존 건물 보강 의무 (건물 기준 안 3, 2026-11-12)
+- Rabinovici, S. J. M. (2012). Motivating Private Precaution with Public Programs: Insights from a Local Earthquake Mitigation Ordinance (박사학위논문). University of California, Berkeley. https://escholarship.org/uc/item/3bf2t2xs (원문 초록 확인: 버클리 연약층 건물 소유자 약 320명, 평가·표시만 의무인데 20% 넘게 스스로 보강)
+- Zhang 외 (2022). Motivators and impediments to seismic retrofit implementation for wood-frame soft-story buildings: A case study in California. Earthquake Spectra. doi:10.1177/87552930221100844 (초록만 검색으로 확인: 오래되고 크고 땅값이 높은 건물, 빈집 많은 동네일수록 덜 보강. 본문은 SAGE 구독이 없어 못 봄)
+- 로스앤젤레스 건축안전국(LADBS). LA Soft-Story Retrofit Program Tenant Habitability Guide. https://dbs.lacity.gov/sites/default/files/efs/forms/pc17/la-soft-story-retrofit-program-tenant-habitability-guide.pdf (검색 결과로 확인: 월세 전가 최대 월 38달러, 120개월)
+- SPUR (2023. 8. 7.). Multifamily Seismic Retrofit Program Secures $15 Million from State, But More Investment Is Needed. https://spur.org/news/2023-08-07/multifamily-seismic-retrofit-program-secures-15-million-state-more-investment (검색 결과로 확인: 샌프란시스코 5~14가구 평균 10만 4천 달러)
+- 샌프란시스코 연약층 보강 의무 이행: Mission Local (2019. 1.), SF Public Press, KQED 보도(마지막 착공 기한에 300여 동, 약 7% 미이행). 로스앤젤레스 이행률: KFI(2019, 14%) 등 보도.
+- 국내 화재안전성능보강: 국토교통부 건축물관리법 시행령 입법예고(2023. 5.), 서울신문(2022. 9. 28.) "2,561동 중 786동 설치", 2025년 지원 공고 제2025-115호(국비:지방비:자부담 1:1:1, 최대 4,000만 원).
 
 ## 4. 추가 조사 자료 (별도 파일)
 - 설계를 마친 뒤 추가로 조사한 해외 연구는 [REFERENCES-additional.md](REFERENCES-additional.md)에 따로 정리했다 (2026-11-07). 2026-11-09에 지금 값을 받치는 연구를 골라 위 "추가 조사에서 채택"으로 옮겼다. 나머지는 그 파일에만 둔다.

@@ -1,0 +1,63 @@
+<Publish>
+  <!--
+    DRAFT (2026-11-12): written by Claude from the mod's features, in the style of Realistic Aviation's page.
+    The user decides the version, the page text, the tags and the thumbnail before the first Publish; nothing here is final.
+    ModId is filled in after the first Publish ("Mod published with Id=...").
+  -->
+  <ModId Value="" />
+  <DisplayName Value="Realistic Policies" />
+  <ShortDescription Value="Policies in Cities: Skylines II take staff, time and money, and people answer back with lawsuits, protests and strikes." />
+  <LongDescription># EN>
+
+This mod makes city policies in Cities: Skylines II work the way public policy does. A policy is not a switch: it needs public servants to carry it out, takes time to reach its full effect, costs money, and some people gain while others lose. Those who lose can go to court, protest or strike.
+
+### I. Core Features
+
+1. New policies: About 60 policies across environment, economy and labour, housing, welfare, transport, safety, justice, health, education and administration. Each effect is based on published studies.
+2. Staff and delivery: Policies need staff from the matching services. With too few staff, they work slowly and only partly. The policy panel shows input, activity, output and outcome.
+3. City conditions: Some policies work better or worse depending on the city (for example unemployment, vacant homes, or the distance to hospitals).
+4. Details: Some policies have a second setting, such as the months of rent support or the amount of a scholarship.
+5. Lawsuits: People and companies who lose from a policy can sue the city. You can hire a lawyer, assign officials, or settle. A lost case can ban the policy for a while.
+6. Protests, riots and strikes: Cuts and new burdens can bring people out onto the streets, and public servants or companies can stop work.
+
+### II. Notes
+
+1. The mod adds its own data to your save. Before removing the mod, use "Prepare for removal" in the options.
+
+This mod was vibe-coded with Claude Code.
+
+Contact me: khkim040808@gmail.com
+
+# KO>
+
+이 모드는 게임의 도시 정책을 실제 공공정책처럼 만들어 줍니다. 정책은 켜고 끄는 스위치가 아닙니다. 집행할 공무원이 필요하고, 효과가 다 나기까지 시간이 걸리며, 돈이 들고, 이익을 보는 사람과 손해를 보는 사람이 생깁니다. 손해를 본 사람은 소송을 하거나 시위, 파업에 나설 수 있습니다.
+
+### Ⅰ. 기본 기능
+
+1. 새 정책: 환경, 경제·노동, 주거, 복지, 교통, 안전, 사법, 보건, 교육, 행정 분야의 정책 약 60개. 효과는 모두 연구 결과를 근거로 합니다.
+2. 인력과 집행: 정책마다 해당 분야의 공무원이 필요합니다. 인력이 모자라면 느리게, 일부만 집행됩니다. 정책 칸에서 투입, 활동, 산출, 결과를 볼 수 있습니다.
+3. 도시 조건: 일부 정책은 도시 상황(실업률, 빈집, 병원까지 거리 등)에 따라 효과가 커지거나 작아집니다.
+4. 세부 설정: 일부 정책은 임대료 지원 기간, 장학금 금액 같은 두 번째 값을 정할 수 있습니다.
+5. 행정소송: 정책으로 손해를 본 시민과 기업이 시를 상대로 소송을 냅니다. 변호사 선임, 공무원 대응, 화해를 고를 수 있고, 지면 정책이 한동안 금지될 수 있습니다.
+6. 시위·폭동·파업: 혜택을 줄이거나 부담을 늘리면 시민이 거리로 나오고, 공무원이나 기업이 일을 멈출 수 있습니다.
+
+### Ⅱ. 참고
+
+1. 모드가 저장 파일에 자체 데이터를 넣습니다. 모드를 지우기 전에 옵션의 "제거 준비"를 눌러 주세요.
+
+본 모드는 클로드 코드로 바이브코딩 되었습니다.
+
+문의: khkim040808@gmail.com</LongDescription>
+  <!-- No thumbnail yet: Properties/Thumbnail.png must be made before the first Publish. -->
+  <Thumbnail Value="Properties/Thumbnail.png" />
+  <Tag Value="Code Mod" />
+  <ModVersion Value="1.0.0" />
+  <ChangeLog>1.0.0
+- First version.
+
+1.0.0
+- 첫 버전입니다.</ChangeLog>
+  <GameVersion Value="1.6.*" />
+  <!-- First upload private, as Realistic Aviation's was. -->
+  <AccessLevel Value="Private" />
+</Publish>

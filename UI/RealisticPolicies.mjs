@@ -640,6 +640,7 @@ function SecondSection({ id, second, locked }) {
         : second.unit === "months" ? text("Second.Months", { N: Math.round(value) })
         : second.unit === "minutes" ? text("Second.Minutes", { N: Math.round(value) })
         : second.unit === "percent" ? `${Math.round(value)}%`
+        : second.unit === "years" ? (value <= 0 ? text("Second.Years.None") : text("Second.Years", { N: Math.round(value) }))
         : `${Math.round(value)}`;
     const change = (v) => {
         const stepped = Math.min(second.max, Math.max(second.min, Math.round(v / second.step) * second.step));

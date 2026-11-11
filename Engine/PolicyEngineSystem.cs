@@ -166,7 +166,17 @@ namespace RealisticPolicies.Engine
         public static float SecondScaleOf(PolicyDefinition definition, float value)
         {
             SecondSetting second = definition?.Second;
-            return second == null || value < 0f || second.Default <= 0f ? 1f : value / second.Default;
+            if (second == null)
+            {
+                return 1f;
+            }
+            if (second.FeltScale != null)
+            {
+                // Relative to the default, so a city that never moved the setting feels no change.
+                float at = second.FeltScale(value < 0f ? second.Default : value);
+                return at / second.FeltScale(second.Default);
+            }
+            return value < 0f || second.Default <= 0f ? 1f : value / second.Default;
         }
 
         /// <summary>Sets a policy's detail setting (UI); read at the next engine step like a slider change.</summary>
@@ -959,7 +969,9 @@ namespace RealisticPolicies.Engine
                 {
                     m_Works ??= World.GetExistingSystemManaged<BuildingWorksSystem>();
                     float built = m_Works != null ? math.min(1f, m_Works.BuiltSince(own.m_EnactedFrame) / (float)m_Conditions.Buildings) : 0f;
-                    covered = math.saturate(built + (1f - built) * kRenovationPerYear * own.m_AgeDays / 12f);
+                    // Fire and disaster codes may also require the old stock to be strengthened (option 3, 2026-11-12).
+                    float deadline = definition.Second != null && definition.Second.Key == "RetrofitYears" ? m_SecondValue[i] : 0f;
+                    covered = Retrofit.Covered(built, own.m_AgeDays / 12f, kRenovationPerYear, deadline, LastResults[i].Compliance);
                     if (TestCodeCoverage >= 0f)
                     {
                         covered = TestCodeCoverage;

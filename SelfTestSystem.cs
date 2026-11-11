@@ -4108,6 +4108,20 @@ namespace RealisticPolicies
                 ok &= enacted > 0 && built <= recorded;
                 text.Append($"{Short(id)} built since {built}, age {age:0.00} d, last coverage {m_Engine.Covered(definition):0.0000}; ");
             }
+            // Retrofit mandate (option 3, 2026-11-12): the old stock strengthened by the deadline follows enforcement
+            // (30% weak - 93% strong), evenly up to the deadline; a shorter deadline is felt more.
+            PolicyDefinition fireCode = PolicyCatalog.Definition(PolicyCatalog.kFireCode);
+            float halfway = Retrofit.Share(5f, 2.5f, 0.6f);
+            float weak = Retrofit.Covered(0f, 5f, 0.01f, 5f, 0.1f);
+            float strong = Retrofit.Covered(0.1f, 10f, 0.01f, 5f, 1f);
+            float none = Retrofit.Covered(0f, 5f, 0.01f, 0f, 1f);
+            float feltShort = PolicyEngineSystem.SecondScaleOf(fireCode, 3f);
+            float feltNone = PolicyEngineSystem.SecondScaleOf(fireCode, 0f);
+            Check("Retrofit mandate: old buildings strengthened by the deadline follow enforcement (30-93%), evenly before it; a shorter deadline weighs more, none less",
+                Mathf.Abs(halfway - 0.3f) < 1e-4f && Mathf.Abs(weak - 0.3f) < 1e-4f && Mathf.Abs(strong - (0.1f + 0.9f * 0.93f)) < 1e-4f
+                && Mathf.Abs(none - 0.05f) < 1e-4f && feltShort > 1f && feltNone < 1f
+                && Mathf.Approximately(m_Engine.SecondValue(fireCode), 5f),
+                $"halfway {halfway:0.000}, weak {weak:0.000}, strong {strong:0.000}, none {none:0.000}, felt at 3 years x{feltShort:0.000}, no mandate x{feltNone:0.000}, fire code deadline {m_Engine.SecondValue(fireCode):0}");
             Check("Building codes count the buildings built or levelled up since they started (the game's construction)", ok,
                 $"buildings under construction or placed recorded {recorded}, buildings {buildings}; " + text);
         }

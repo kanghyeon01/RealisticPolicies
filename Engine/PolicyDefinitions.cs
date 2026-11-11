@@ -218,6 +218,12 @@ namespace RealisticPolicies.Engine
 
         /// <summary>The felt level of the policy (lawsuits) and, for programme sizes, its scale follow value ÷ default.</summary>
         public bool ScalesIntensity;
+
+        /// <summary>
+        /// How heavily the setting is felt against the policy's level, when not value ÷ default (a shorter retrofit
+        /// deadline is a heavier burden). Null: value ÷ default.
+        /// </summary>
+        public System.Func<float, float> FeltScale;
     }
 
     public sealed class PolicyDefinition
@@ -1940,6 +1946,11 @@ namespace RealisticPolicies.Engine
                 SliderDefault = 50f,
                 SliderStep = 10f,
                 SliderUnit = PolicySliderUnit.percentage,
+                // Existing buildings must be strengthened within this many years (2026-11-12 user decision, option 3; 0 = new
+                // and rebuilt buildings only). Deadlines run 3 years (Korea's fire safety retrofit of 2019-2022) to about 8
+                // (San Francisco's soft-story programme, 2013-2021); 5 in between. Shorter deadlines weigh more on tenants,
+                // who carry about half the cost through rents (Los Angeles: up to $38 a month for 120 months).
+                Second = new SecondSetting { Key = "RetrofitYears", Range = new Bounds1(0f, 8f), Step = 1f, Default = 5f, Unit = "years", FeltScale = Retrofit.FeltScale },
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.GeneralAdministration, 0.5f),
@@ -1979,6 +1990,11 @@ namespace RealisticPolicies.Engine
                 SliderDefault = 50f,
                 SliderStep = 10f,
                 SliderUnit = PolicySliderUnit.percentage,
+                // Existing buildings must be strengthened within this many years (2026-11-12 user decision, option 3; 0 = new
+                // and rebuilt buildings only). Deadlines run 3 years (Korea's fire safety retrofit of 2019-2022) to about 8
+                // (San Francisco's soft-story programme, 2013-2021); 5 in between. Shorter deadlines weigh more on tenants,
+                // who carry about half the cost through rents (Los Angeles: up to $38 a month for 120 months).
+                Second = new SecondSetting { Key = "RetrofitYears", Range = new Bounds1(0f, 8f), Step = 1f, Default = 5f, Unit = "years", FeltScale = Retrofit.FeltScale },
                 Series = new[]
                 {
                     new SeriesWeight(ServiceSeries.FireAndDisaster, 0.7f),
@@ -2642,6 +2658,45 @@ namespace RealisticPolicies.Engine
                 },
             },
         };
+    }
+
+    /// <summary>
+    /// Retrofit mandates for existing buildings under the fire and disaster codes (2026-11-12, option 3; docs/PLAN.md
+    /// §14.7a "안 3"). By the deadline a share of the old stock is strengthened that depends on enforcement: about 30%
+    /// with weak enforcement (Korea's fire safety retrofit, 786 of 2,561 buildings five months before the deadline; Los
+    /// Angeles' soft-story programme, 14-27%) to about 93% with strong enforcement (San Francisco, about 7% missed the
+    /// last deadline). Owners do it gradually, so the share grows evenly up to the deadline.
+    /// </summary>
+    public static class Retrofit
+    {
+        public const float kWeakCompliance = 0.3f;
+        public const float kStrongCompliance = 0.93f;
+
+        /// <summary>Tenants' half of the cost over the reference deadline (Los Angeles' pass-through cap, 50%).</summary>
+        public const float kTenantShare = 0.5f;
+        public const float kReferenceYears = 5f;
+
+        /// <summary>Share of the old stock strengthened after <paramref name="years"/> of a mandate.</summary>
+        public static float Share(float deadlineYears, float years, float compliance)
+        {
+            if (deadlineYears <= 0f)
+            {
+                return 0f;
+            }
+            float reach = Unity.Mathematics.math.clamp(compliance, kWeakCompliance, kStrongCompliance);
+            return reach * Unity.Mathematics.math.saturate(years / deadlineYears);
+        }
+
+        /// <summary>Burden felt against no mandate: tenants' half of the cost, heavier the shorter the deadline.</summary>
+        public static float FeltScale(float deadlineYears) =>
+            deadlineYears <= 0f ? 1f : 1f + kTenantShare * kReferenceYears / deadlineYears;
+
+        /// <summary>A building code's reach: built since + the old stock renovated or strengthened under a mandate.</summary>
+        public static float Covered(float built, float years, float renovationPerYear, float deadlineYears, float compliance)
+        {
+            float old = Unity.Mathematics.math.max(renovationPerYear * years, Share(deadlineYears, years, compliance));
+            return Unity.Mathematics.math.saturate(built + (1f - built) * Unity.Mathematics.math.saturate(old));
+        }
     }
 
     /// <summary>Model constants (docs/PLAN.md §5–§6). Starting values, to be tuned in game.</summary>
