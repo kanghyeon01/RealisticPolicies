@@ -51,12 +51,13 @@ Contact me: khkim040808@gmail.com
   <!-- No thumbnail yet: Properties/Thumbnail.png must be made before the first Publish. -->
   <Thumbnail Value="Properties/Thumbnail.png" />
   <Tag Value="Code Mod" />
-  <ModVersion Value="1.0.0" />
-  <ChangeLog>1.0.0
-- First version.
+  <!-- 0.1.0 on GitHub only (2026-11-14 user); 1.0.0 when uploaded to Paradox Mods. -->
+  <ModVersion Value="0.1.0" />
+  <ChangeLog>0.1.0
+- First version, on GitHub only.
 
-1.0.0
-- 첫 버전입니다.</ChangeLog>
+0.1.0
+- 첫 버전입니다(GitHub에만 공개).</ChangeLog>
   <GameVersion Value="1.6.*" />
   <!-- First upload private, as Realistic Aviation's was. -->
   <AccessLevel Value="Private" />
